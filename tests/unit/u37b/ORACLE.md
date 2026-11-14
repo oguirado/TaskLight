@@ -1,0 +1,28 @@
+# U37b oracle (fail-first)
+
+Targets: `src/app/agent_store.ts`, `src/app/agent_drift.ts` (stubs throw `U37b stub`). Spec: `specs/SPEC_U37.md` "U37b" + "Risks"; reuses U34 (`src/agents`), U35 (`AgentChatVM`), U36 (`WallVM`), U06 (`ModelFactory`, `src/ai/types.ts`).
+A reference implementation was run against this suite once (142/142 green) and then discarded; stubs restored.
+
+Files: `fixture.ts` (2 rooms x 2 agents, 21 unique events, 5 redeliveries, plan v1 -> v2 edits an ACTIVE step), `store.test.ts` (55), `chatvm.test.ts` (19), `wallvm.test.ts` (13), `port.test.ts` (23), `reviewer.test.ts` (32).
+
+## Contract decisions the spec left open (JUDGEMENT CALLS, confirm or amend)
+- J1 `ingest(ev: unknown): boolean`: true only when newly stored. Validation = U34 shape + U33 rules: id `^e-[0-9a-f]{16}$`, room slug, agent slug `^[a-z0-9][a-z0-9._-]{0,47}$`, lamport integer >= 1, text <= 4096 UTF-8 bytes, plan/step bodies present for those acts. First delivery of an id wins.
+- J2 `ingestJsonl(text) -> {accepted, duplicate, malformed, torn}`. Blank lines ignored; CRLF tolerated; an unparsable FINAL segment without `\n` is `torn:true` (not malformed); a complete last line without `\n` is accepted; never throws.
+- J3 `since() -> Record<room, maxLamport>` (shape of `room_sync.since`), fresh object per call; max survives eviction. `events(room)` ordered lamport then id. `maxPerRoom` evicts lowest lamport first (only the ascending-arrival case is pinned). `states()` = U34 `foldRoomWithStats` over all retained events.
+- J4 `toChatVM(state, events, {userAgent, nowMs, drift?: DriftVerdict, sending})`: messages = events of the state's room with act question/answer/verdict where `agent` or `to` is the state's agent, ordered lamport/id; `from` = user if author is `userAgent`, else nano if act is `verdict`, else agent; `at` = ISO of `ts`; `re` only when present; `silentFor` = `"<n> min"` (or `"<h> h ..."` from 60 min) only when silent; `drift` = verdict/reason/source + added/removed from `diffPlans(previous, contract)` where an edit contributes `to` to added and `from` to removed (empty lists without previous); `drift`/`suggestion`/`silentFor` keys absent otherwise (exactOptionalPropertyTypes).
+- J5 `toWallVM(states, verdicts: ReadonlyMap<taskId, DriftVerdict>, {nowMs, model, network})`: taskId = `agent:<room>:<agent>`; workspace per room (id = name = room, lens dev, workspace accent reused for its tasks); tasks sorted by room then agent, each exactly `toTaskVM`; `workspace` = first room, `""` when none; `now` = ISO of nowMs; view wall, scope workspace, empty agenda/archive.
+- J6 `driftPortFromFactory(factory: ModelFactory, mode: ModeName): DriftPort`: `create()` per `generate()`; `mode = factory.modeConst(mode)`; schema is both `onDeviceParams.promptOptions.responseConstraint` and `inCloudParams.generationConfig.responseSchema` (same reference), mime `application/json`, model non-empty string, `maxOutputTokens` positive int; prompt sent as string; `inferenceSource === sourceConst.ON_DEVICE|IN_CLOUD` -> `device|cloud`; any other source REJECTS (never guessed); SDK/`text()`/`create()` errors and abort (also pre-aborted) reject.
+- J7 `createDriftReviewer({port?: DriftPort | ((mode: ModeName) => DriftPort), timeoutMs?, killSwitchCloud?})`, `review(state, floor?)`. The spec's `review(state)` has no floor input, so the floor is an optional 2nd argument (default ONLY_ON_DEVICE). Mode = PREFER_ON_DEVICE only when floor is PREFER_ON_DEVICE and kill switch is not true.
+- J8 (RISK, needs operator ruling) REAL step states cannot be recovered from a folded state: U34 resets an edited/removed step to `pending` in the new contract, and `reviewDrift`'s own fallback uses all-pending states (so an active-step edit would only be `on_track`). The oracle therefore requires the reviewer to REMEMBER `stepStates` of every contract it sees per room/agent/hash and to use the snapshot of `state.previous.hash` for `driftRules`. Consequence: the caller must call `review()` on every refresh for every state (also those without `previous`). Cold start (first sight is already v2) must still return a rules verdict, unpinned. Alternative if rejected: pass prior step states explicitly as an input to `review`.
+- J9 Memo keyed `room/agent/prevHash->hash` (floor excluded); rules fallbacks are memoised too; concurrent same-key calls share one port call; reviews are serialised (max 1 port call in flight) and a failure/timeout never wedges the queue; a port answer that `reviewDrift` degrades to `source:"rules"` is replaced by `driftRules` with real states; a valid model verdict is trusted as is; `previous.hash === contract.hash` -> no review.
+
+## Known weak spots
+- Only the ascending-arrival eviction case is pinned; out-of-order arrival into a full room is unspecified.
+- Static no-`firebase/*` checks pass against the stubs by design (they guard the real code).
+- `src/ai` currently has unrelated tsc errors (`plan` task added mid-amendment); U37b only type-imports `ModelFactory`, `ModeName`, `HybridParamsShape`, `ModelHandle`.
+
+## Repair loop 1 (Sol review)
+`review1.test.ts`: R1 invalid maxPerRoom (negative/0/NaN/Infinity/fractional) never deletes an accepted event (refusing the config is acceptable); R2 timestamps outside the Date range never crash ingest or toChatVM.
+
+## Oracle amendment A-U38
+SPEC_U38 V1: user-visible times are formatted (`HH:MM` today, `Yesterday HH:MM`, `D Mon HH:MM`, local time), never ISO. `chatvm.test.ts` message `at` and `wallvm.test.ts` `now` assert the formatted string via the independent oracle helper `userTime` in `fixture.ts` (timezone-safe).

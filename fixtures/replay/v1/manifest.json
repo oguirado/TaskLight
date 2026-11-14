@@ -1,0 +1,32 @@
+{
+  "version": "v1",
+  "projects": [
+    {
+      "projectId": "alpha",
+      "tier": "standard",
+      "label": "Alpha"
+    },
+    {
+      "projectId": "beta",
+      "tier": "private",
+      "label": "Beta"
+    },
+    {
+      "projectId": "gamma",
+      "tier": "standard",
+      "label": "Gamma"
+    },
+    {
+      "projectId": "delta",
+      "tier": "standard",
+      "label": "Delta"
+    },
+    {
+      "projectId": "epsilon",
+      "tier": "standard",
+      "label": "Epsilon"
+    }
+  ],
+  "eventCount": 200,
+  "digest": "6e81a9ef0050fbe6e644c37a8aaacb74a870e92151ff81e6012dff74e2a2d4af"
+}

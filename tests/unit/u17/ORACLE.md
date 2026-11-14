@@ -1,0 +1,18 @@
+# U17 oracle (cross-project digest)
+
+Spec: `specs/SPEC_U17.md` + `specs/SPEC_AMEND_C.md` (U17: B29-B30, A11). Threat model: `strategy/DISP_03_threat_model.md`.
+Files: `helpers.ts` (capsule builder, fake `Hybrid.run` recording requests with scripted results/throws, virtual clock, counting ledger, `buildPrompt` = 1200-char frame + serialized), `project.test.ts` (B1-B3, O1, O2), `budget.test.ts` (B5-B8, O4, O5), `rank.test.ts` (B9-B10, O7-O9), `freshness.test.ts` (B14, O10), `lens.test.ts` (AMEND_C A11), `engine.test.ts` (O3, O5, O6, O8, O11-O14, B4, B11-B17, `localDigest`), `static.test.ts` (O15).
+Stubs in `src/digest/`: `types.ts` (real types, `DIGEST_REQUEST_ID`), `project.ts`, `budget.ts`, `rank.ts`, `freshness.ts`, `local.ts` (`localDigest`), `lens.ts` (AMEND_C `buildDigestInputs`), `engine.ts`, `index.ts`; all behaviour throws. tsc clean. Tests import from `src/digest` (index).
+Status vs stub: 101 red / 104. The 3 green are static negative controls (no firebase/ingest/rAF/DOM/console).
+
+## Interpretation choices
+1. Delta vs base: AMEND_C `DigestInput` (projectId/lens_id/status/attention/headline) clashes with base `DigestInput` (lines/serialized/...). Base kept; AMEND_C is `LensDigestInput` / `buildDigestInputs` in `lens.ts` (input items add `projectId`, since AMEND_C omits it). `buildDigestInputs` is all-or-nothing (`Validated`), caps at 12 (`TOO_MANY_ITEMS`), duplicate ids `DUPLICATE_PROJECT`, `lens_id` must match `state.lens_id`. The base engine instead excludes invalid capsules and counts them (B2); the 15-capsule case (O9) is tested at the ranking level (output cap 12), not at `buildDigestInputs`.
+2. Cross-lens in the base path: `projectCapsule` validates against the capsule's own lens vocabulary (`state.lens_id`); a dev status on a study capsule (and vice versa) or an unknown lens is invalid/excluded. `DigestLine` stays lens-free (spec key list).
+3. O1: an extra key on the outer `DigestCapsuleIn` must be ignored (B1, line projected); an extra key inside `state` only has to never leak (excluded as `UNKNOWN_FIELD` or projected without it).
+4. Floor members always appear even if the model gave attention `none`; non-floor `none` items are dropped; items for unknown projects are dropped; duplicates collapse to one (max attention). A floor reason is `status: <status>` even when the floor trigger was attention.
+5. Unknown tier strings fail closed (treated like private: no text).
+6. Truncation levels: `droppedFields` = number of fields removed; ladder checks assert prefix/suffix priority structure, not exact byte counts. O4 12x600-char fixture is generated in `helpers.ts` (the spec's `fixtures/digest/caps12.json` is outside this surface).
+7. Invalid numeric config (`NaN`, `Infinity`, negative `ondevice_max_input_tokens`/`prompt_frame_chars`, budget <= 0) fails closed: no `Hybrid.run`, `LOCAL_RULES`. `buildPrompt` throwing or returning an over-cap prompt (frame lies) -> `LOCAL_RULES`, `INPUT_FLOOR_OVER_BUDGET` for the latter.
+8. Scheduling (B15/B16): after any call (success or failure) the next call waits `min_inference_interval_ms`; coalesced requests wake once through `clock.setTimer`; exactly one live timer for several early requests. What an early request resolves with (latest vs local) is not pinned beyond "resolves, stale per `digestFreshness`". Retrying after a failure with identical revVector is not pinned.
+9. `latest()` returns the newest record, including `LOCAL_RULES` (B12). Malformed `ok` result (no `needs_you`) degrades to `LOCAL_RULES` (injected-port failure class).
+10. `revVector` keys that shadow `Object.prototype` members (`constructor`, `toString`) are handled via own-key comparison.

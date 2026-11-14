@@ -1,0 +1,10 @@
+// STUB (oracle phase)
+export const PROMPT_LIMITS = {
+  MAX_PROMPT_CHARS: 7300,
+  MIN_PROMPT_CHARS: 512,
+  EVENT_TEXT_MAX: 1000,
+  MAX_EVENTS_IN: 256,
+  DIGEST_MAX_ENTRIES_IN: 64,
+  CAPTION_MAX: 280,
+} as const;
+export const DEFAULT_PROMPT_VERSION = "v1";

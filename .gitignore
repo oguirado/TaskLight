@@ -1,0 +1,20 @@
+node_modules/
+dist/
+build/
+.env
+.env.*
+*.local
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+.firebase/
+# never commit App Check debug tokens or service accounts
+**/appcheck-debug-token*
+**/*service-account*.json
+.vitest/
+hosting/dist/
+*.log
+coverage/
+.DS_Store
+__pycache__/
+*.pyc

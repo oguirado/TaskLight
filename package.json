@@ -1,0 +1,28 @@
+{
+  "name": "context-wall",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Live context wall for parallel AI work streams, powered by Firebase AI Logic hybrid inference",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run --project unit",
+    "test:rules": "firebase emulators:exec --only firestore --project demo-context-wall \"vitest run --project rules\"",
+    "secret-scan": "bash tools/secret_scan.sh"
+  },
+  "dependencies": {
+    "firebase": "13.3.0"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "6.0.0",
+    "@types/node": "24.19.2",
+    "firebase-tools": "15.36.0",
+    "jsdom": "31.0.1",
+    "typescript": "7.0.2",
+    "vitest": "5.1.0"
+  }
+}

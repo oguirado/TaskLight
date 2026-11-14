@@ -1,0 +1,16 @@
+{
+  "kind": "pack.in",
+  "value": {
+    "excerpts": [
+      {
+        "coord": {
+          "from": 1,
+          "src": "a.ts",
+          "to": 2
+        },
+        "text": "x"
+      }
+    ],
+    "maxChars": 100
+  }
+}

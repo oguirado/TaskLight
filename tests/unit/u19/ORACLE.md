@@ -1,0 +1,15 @@
+# U19 oracle (privacy tiers, screenshot gate, ledger, panel)
+
+Spec: `specs/SPEC_U19.md` + `specs/SPEC_AMEND_C.md` (U19: B31-B32, A12, A15). Threat model: `strategy/DISP_03_threat_model.md`.
+Files: `helpers.ts` (fake Clock/LocalStore/LedgerRemote incl. scripted reject/throw/manual, tolerant delta flattener, `CapsuleState` builder), `privacy.test.ts` (O1-O4, B1-B5, agreement with U06 `resolveMode`), `ledger.test.ts` (O5-O12, B6-B14), `panel.test.ts` (B10-B11, O13, end to end), `rows.test.ts` (AMEND_C B31/B32, A12, A15), `static.test.ts`.
+Stubs: `src/privacy/` (`types.ts`, `policy.ts` accept-all, `syncProjection.ts` throws, `screenshotGate.ts` allow-all, `index.ts`), `src/ledger/` (`types.ts`, `ledger.ts` counts nothing, `flush.ts` empty, `panelModel.ts` always `zero_cloud`, `rows.ts`, `index.ts`). tsc clean.
+Status vs stub: 74 red / 94. The 20 green are positive controls the accept-all/count-nothing stubs satisfy (standard tier allowed, zero-count verdicts, no-throw on garbage, static checks); they must stay green. Controls that need to fail against an always-`zero_cloud` stub (O5, O6 unverifiable, cloud_seen, fallbacks) are red.
+
+## Interpretation choices
+1. Remote delta shape: the spec type is two-level (`projectId -> Record<string, number>`) but O11 speaks of tier keys and counter keys. Tests flatten the payload tolerantly (nested `tier -> counter`, or `tier.counter` / `tier/counter` composite keys) and assert: integer leaves, tier in {private, standard, shared}, counter in the six, sums per (day, project, tier, counter). One `applyDeltas` call per dayKey.
+2. U05 v2: B3's allowlist (7 keys) predates `lens_id`/`progress`. Tests require the private projection to also keep non-text `lens_id` and `progress` (and drop `steps`, which carries text), and `guardSyncWrite` to resolve the lens from the state's `lens_id` so a study capsule round-trips.
+3. Task text says "page/selection ONLY_ON_DEVICE"; U25 `SOURCE_FLOORS` gives `selection` PREFER for standard/shared and ONLY only for private. The oracle follows `SOURCE_FLOORS` (page/doc always ONLY).
+4. AMEND_C leaves the row-log API AUSENTE. Proposed in `src/ledger/rows.ts`: `createRowLog() -> {record, rows, check}` (one row per `jobKey`, copies, no extra keys, never throws), `checkG10(rows)`, and `checkSyncedText(docs)` for `TEXT_SYNCED_PRIVATE` / `TEXT_SYNCED_PAGE` (rows alone cannot carry text). Page-sourced capsules may sync only `status`, `attention`, `progress`.
+5. Unknown tier/mode/screenshot-multimodal strings fail closed (policy violation / refused / projected as private). `assertModeAllowed` order: private check before screenshot check (B1 listing order).
+6. Threat model additions: throwing/rejecting `LocalStore`/`LedgerRemote`, non-finite or throwing clock, overlapping `flush()` (each delta acknowledged once, events recorded mid-flight sent later once), `day()` returns a snapshot, deltas never contain event extra keys (prompt/output/headline).
+7. Not tested (spec gaps): flush cadence 60000 ms timer (no timer port in `createLedger`), local-store partial writes, whether a project with no events gets a row.

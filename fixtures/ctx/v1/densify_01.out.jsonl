@@ -1,0 +1,1 @@
+{"data":{"ansi_removed":2,"blank_removed":2,"chars_in":23,"chars_out":7,"repeats_removed":2,"text":"ERR\n\nx\n"},"ok":true,"rc":0,"schema":"ctx.resp/v1","sha256":"157977fc07003847bee608311944a8068752e8d6b68ec6f9f0073c72ee01933c","verb":"densify"}

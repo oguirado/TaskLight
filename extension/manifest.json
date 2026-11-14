@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "TaskLight Connector",
+  "version": "1.0.0",
+  "key": "vtUgqfwcfSm8oLSQoCOcXd+q07GxVbifipZcHCyK/AFhh2SXg7tBZO/n1cFYP24OLjBGl64x1+rGiV3cHVaMtG4PWe724ZrzOIyTteh01ucha7de1N2anztegboDuSO9",
+  "background": { "service_worker": "src/sw.js" },
+  "side_panel": { "default_path": "src/panel/panel.html" },
+  "permissions": ["storage", "sidePanel", "tabs", "scripting", "nativeMessaging"],
+  "optional_host_permissions": ["https://*/*"],
+  "externally_connectable": { "matches": ["https://site.test/*"] },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; frame-src https://site.test"
+  }
+}

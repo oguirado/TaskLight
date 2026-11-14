@@ -1,0 +1,111 @@
+// TO VERIFY against Firestore rules docs; normative = predicates.ts
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function wsData(w) { return get(/databases/$(database)/documents/workspaces/$(w)).data; }
+    function isMember(w) { return signedIn() && request.auth.uid in wsData(w).members; }
+    function roleOf(w) { return wsData(w).members[request.auth.uid]; }
+    function canEdit(w) { return isMember(w) && roleOf(w) in ['owner', 'editor']; }
+    function isOwner(w) { return isMember(w) && roleOf(w) == 'owner'; }
+    function tierOf(w, p) { return get(/databases/$(database)/documents/workspaces/$(w)/projects/$(p)).data.privacy_tier; }
+    function prevRev() { return resource == null ? 0 : resource.data.rev; }
+    function workspaceOk() {
+      return request.resource != null
+        && request.resource.data.keys().hasOnly(['name', 'members'])
+        && request.resource.data.keys().hasAll(['name', 'members'])
+        && (request.resource.data.members is map)
+        && request.resource.data.members.values().hasOnly(['owner', 'editor', 'viewer'])
+        && 'owner' in request.resource.data.members.values();
+    }
+    function capsuleOk(w, p) {
+      return request.resource != null
+        && (request.resource.data.rev is int)
+        && request.resource.data.rev == prevRev() + 1
+        && request.resource.data.writer_uid == request.auth.uid
+        && request.resource.data.status in ['running', 'waiting_input', 'blocked', 'failed', 'done', 'idle']
+        && request.resource.data.observed_rev is int
+        && request.resource.data.observed_rev >= 0
+        && tierOf(w, p) in ['private', 'standard', 'shared']
+        && (tierOf(w, p) == 'private'
+          ? (request.resource.data.keys().hasOnly(['rev', 'observed_rev', 'status', 'attention', 'updated_at', 'writer_uid'])
+             && request.resource.data.keys().hasAll(['rev', 'status', 'writer_uid']))
+          : (request.resource.data.keys().hasOnly(['rev', 'observed_rev', 'status', 'headline', 'summary', 'next_action', 'attention', 'inference_source', 'updated_at', 'writer_uid'])
+             && request.resource.data.keys().hasAll(['rev', 'status', 'writer_uid'])
+             && (!('inference_source' in request.resource.data)
+                 || request.resource.data.inference_source in ['ON_DEVICE', 'IN_CLOUD'])
+             && (request.resource.data.get('headline', '') is string)
+             && request.resource.data.get('headline', '').size() <= 120
+             && (request.resource.data.get('summary', '') is string)
+             && request.resource.data.get('summary', '').size() <= 600
+             && (request.resource.data.get('next_action', '') is string)
+             && request.resource.data.get('next_action', '').size() <= 120));
+    }
+    function projectOk() {
+      return request.resource != null
+        && request.resource.data.keys().hasOnly(['name', 'source_kind', 'privacy_tier', 'template_hash', 'created_at'])
+        && request.resource.data.keys().hasAll(['name', 'source_kind', 'privacy_tier', 'template_hash', 'created_at'])
+        && request.resource.data.privacy_tier in ['private', 'standard', 'shared'];
+    }
+    function digestOk() {
+      return request.resource != null
+        && request.resource.data.keys().hasOnly(['rev_vector', 'needs_you', 'brief', 'inference_source', 'created_at'])
+        && request.resource.data.keys().hasAll(['rev_vector', 'needs_you', 'brief', 'inference_source', 'created_at'])
+        && request.resource.data.inference_source in ['ON_DEVICE', 'IN_CLOUD']
+        && (request.resource.data.brief is string)
+        && request.resource.data.brief.size() <= 600;
+    }
+    function ledgerOk() {
+      return request.resource != null
+        && request.resource.data.keys().hasOnly(['on_device', 'in_cloud', 'fallbacks', 'refusals', 'schema_rejects'])
+        && request.resource.data.keys().hasAll(['on_device', 'in_cloud', 'fallbacks', 'refusals', 'schema_rejects'])
+        && request.resource.data.on_device is int && request.resource.data.on_device >= 0
+        && request.resource.data.in_cloud is int && request.resource.data.in_cloud >= 0
+        && request.resource.data.fallbacks is int && request.resource.data.fallbacks >= 0
+        && request.resource.data.refusals is int && request.resource.data.refusals >= 0
+        && request.resource.data.schema_rejects is int && request.resource.data.schema_rejects >= 0;
+    }
+    match /workspaces/{w} {
+      allow read: if isMember(w);
+      allow create: if signedIn()
+        && request.resource != null
+        && request.resource.data.keys().hasOnly(['name', 'members'])
+        && request.resource.data.keys().hasAll(['name', 'members'])
+        && request.resource.data.members.keys().hasOnly([request.auth.uid])
+        && request.resource.data.members.keys().hasAll([request.auth.uid])
+        && request.resource.data.members[request.auth.uid] == 'owner';
+      allow update: if isOwner(w) && workspaceOk();
+      match /projects/{p} {
+        allow read: if isMember(w);
+        allow create, update: if isOwner(w) && projectOk();
+        allow delete: if isOwner(w);
+      }
+      match /capsules/{p} {
+        allow read: if isMember(w);
+        allow create, update: if canEdit(w) && capsuleOk(w, p);
+        allow delete: if isOwner(w);
+      }
+      match /digests/{d} {
+        allow read: if isMember(w);
+        allow create: if canEdit(w) && digestOk();
+      }
+      match /ledger/{day} {
+        allow read: if isMember(w);
+        allow create: if isMember(w) && ledgerOk();
+        allow update: if isMember(w) && ledgerOk()
+          && request.resource.data.on_device >= resource.data.on_device
+          && request.resource.data.in_cloud >= resource.data.in_cloud
+          && request.resource.data.fallbacks >= resource.data.fallbacks
+          && request.resource.data.refusals >= resource.data.refusals
+          && request.resource.data.schema_rejects >= resource.data.schema_rejects;
+      }
+    }
+    match /templates/{h} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource != null
+        && request.resource.data.keys().hasOnly(['spec'])
+        && request.resource.data.keys().hasAll(['spec']);
+    }
+  }
+}

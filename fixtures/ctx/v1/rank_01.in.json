@@ -1,0 +1,32 @@
+{
+  "excerpts": [
+    {
+      "coord": {
+        "from": 1,
+        "src": "doc/0.md",
+        "to": 1
+      },
+      "text": "nothing relevant"
+    },
+    {
+      "coord": {
+        "from": 1,
+        "src": "doc/1.md",
+        "to": 1
+      },
+      "text": "migration blocked"
+    },
+    {
+      "coord": {
+        "from": 1,
+        "src": "doc/2.md",
+        "to": 1
+      },
+      "text": "migration blocked migration"
+    }
+  ],
+  "terms": [
+    "migration",
+    "blocked"
+  ]
+}

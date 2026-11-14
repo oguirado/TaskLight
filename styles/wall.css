@@ -1,0 +1,69 @@
+/* U20 wall layout: every colour comes from custom properties defined in tokens.css. */
+.wall-banner {
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  transition: background-color var(--motion-duration);
+}
+
+.wall-badge {
+  background-color: var(--color-accent);
+  color: var(--color-text);
+}
+
+.capsule {
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  transition: background-color var(--motion-duration);
+}
+
+[data-slot="badge"] {
+  color: var(--color-accent);
+}
+
+[data-slot="stale_badge"] {
+  color: var(--color-warning);
+}
+
+.is-stale {
+  border-color: var(--color-warning);
+}
+
+.is-hidden {
+  display: none;
+}
+
+[data-role="wall-banner"]:focus-visible {
+  outline-color: var(--color-accent);
+}
+
+button:focus-visible {
+  outline-color: var(--color-accent);
+  outline-width: 2px;
+}
+
+[data-slot="step_1"],
+[data-slot="step_2"],
+[data-slot="step_3"],
+[data-slot="step_4"],
+[data-slot="step_5"] {
+  color: var(--color-text-muted);
+}
+
+[data-role="focus-banner"] {
+  color: var(--color-danger);
+}
+
+[data-role="status-legend"] {
+  color: var(--color-text-muted);
+}
+
+[role="progressbar"] {
+  background-color: var(--color-ok);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wall-banner,
+  .capsule {
+    transition: none;
+  }
+}

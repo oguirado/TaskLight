@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "TaskLight Connector",
+  "version": "1.0.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxiqa7+Vpod54JsJZpSOlu5JDSCH4Cobo156/4ox9/fmXzEKJGXx0WyUVLmXrZUCbzPuhIu1FtFfyce1K98QPoWFXeUrUM4BqRhtJGQrWNpsz3a48yRFHxRut1q4m3+WcEFKRT6Oa4v7j1kxlGDfQB0OBR4W8ZA3i63Pesf/d9hTcGhDzS3WeKscivoYPW3UlwWZ36sPOLR2ZNOMM4Fk2OvfqIrplxyvr41eeme+5a7NX/iNUwe8e7AsecYwlAv46gt7kB8CfLtP7+oGr1YL4Xk9PfG1akRtgZK1WQzZNFyBi2t9p/9Z1X9ORnSL2c86FCkLDMqkz14VMwtUn4BY4gwIDAQAB",
+  "background": {
+    "service_worker": "src/sw.js"
+  },
+  "side_panel": {
+    "default_path": "src/panel/panel.html"
+  },
+  "permissions": [
+    "storage",
+    "sidePanel",
+    "tabs",
+    "scripting",
+    "nativeMessaging"
+  ],
+  "optional_host_permissions": [
+    "https://*/*"
+  ],
+  "externally_connectable": {
+    "matches": [
+      "https://site.test/*",
+      "http://localhost/*"
+    ]
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; frame-src https://site.test"
+  }
+}

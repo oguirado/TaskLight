@@ -1,0 +1,34 @@
+# U37c oracle (fail-first)
+
+Targets: `extension/src/agent_relay.ts`, `src/app/agent_link.ts`, `src/app/agent_wall.ts`, `extension/src/sw_main.ts` (stubs throw `U37c stub`) + AMEND_W for U13 (`native/relay.ts`, `src/port.ts`, `src/sw.ts`, `manifest.dev.json`) and U22 (`hosting/src/main.ts`). Spec: `specs/SPEC_U37.md` Hop B, U37c, AMEND_W. Not edited: relay.ts, port.ts, sw.ts, main.ts.
+Files (166 tests, 144 red / 22 green by design: negative controls, static guards, unchanged behaviour): `agent_relay` (63), `agent_link` (28), `agent_wall` (17), `amend_u13_native` (23), `amend_u13_port_sw` (9), `amend_u13_sw_main` (9), `amend_u22_placeholder` (8), `amend_u22_real` (3), `static` (6), `harness.ts`.
+
+## Judgement calls (confirm or amend)
+- J1 "subscribed port" = a port that sent a valid `room_sync`. Live `room_event`/`room_hello` (no rid) go to subscribed ports only. A rid'd `room_event`/`room_synced` goes only to the requesting port; unknown rid = dropped (never broadcast).
+- J2 Pending rids: a sync rid stays pending until `room_synced`; post until `room_ack`/`room_nack`. Cap 32 shared by both, per port; overflow -> `room_nack` with the page rid and a non-empty string code (code not pinned).
+- J3 Invalid page frame: dropped silently (`stats.rejected`), nothing reaches native; frame > 65,536 serialized chars rejected even if known fields are valid; only known fields are forwarded (extras stripped, absent `to`/`re` are omitted keys). Native->page frames are shape-checked too; native `event` frames are never forwarded by AgentRelay.
+- J4 `createAgentRelay({native:{send(frame):boolean,onFrame(cb):unsub,connected():boolean}, clock})`; `send` false/throw -> `host_unavailable` nack and the rid is not left pending. `stats() = {forwarded,delivered,rejected,nacked,pending,ports}` (counters only). Clock is accepted but no timer behaviour is pinned.
+- J5 `NativeRelay` gains `send(frame): boolean`, `onFrame(cb): unsub`, `connected(): boolean`; `createServiceWorker(...).relay` is that NativeRelay. `onFrame` gets every frame that passes the size check; Router only gets `t === "event"` (this BREAKS existing u13 tests that feed t-less `{projectId,payload}` frames: `evt()` in `u13/harness.ts` must gain `t:"event",v:1`; author's call, I did not touch u13).
+- J6 Backoff 100,200,400,...,3200,5000 (cap), reset once a frame arrives (reset-on-connect would never back off a host that exits at once). `connectNative` throwing is retried. Timers are the global `setTimeout` (tests use `vi.useFakeTimers`); `d.clock` is not required for NativeRelay.
+- J7 `createExternalPortServer` option `onExtra(port,msg)` fires for any object message with a string `t` other than `hello`/`ping`, from an origin-allowed port (no hello required); a throwing hook is contained.
+- J8 `sw_main.ts` exports `startSwMain({chrome, clock?, gate?, nativeHostName?, maxFrameChars?}) -> Promise<{sw, agent}>`; it wires `onExtra -> agent.onPortMessage` and hooks `port.onDisconnect -> agent.onPortClosed` on a port's first extra message. Importing the module without a `chrome` global is inert.
+- J9 `manifest.json` unchanged; `manifest.dev.json` = same JSON except `externally_connectable.matches` also contains `http://localhost/*` (same key = same id).
+- J10 `createAgentLink`: `start()/stop()/state()/post()`; callbacks receive the whole frame (`onRoomEvent(RoomEventFrame)`, `onRoomHello(RoomHelloFrame)`); rid format `^[A-Za-z0-9_-]{1,64}$`; "+1 tick" is exercised with `clock.advance(1)`; `post` before link/with a throwing port resolves `{ok:false,code:string}` (code not pinned except `timeout`, `host_unavailable` pass-through from nacks); `stop()` settles pending posts `{ok:false}` and clears all timers.
+- J11 `startAgentWall` returns `{refresh(), destroy()}` (refresh added: the store changes outside it; main calls it after `store.ingest`). Chat target = first state whose agent != `userAgent` (sorted as the store returns); chat is mounted lazily when such a state first exists. Optional dep `orchestrator?: string | () => string|undefined` (default `"orchestrator"`); escalate posts in the chat's room. Reviewer is asked about every state on every refresh (U37b J8). `sending` is reported through `toChatVM`. Tests module-mock `src/views`, `src/agentsui` and `toWallVM/toChatVM` (imported from `./agent_store`).
+- J12 main.ts: extension id = first `chrome-extension://<32 a-p chars>` entry of `VITE_EXTENSION_ORIGINS`; none -> agent wall not started. Placeholder config -> `boot` not called, wall hosts still rendered inside `#wall`, `createDriftReviewer` gets no `port`. Real config -> reviewer `port` is an object or lazy `(mode)=>driftPortFromFactory(factory, mode)` built on the attested app. `createAgentLink` gets `{extId, connect: id => chrome.runtime.connect(id), since: store.since, onRoomEvent -> store.ingest(frame.event)+wall.refresh}`, link is started by main.
+
+## Known weak spots
+- Wall chat selection and escalate text are not pinned beyond non-empty/<= 4096 bytes.
+- Pending-rid expiry in the relay is unspecified (not tested). Multi-room `room_synced` semantics (one sync, several synced frames) are not pinned.
+- The 22 green tests are negative controls or unchanged behaviour; they must stay green.
+
+## Repair loop 1
+`review1.test.ts` (12 tests: 9 red, 3 green controls against the candidate) pins the three BLOCKING findings of `strategy/flights/U37c/REVIEW_1.md`; the other files are untouched.
+- R1 Multi-room replay (5): one `room_sync` with several rooms in `since` keeps its relay rid pending until every requested room has produced a `room_synced` (per-room tracking); all rid-bound `room_event`/`room_synced` reach the requesting port with the page rid, never other ports; after the last room the rid is released (`stats().pending` 0, late replies dropped). Single-room behaviour unchanged (J2 still holds for one room).
+- R2 `post` never rejects (4): a throwing `clock.setTimeout` or `clock.clearTimeout` yields `{ok:false, code:non-empty string}` (or still settles on ack); no unhandled rejection; the link stays usable afterwards.
+- R3 Stale drift (3): a review result is applied only if the state's contract hash still equals the hash it was requested for (and the latest generation); A(h1) resolving after B(h2), or while B is pending, is discarded; current-hash result is still shown.
+Not covered: bootstrap wiring (NON-BLOCKING finding 4).
+
+## Oracle amendment A-U38
+- G1 (`agent_link.test.ts` "since() is read at send time"): `room_sync.since` now covers the rooms listed in the latest `room_hello` (0 if unseen); the value is still read fresh from `since()` at send time. HELLO lists only ROOM, so `{ [ROOM]: 9 }` is asserted (no longer the raw `since()` map).
+- G6 (`amend_u13_sw_main.test.ts` manifests): `manifest.dev.json` equals `manifest.json` except `externally_connectable` and `key`; the dev key must be a valid base64 DER SubjectPublicKeyInfo (not equal-to-prod key).

@@ -1,0 +1,68 @@
+{"lang": "es", "act": "question", "text": "¿Cómo va el estado del proyecto?", "expect": "status_query", "slice": "main"}
+{"lang": "es", "act": "question", "text": "como va el progreso de la tarea", "expect": "status_query", "slice": "main"}
+{"lang": "es", "act": "question", "text": "¿Qué estado tiene el build?", "expect": "status_query", "slice": "main"}
+{"lang": "es", "act": "question", "text": "Dame el estado actual por favor", "expect": "status_query", "slice": "main"}
+{"lang": "es", "act": "question", "text": "¿En qué punto está la implementación?", "expect": "status_query", "slice": "main"}
+{"lang": "es", "act": "question", "text": "cuál es el progreso hasta ahora", "expect": "status_query", "slice": "main"}
+{"lang": "en", "act": "question", "text": "What is the status of the build?", "expect": "status_query", "slice": "main"}
+{"lang": "en", "act": "question", "text": "how is the progress going", "expect": "status_query", "slice": "main"}
+{"lang": "en", "act": "question", "text": "Give me a status update", "expect": "status_query", "slice": "main"}
+{"lang": "en", "act": "question", "text": "where are we on the implementation", "expect": "status_query", "slice": "main"}
+{"lang": "en", "act": "question", "text": "what's the current status of the task", "expect": "status_query", "slice": "main"}
+{"lang": "en", "act": "question", "text": "status check please", "expect": "status_query", "slice": "main"}
+{"lang": "es", "act": "answer", "text": "cambio de planificación para el paso 3", "expect": "plan_change", "slice": "main"}
+{"lang": "es", "act": "answer", "text": "cambio de planificacion: añadir un paso de pruebas", "expect": "plan_change", "slice": "main"}
+{"lang": "es", "act": "answer", "text": "Quiero cambiar el plan y reordenar los pasos", "expect": "plan_change", "slice": "main"}
+{"lang": "es", "act": "answer", "text": "hay que replanificar, el alcance cambió", "expect": "plan_change", "slice": "main"}
+{"lang": "en", "act": "answer", "text": "plan change: drop step two and add a test step", "expect": "plan_change", "slice": "main"}
+{"lang": "en", "act": "answer", "text": "we need to change the plan and reorder the steps", "expect": "plan_change", "slice": "main"}
+{"lang": "en", "act": "answer", "text": "Let's replan, the scope changed", "expect": "plan_change", "slice": "main"}
+{"lang": "en", "act": "answer", "text": "please revise the plan with a new step", "expect": "plan_change", "slice": "main"}
+{"lang": "es", "act": "answer", "text": "estoy bloqueado, necesito aprobación del usuario", "expect": "escalate", "slice": "main"}
+{"lang": "es", "act": "answer", "text": "Necesito que un humano decida esto, urgente", "expect": "escalate", "slice": "main"}
+{"lang": "es", "act": "answer", "text": "esto necesita ayuda: escalar al responsable", "expect": "escalate", "slice": "main"}
+{"lang": "es", "act": "answer", "text": "no puedo continuar sin confirmación del usuario", "expect": "escalate", "slice": "main"}
+{"lang": "en", "act": "answer", "text": "I am blocked and need user approval", "expect": "escalate", "slice": "main"}
+{"lang": "en", "act": "answer", "text": "this needs a human decision, urgent", "expect": "escalate", "slice": "main"}
+{"lang": "en", "act": "answer", "text": "please escalate this to the owner", "expect": "escalate", "slice": "main"}
+{"lang": "en", "act": "answer", "text": "cannot continue without confirmation from the user", "expect": "escalate", "slice": "main"}
+{"lang": "es", "act": "answer", "text": "enfoca la cápsula del agente", "expect": "focus_capsule", "slice": "main"}
+{"lang": "es", "act": "answer", "text": "muestra la capsula de claude", "expect": "focus_capsule", "slice": "main"}
+{"lang": "es", "act": "answer", "text": "abre la cápsula y ponla en primer plano", "expect": "focus_capsule", "slice": "main"}
+{"lang": "es", "act": "answer", "text": "resalta la capsula del proyecto", "expect": "focus_capsule", "slice": "main"}
+{"lang": "en", "act": "answer", "text": "focus the capsule", "expect": "focus_capsule", "slice": "main"}
+{"lang": "en", "act": "answer", "text": "show me the capsule for this agent", "expect": "focus_capsule", "slice": "main"}
+{"lang": "en", "act": "answer", "text": "bring the capsule to the front", "expect": "focus_capsule", "slice": "main"}
+{"lang": "en", "act": "answer", "text": "highlight the capsule of the project", "expect": "focus_capsule", "slice": "main"}
+{"lang": "es", "act": "handoff", "text": "traspaso del trabajo al siguiente agente", "expect": "handoff", "slice": "main"}
+{"lang": "es", "act": "handoff", "text": "te paso la tarea: continúa tú desde aquí", "expect": "handoff", "slice": "main"}
+{"lang": "es", "act": "handoff", "text": "hago el traspaso al revisor", "expect": "handoff", "slice": "main"}
+{"lang": "es", "act": "handoff", "text": "entrega el contexto al otro agente", "expect": "handoff", "slice": "main"}
+{"lang": "en", "act": "handoff", "text": "handing off the task to the next agent", "expect": "handoff", "slice": "main"}
+{"lang": "en", "act": "handoff", "text": "handoff to the reviewer with full context", "expect": "handoff", "slice": "main"}
+{"lang": "en", "act": "handoff", "text": "passing this over to you, please continue", "expect": "handoff", "slice": "main"}
+{"lang": "en", "act": "handoff", "text": "transfer the work to the other agent", "expect": "handoff", "slice": "main"}
+{"lang": "es", "act": "ack", "text": "ok, gracias", "expect": "ack_noise", "slice": "main"}
+{"lang": "es", "act": "ack", "text": "vale, recibido", "expect": "ack_noise", "slice": "main"}
+{"lang": "es", "act": "ack", "text": "perfecto, entendido", "expect": "ack_noise", "slice": "main"}
+{"lang": "es", "act": "ack", "text": "genial gracias", "expect": "ack_noise", "slice": "main"}
+{"lang": "en", "act": "ack", "text": "ok thanks", "expect": "ack_noise", "slice": "main"}
+{"lang": "en", "act": "ack", "text": "got it, thank you", "expect": "ack_noise", "slice": "main"}
+{"lang": "en", "act": "ack", "text": "roger that, noted", "expect": "ack_noise", "slice": "main"}
+{"lang": "en", "act": "ack", "text": "sounds good, thanks", "expect": "ack_noise", "slice": "main"}
+{"lang": "es", "act": "question", "text": "¿puedes revisar el fallo del test?", "expect": "ask_agent", "slice": "main", "to": "claude-code"}
+{"lang": "en", "act": "question", "text": "can you check the failing test?", "expect": "ask_agent", "slice": "main", "to": "codex"}
+{"lang": "es", "act": "answer", "text": "@claude-code revisa por favor el test", "expect": "ask_agent", "slice": "main"}
+{"lang": "en", "act": "answer", "text": "@codex could you look at the lint errors", "expect": "ask_agent", "slice": "main"}
+{"lang": "en", "act": "answer", "text": "bake a cake for grandma", "expect": "abstain", "slice": "control"}
+{"lang": "es", "act": "answer", "text": "hornea un pastel para la abuela", "expect": "abstain", "slice": "control"}
+{"lang": "en", "act": "answer", "text": "what is the capital of Mongolia", "expect": "abstain", "slice": "control"}
+{"lang": "es", "act": "answer", "text": "recomiéndame una película de ciencia ficción", "expect": "abstain", "slice": "control"}
+{"lang": "en", "act": "answer", "text": "my cat knocked over the plant again", "expect": "abstain", "slice": "control"}
+{"lang": "es", "act": "answer", "text": "el partido de ayer estuvo increíble", "expect": "abstain", "slice": "control"}
+{"lang": "en", "act": "answer", "text": "best hiking trails near Lisbon in spring", "expect": "abstain", "slice": "control"}
+{"lang": "es", "act": "answer", "text": "receta de gazpacho con tomate maduro", "expect": "abstain", "slice": "control"}
+{"lang": "en", "act": "answer", "text": "translate banana into French", "expect": "abstain", "slice": "control"}
+{"lang": "es", "act": "answer", "text": "cuántas patas tiene una araña", "expect": "abstain", "slice": "control"}
+{"lang": "en", "act": "answer", "text": "lorem ipsum dolor sit amet", "expect": "abstain", "slice": "control"}
+{"lang": "es", "act": "answer", "text": "asdf qwer zxcv jkl", "expect": "abstain", "slice": "control"}
