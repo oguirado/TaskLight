@@ -1,7 +1,7 @@
 """Synthetic ViewPoint replay: 4 parallel ViewPoint-like runs written into a TEMP runs root.
 
 Feeds the U40 observer (`python3 -m bridge.viewpoint watch --root <root>`) without any real
-ViewPoint/MetaViewer take. One run per capsule (ChatGPT, Gemini, Wikipedia, arXiv), 3-5 steps each,
+ViewPoint/MetaViewer take. One run per capsule (arXiv, GitHub, Gemini, Wikipedia; A-U42b), 3-5 steps each,
 interleaved over ~20-30 s with jitter. Files follow the real run schema
 (strategy/night/N0_viewpoint_schema.md, SPEC_U40):
 
@@ -34,29 +34,28 @@ SCHEMA = "metaviewer.mw_run/v1"
 
 # (capsule slug, goal verbatim, steps). Step = (action, target role, target name, verification status).
 CAPSULES = [
-    ("chatgpt", "Ask ChatGPT about on-device AI", [
-        ({"type": "click"}, "textbox", "Message ChatGPT", "verified"),
-        ({"type": "type", "text": "What is on-device AI?"}, "textbox", "Message ChatGPT", "verified"),
-        ({"type": "key", "key": "Enter"}, "textbox", "Message ChatGPT", "verified"),
-        ({"type": "click"}, "button", "Copy response", "verified"),
-    ]),
-    ("gemini", "Ask Gemini to compare hybrid inference", [
-        ({"type": "click"}, "textbox", "Enter a prompt here", "verified"),
-        ({"type": "type", "text": "Compare on-device and cloud inference"}, "textbox", "Enter a prompt here", "verified"),
-        ({"type": "key", "key": "Enter"}, "textbox", "Enter a prompt here", "verified"),
-        ({"type": "click"}, "button", "Show drafts", "verified"),
-    ]),
-    ("wikipedia", "Search Wikipedia for Firebase", [
-        ({"type": "click"}, "searchbox", "Search Wikipedia", "verified"),
-        ({"type": "type", "text": "Firebase"}, "searchbox", "Search Wikipedia", "verified"),
-        ({"type": "key", "key": "Enter"}, "searchbox", "Search Wikipedia", "verified"),
-    ]),
-    ("arxiv", "Find the latest arXiv paper on small language models", [
+    ("arxiv", "Search arXiv for AI agent", [
         ({"type": "click"}, "searchbox", "Search term or terms", "verified"),
-        ({"type": "type", "text": "small language models"}, "searchbox", "Search term or terms", "verified"),
+        ({"type": "type", "text": "AI agent"}, "searchbox", "Search term or terms", "verified"),
         ({"type": "click"}, "button", "Search", "verified"),
         ({"type": "click"}, "link", "Sort by announcement date", "verified"),
         ({"type": "click"}, "link", "pdf", "blocked"),
+    ]),
+    ("github", "Search GitHub for context wall", [
+        ({"type": "click"}, "button", "Search or jump to", "verified"),
+        ({"type": "type", "text": "context wall"}, "combobox", "Search or jump to", "verified"),
+        ({"type": "key", "key": "Enter"}, "combobox", "Search or jump to", "verified"),
+        ({"type": "click"}, "link", "Repositories", "verified"),
+    ]),
+    ("gemini", "Open the Gemini models page on deepmind.google", [
+        ({"type": "click"}, "link", "Models", "verified"),
+        ({"type": "click"}, "link", "Gemini", "verified"),
+        ({"type": "click"}, "link", "Learn more", "verified"),
+    ]),
+    ("wikipedia", "Search Wikipedia for Google DeepMind", [
+        ({"type": "click"}, "searchbox", "Search Wikipedia", "verified"),
+        ({"type": "type", "text": "Google DeepMind"}, "searchbox", "Search Wikipedia", "verified"),
+        ({"type": "key", "key": "Enter"}, "searchbox", "Search Wikipedia", "verified"),
     ]),
 ]
 BLOCK_REASON = "target not visible after scroll (sample)"

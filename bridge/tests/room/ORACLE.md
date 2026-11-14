@@ -44,3 +44,11 @@ Against the stub: 92 tests, 91 fail or error; the 1 pass is a control (`test_rea
 - F4 MCP: no `id` key means notification, no reply (known, unknown and `notifications/*` methods); unknown method with id (incl. `notifications/nope`): -32601; `id: null` is a request, reply carries `id: null`.
 - F5 CLI argument errors (unknown verb, missing flags, bad int/float, unknown flag, extra positional): exit 2, stdout is exactly one JSON line `{"ok":false,"code":<str>}` (argparse text only on stderr).
 - F6 hook helper under umask 022 and 0: every dir under CW_HOME is 0700, every file 0600, no stray `*.tmp` or unknown file in the room dir; checked after normal runs, refused-post runs (`CW_AGENT="BAD AGENT"`) and invalid-stdin runs.
+
+## Oracle amendment A-U43 (close_task)
+
+SPEC change (joint demo with ViewPoint): the MCP server exposes a sixth tool `close_task {room, agent, outcome}` that
+posts a U33 `close` act whose text is `outcome` (string, non-blank, at most 240 characters; room/agent validated by the
+store like the other tools). Errors are `isError` results with the RoomError code (`bad_args`, `text_too_long`,
+`bad_room`, `bad_agent`). Amended: `test_mcp.py` `TOOLS` and `Handshake.test_tools_list` (5 -> 6 tools, `outcome`
+required). New: `Tools.test_close_task_posts_close`, `Tools.test_close_task_outcome_limit`.

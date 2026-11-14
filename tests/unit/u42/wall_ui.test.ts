@@ -24,7 +24,7 @@ async function start(events: unknown[]) {
 const card = (host: HTMLElement, agent: string) => host.querySelector<HTMLElement>(`article.task[data-task-id="agent:viewpoint:${agent}"]`);
 
 const TWO = [
-  plan("chatgpt-agent", "ChatGPT · Ask ChatGPT", ["a", "b"]), step("chatgpt-agent", 0, "active"),
+  plan("github-agent", "GitHub · Search GitHub", ["a", "b"]), step("github-agent", 0, "active"),
   plan("gemini-agent", "Gemini · Ask Gemini", ["a"]), step("gemini-agent", 0, "active"),
 ];
 
@@ -36,7 +36,7 @@ describe("chat drawer (item 4)", () => {
   });
   it("stays closed across refreshes and new events until the user acts", async () => {
     const { chatHost, store } = await start(TWO);
-    store.ingest(step("chatgpt-agent", 0, "done", "verified")); wall!.refresh(); await settle(10);
+    store.ingest(step("github-agent", 0, "done", "verified")); wall!.refresh(); await settle(10);
     expect(chatHost.getAttribute("data-open")).toBe("false");
   });
   it("every task card has a Chat button; clicking it opens the drawer on that task", async () => {
@@ -50,9 +50,9 @@ describe("chat drawer (item 4)", () => {
   });
   it("clicking a card body opens that task; sending goes to the selected agent", async () => {
     const { wallHost, chatHost, post } = await start(TWO);
-    card(wallHost, "chatgpt-agent")!.querySelector<HTMLElement>(".task-title")!.click();
+    card(wallHost, "github-agent")!.querySelector<HTMLElement>(".task-title")!.click();
     expect(chatHost.getAttribute("data-open")).toBe("true");
-    expect(chatHost.querySelector(".agent-chat-title")?.textContent?.trim()).toBe("ChatGPT · Ask ChatGPT");
+    expect(chatHost.querySelector(".agent-chat-title")?.textContent?.trim()).toBe("GitHub · Search GitHub");
     card(wallHost, "gemini-agent")!.click();
     expect(chatHost.querySelector(".agent-chat-title")?.textContent?.trim()).toBe("Gemini · Ask Gemini");
     const ta = chatHost.querySelector<HTMLTextAreaElement>("textarea");
@@ -65,7 +65,7 @@ describe("chat drawer (item 4)", () => {
   });
   it("Close returns it to closed, and a refresh does not reopen it", async () => {
     const { wallHost, chatHost } = await start(TWO);
-    card(wallHost, "chatgpt-agent")!.click();
+    card(wallHost, "github-agent")!.click();
     expect(chatHost.getAttribute("data-open")).toBe("true");
     chatHost.querySelector<HTMLButtonElement>(".agent-chat-close")!.click();
     expect(chatHost.getAttribute("data-open")).toBe("false");
@@ -106,7 +106,7 @@ describe("rail running counter (item 6)", () => {
   });
   it("closed and blocked tasks are not counted", async () => {
     const evs = [
-      ...finished("chatgpt-agent", "ChatGPT · a", 1, "PASS (rc 0)"),
+      ...finished("github-agent", "GitHub · a", 1, "PASS (rc 0)"),
       plan("arxiv-agent", "arXiv · b", ["a"]), step("arxiv-agent", 0, "blocked", "no"), close("arxiv-agent", "BROWSER_STEP_BLOCKED (rc 1)"),
       ev("helper", "open", "hi"),
     ];

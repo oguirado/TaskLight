@@ -7,7 +7,9 @@ import time
 from bridge.viewpoint.observer import DEFAULT_ROOT, ViewpointObserver
 
 
-class _Stop(Exception):
+class _Stop(BaseException):
+    # BaseException, not Exception: a signal landing inside poll() must not be swallowed by the
+    # observer's fail-soft `except Exception` handlers (seen live: SIGTERM ignored, two watchers posting).
     pass
 
 
@@ -33,8 +35,8 @@ def main(argv=None):
     def log(n):
         s = obs.stats()
         print(
-            "viewpoint: events=%d runs=%d steps=%d skipped_large=%d skipped_nonjson=%d errors=%d"
-            % (n, s["runs"], s["steps"], s["skipped_large"], s["skipped_nonjson"], s["errors"]),
+            "viewpoint: events=%d runs=%d steps=%d skipped_large=%d skipped_nonjson=%d errors=%d merged_skipped=%d"
+            % (n, s["runs"], s["steps"], s["skipped_large"], s["skipped_nonjson"], s["errors"], s["merged_skipped"]),
             file=sys.stderr,
             flush=True,
         )

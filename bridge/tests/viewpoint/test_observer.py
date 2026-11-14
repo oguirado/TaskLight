@@ -55,8 +55,8 @@ class Mapping(Base):
         e = self.events()[0]
         self.assertLessEqual(len(e["plan"]["title"]), 120)
         self.assertLessEqual(len(e["plan"]["steps"][0]["text"]), 80)
-        # Oracle amendment A-U42: the title carries the capsule prefix.
-        self.assertTrue(e["plan"]["title"].startswith("ViewPoint \u00b7 ggg"))
+        # Oracle amendment A-U42b: no capsule -> the bare goal (no "ViewPoint ·" prefix).
+        self.assertTrue(e["plan"]["title"].startswith("ggg"))
 
     def test_goal_and_label_redacted(self):
         tok = "Bearer abcdefghijklmnop1234567890"

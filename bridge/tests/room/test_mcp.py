@@ -3,7 +3,8 @@ import json, unittest
 
 from .support import McpCase, find_events, file_events
 
-TOOLS = {"post_status", "post_plan", "post_step", "read_inbox", "wait_inbox"}
+# Oracle amendment A-U43: + close_task (6 tools).
+TOOLS = {"post_status", "post_plan", "post_step", "close_task", "read_inbox", "wait_inbox"}
 
 
 class Handshake(McpCase):
@@ -32,7 +33,7 @@ class Handshake(McpCase):
         c.initialize()
         tools = c.request("tools/list")["result"]["tools"]
         self.assertEqual({t["name"] for t in tools}, TOOLS)
-        self.assertEqual(len(tools), 5)
+        self.assertEqual(len(tools), 6)  # A-U43
         by = {t["name"]: t for t in tools}
         for t in tools:
             self.assertIsInstance(t.get("description"), str)
@@ -48,6 +49,7 @@ class Handshake(McpCase):
             self.assertIn(k, by["post_status"]["inputSchema"]["properties"])
         self.assertIn("timeout_s", by["wait_inbox"]["inputSchema"]["properties"])
         self.assertIn("since", by["read_inbox"]["inputSchema"]["properties"])
+        self.assertIn("outcome", by["close_task"]["inputSchema"]["required"])  # A-U43
 
 
 class Tools(McpCase):
@@ -86,6 +88,35 @@ class Tools(McpCase):
         self.assertEqual([e["act"] for e in evs], ["plan", "step"])
         self.assertEqual(evs[0]["plan"], {"title": "T", "steps": [{"text": "one", "accept": "ok"}, {"text": "two"}]})
         self.assertEqual(evs[1]["step"], {"index": 0, "state": "done", "outcome": "fine", "took": "3m"})
+
+    def test_close_task_posts_close(self):
+        # Oracle amendment A-U43: close_task -> U33 `close` act carrying the outcome text.
+        self.c.call("post_plan", {"room": "viewpoint", "agent": "arxiv-agent", "title": "[arXiv] Search",
+                                  "steps": [{"text": "one"}]})
+        res = self.c.call("close_task", {"room": "viewpoint", "agent": "arxiv-agent",
+                                         "outcome": "search verified; 3 results read"})
+        self.assertIs(res["isError"], False)
+        ev = self.c.payload(res)["event"]
+        self.assertEqual((ev["act"], ev["agent"], ev["untrusted_text"]), ("close", "arxiv-agent", "search verified; 3 results read"))
+        self.assertNotIn("text", ev)
+        evs = file_events(self.home, "viewpoint")
+        self.assertEqual([e["act"] for e in evs], ["plan", "close"])
+        self.assertEqual(evs[1]["text"], "search verified; 3 results read")
+
+    def test_close_task_outcome_limit(self):
+        ok = self.c.call("close_task", {"room": "r1", "agent": "a1", "outcome": "x" * 240})
+        self.assertIs(ok["isError"], False)
+        cases = [({"room": "r1", "agent": "a1", "outcome": "x" * 241}, "text_too_long"),
+                 ({"room": "r1", "agent": "a1", "outcome": "   "}, "bad_args"),
+                 ({"room": "r1", "agent": "a1"}, "bad_args"),
+                 ({"room": "r1", "agent": "a1", "outcome": 7}, "bad_args"),
+                 ({"room": "r1", "agent": "BAD", "outcome": "done"}, "bad_agent"),
+                 ({"room": "BAD", "agent": "a1", "outcome": "done"}, "bad_room")]
+        for args, code in cases:
+            res = self.c.call("close_task", args)
+            self.assertIs(res["isError"], True, args)
+            self.assertIn(code, res["content"][0]["text"])
+        self.assertEqual([e["act"] for e in file_events(self.home, "r1")], ["close"])
 
     def test_room_errors_are_iserror_with_code(self):
         cases = [("post_status", {"room": "r1", "agent": "BAD", "text": "x"}, "bad_agent"),

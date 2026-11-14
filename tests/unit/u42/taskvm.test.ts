@@ -26,7 +26,7 @@ describe("classifyClose", () => {
 
 describe("card summary is human; the raw verdict code stays in the step detail", () => {
   it("verified run: summary 'Completed — all steps verified', raw code in the last step's detail only", () => {
-    const vm = vmOf(finished("chatgpt-agent", "ChatGPT · Ask", 4, "BROWSER_BOUNDED_ACTIONS_VERIFIED (rc 0)"), "chatgpt-agent");
+    const vm = vmOf(finished("github-agent", "GitHub · Ask", 4, "BROWSER_BOUNDED_ACTIONS_VERIFIED (rc 0)"), "github-agent");
     expect(vm.summary).toBe("Completed — all steps verified");
     expect(vm.summary).not.toContain("BROWSER_");
     expect(vm.steps[3]!.detail?.outcome).toBe("verified · BROWSER_BOUNDED_ACTIONS_VERIFIED (rc 0)");
@@ -55,7 +55,7 @@ describe("card summary is human; the raw verdict code stays in the step detail",
     expect(vm.next).toBe("Stopped");
   });
   it("a human close text is shown as is and no step detail changes", () => {
-    const vm = vmOf(finished("helper", "[ChatGPT] Summarise", 2, "All done, summary posted"), "helper");
+    const vm = vmOf(finished("helper", "[GitHub] Summarise", 2, "All done, summary posted"), "helper");
     expect(vm.summary).toBe("All done, summary posted");
     expect(vm.steps[1]!.detail?.outcome).toBe("verified");
     expect(vm.next).toBe("Completed");
@@ -93,14 +93,14 @@ describe("in-progress status (rail running counter input)", () => {
 
 describe("fold: a plan after close starts a new task (slug reused by a later run)", () => {
   it("closed is cleared, step states start fresh, no drift baseline", () => {
-    const evs = [...finished("chatgpt-agent", "ChatGPT · first", 2, "PASS (rc 0)"), plan("chatgpt-agent", "ChatGPT · second", ["step 1", "step 2"])];
-    const st = foldRoom(evs).find((s) => s.agent === "chatgpt-agent")!;
+    const evs = [...finished("github-agent", "GitHub · first", 2, "PASS (rc 0)"), plan("github-agent", "GitHub · second", ["step 1", "step 2"])];
+    const st = foldRoom(evs).find((s) => s.agent === "github-agent")!;
     expect(st.closed).toBe(false);
     expect(st.stepStates).toEqual(["pending", "pending"]);
     expect(st.previous).toBeUndefined();
     expect(st.contract?.version).toBe(1);
     const vm = toTaskVM(st, { workspace: "viewpoint", nowMs: T0 + 1000 });
-    expect(vm.title).toBe("ChatGPT · second");
+    expect(vm.title).toBe("GitHub · second");
     expect(vm.status).toBe("running");
   });
 });

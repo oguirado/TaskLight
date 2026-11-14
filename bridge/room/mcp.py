@@ -9,6 +9,7 @@ from bridge.room import store
 from bridge.room.store import RoomError
 
 VERSION = "0.1.0"
+CLOSE_OUTCOME_MAX = 240  # A-U43: close_task outcome is one line, <= 240 characters
 
 TOOLS = [
     {
@@ -54,6 +55,20 @@ TOOLS = [
                 "took": {"type": "string"},
             },
             "required": ["room", "agent", "index", "state"],
+        },
+    },
+    {
+        # Oracle amendment A-U43: close the agent's task with a one-line outcome (U33 `close` act).
+        "name": "close_task",
+        "description": "Close your task in a room with a one-line outcome (at most 240 characters).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "room": {"type": "string"},
+                "agent": {"type": "string"},
+                "outcome": {"type": "string", "maxLength": CLOSE_OUTCOME_MAX},
+            },
+            "required": ["room", "agent", "outcome"],
         },
     },
     {
@@ -170,6 +185,16 @@ def _handle_call(id_, params):
                 step["took"] = args["took"]
             text = step.get("outcome") or "step"
             ev = store.post(room, agent, "step", text, step=step)
+            _result(id_, _tool_result({"event": _wrap(ev)}))
+        elif name == "close_task":
+            room = _req_str(args, "room")
+            agent = _req_str(args, "agent")
+            outcome = _req_str(args, "outcome")
+            if not outcome.strip():
+                raise RoomError("bad_args", "outcome must not be empty")
+            if len(outcome) > CLOSE_OUTCOME_MAX:
+                raise RoomError("text_too_long", "outcome > %d" % CLOSE_OUTCOME_MAX)
+            ev = store.post(room, agent, "close", outcome)
             _result(id_, _tool_result({"event": _wrap(ev)}))
         elif name == "read_inbox":
             room = _req_str(args, "room")

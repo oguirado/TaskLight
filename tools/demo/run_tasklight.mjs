@@ -3,10 +3,12 @@
 //   node tools/demo/run_tasklight.mjs --check    [--headless] [--dir D]       readiness table, exit 1 on any FAIL
 //   node tools/demo/run_tasklight.mjs --replay   [--headless] [--speed X]     4 synthetic ViewPoint runs -> room "viewpoint" -> wall
 //   node tools/demo/run_tasklight.mjs --viewpoint [--headless] [--history]   observe the REAL default runs root (read-only)
+//   node tools/demo/run_tasklight.mjs --viewpoint --no-observer              wall only: cards come from cooperative agents (context-wall MCP)
 //   node tools/demo/run_tasklight.mjs --stop     [--dir D]                    stop the processes a previous --keep run started
 // Common: --dir D (default $TASKLIGHT_DEMO_DIR, else <tmpdir>/tasklight-demo), --port N (Vite), --cw-home D, --keep,
 //         --root D (replay: runs root, default a fresh dir under D/vp_runs; viewpoint: passed to the observer),
 //         --duration S (headless --viewpoint: seconds to stay up, default 5), --exit (windowed: exit after the replay check),
+//         --shots N (--viewpoint: Page.captureScreenshot every N s -> <dir>/shots/live_<HHMMSS>.png; --stop also ends the runner),
 //         --ext-dir D (skip the extension build; use an unpacked build made with --key-file <dir>/keys/demo_pub.b64).
 //
 // Pipeline (reuses tools/demo/run_demo.mjs pieces): build extension with a demo key -> setup_native.py (rooms viewpoint + demo)
@@ -42,19 +44,19 @@ const CHROME = "/usr/bin/google-chrome";
 const ROOM = "viewpoint";
 const ROOMS = ["viewpoint", "demo"];
 const GOALS = [
-  "Ask ChatGPT about on-device AI",
-  "Ask Gemini to compare hybrid inference",
-  "Search Wikipedia for Firebase",
-  "Find the latest arXiv paper on small language models",
+  "Search arXiv for AI agent",
+  "Search GitHub for context wall",
+  "Open the Gemini models page on deepmind.google",
+  "Search Wikipedia for Google DeepMind",
 ];
-// U42: observer agent slug and task title per replay goal.
+// U42 / A-U42b: observer agent slug and task title per replay goal (capsules arXiv, GitHub, Gemini, Wikipedia).
 const EXPECT = [
-  { agent: "chatgpt-agent", title: `ChatGPT \u00b7 ${GOALS[0]}` },
-  { agent: "gemini-agent", title: `Gemini \u00b7 ${GOALS[1]}` },
-  { agent: "wikipedia-agent", title: `Wikipedia \u00b7 ${GOALS[2]}` },
-  { agent: "arxiv-agent", title: `arXiv \u00b7 ${GOALS[3]}` },
+  { agent: "arxiv-agent", title: `arXiv \u00b7 ${GOALS[0]}` },
+  { agent: "github-agent", title: `GitHub \u00b7 ${GOALS[1]}` },
+  { agent: "gemini-agent", title: `Gemini \u00b7 ${GOALS[2]}` },
+  { agent: "wikipedia-agent", title: `Wikipedia \u00b7 ${GOALS[3]}` },
 ];
-const AGENT_SLUG_RE = /^(chatgpt|gemini|wikipedia|arxiv|viewpoint)-agent(-\d+)?$/;
+const AGENT_SLUG_RE = /^(arxiv|github|gemini|wikipedia|mdn|hugging-face|viewpoint)-agent(-\d+)?$/;
 
 const DIR = path.resolve(opt("--dir", process.env.TASKLIGHT_DEMO_DIR ?? path.join(os.tmpdir(), "tasklight-demo")));
 const under = (p, root) => p === root || p.startsWith(root + path.sep);
@@ -70,6 +72,11 @@ if (HEADLESS) delete BASE_ENV.DISPLAY; // headless children never see a display 
 const PORT_ARG = opt("--port", null);
 if (PORT_ARG !== null && Number(PORT_ARG) === FORBIDDEN_PORT) { console.error(`REFUSED: port ${FORBIDDEN_PORT}`); process.exit(2); }
 const KEEP = has("--keep");
+const NO_OBSERVER = has("--no-observer");
+if (NO_OBSERVER && !MODES.includes("--viewpoint")) {
+  console.error("--no-observer is only valid with --viewpoint");
+  process.exit(2);
+}
 
 const P = {
   profile: join(DIR, "profile"), keys: join(DIR, "keys"), logs: join(DIR, "logs"), shots: join(DIR, "shots"),
@@ -115,7 +122,7 @@ function startProc(name, cmd, argv, extra = {}) {
   const out = openSync(join(P.logs, name + ".log"), "a");
   const ch = spawn(cmd, argv, { stdio: ["ignore", out, out], detached: true, env: BASE_ENV, ...extra });
   started.push({ name, pid: ch.pid, start: procStart(ch.pid) });
-  writeFileSync(P.pids, JSON.stringify({ dir: DIR, procs: started }, null, 2) + "\n");
+  writeFileSync(P.pids, JSON.stringify({ dir: DIR, runner: { pid: process.pid, start: procStart(process.pid) }, procs: started }, null, 2) + "\n");
   log(`started ${name} pid=${ch.pid}`);
   return ch;
 }
@@ -293,6 +300,11 @@ function printTable(rows) {
 async function modeStop() {
   if (!existsSync(P.pids)) { log("nothing to stop (no " + P.pids + ")"); return 0; }
   const j = JSON.parse(readFileSync(P.pids, "utf8"));
+  const r = j.runner; // the long-lived runner (e.g. --viewpoint --shots): SIGTERM it first so it takes its last shot and exits
+  if (r && r.pid !== process.pid && r.start && procStart(r.pid) === r.start) {
+    try { process.kill(r.pid, "SIGTERM"); log(`signalled runner pid=${r.pid}`); } catch (e) { log(`runner pid=${r.pid}: ${e.code}`); }
+    for (let i = 0; i < 40 && procStart(r.pid) === r.start; i++) await sleep(250);
+  }
   const mine = (j.procs ?? []).filter((p) => p.start && procStart(p.pid) === p.start); // same pid AND same start time
   log(`stopping ${mine.length}/${(j.procs ?? []).length} recorded process groups (others already gone or pid reused)`);
   await stopList(mine);
@@ -326,7 +338,7 @@ async function modeRun() {
       rmSync(join(CW_HOME, "observers", "viewpoint.json"), { force: true });
     }
   }
-  log(`mode=${MODE} headless=${HEADLESS} CW_HOME=${CW_HOME} root=${root ?? "(observer default, read-only)"} ext=${extId}`);
+  log(`mode=${MODE}${MODE === "viewpoint" ? (NO_OBSERVER ? " (cooperative only, observer OFF)" : " (observer ON)") : ""} headless=${HEADLESS} CW_HOME=${CW_HOME} root=${root ?? "(observer default, read-only)"} ext=${extId}`);
 
   // 1. build extension (built manifest copy carries the demo public key), unless --ext-dir names a prebuilt one
   const extDir = opt("--ext-dir", null);
@@ -398,20 +410,36 @@ async function modeRun() {
   await waitFor("!!document.querySelector('h1, h2')", "wall page rendered");
   await sleep(1500); // T1 port link + first room_hello/room_sync before anything is posted (history is not replayed)
 
-  // 5. U40 observer
-  const watchArgs = ["-m", "bridge.viewpoint", "watch", "--room", ROOM, "--interval", "0.5"];
-  if (root) watchArgs.push("--root", root);
-  if (MODE === "viewpoint" && !has("--history")) watchArgs.push("--prime"); // do not repaint old real runs
-  const watcher = startProc("observer", "python3", watchArgs, { cwd: REPO, env: { ...BASE_ENV, PYTHONPATH: REPO, CW_HOME } });
+  // 5. U40 observer (not with --viewpoint --no-observer: cooperative agents post their own cards)
   let watcherExit = null;
-  watcher.on("exit", (code) => { watcherExit = code; log(`observer exited rc=${code}`); });
-  await sleep(1000);
-  if (watcherExit !== null) throw new Error(`observer exited early rc=${watcherExit} (see ${join(P.logs, "observer.log")})`);
+  if (NO_OBSERVER) {
+    log(`observer: OFF (--no-observer) - cards come only from agents posting to room "${ROOM}" (context-wall MCP)`);
+  } else {
+    const watchArgs = ["-m", "bridge.viewpoint", "watch", "--room", ROOM, "--interval", "0.5"];
+    if (root) watchArgs.push("--root", root);
+    if (MODE === "viewpoint" && !has("--history")) watchArgs.push("--prime"); // do not repaint old real runs
+    log(`observer: ON (U40, ${MODE === "viewpoint" ? "real runs root, read-only" : "replay root"})`);
+    const watcher = startProc("observer", "python3", watchArgs, { cwd: REPO, env: { ...BASE_ENV, PYTHONPATH: REPO, CW_HOME } });
+    watcher.on("exit", (code) => { watcherExit = code; log(`observer exited rc=${code}`); });
+    await sleep(1000);
+    if (watcherExit !== null) throw new Error(`observer exited early rc=${watcherExit} (see ${join(P.logs, "observer.log")})`);
+  }
 
   if (MODE === "viewpoint") {
-    log(`watching the real ViewPoint runs root read-only; room "${ROOM}" in CW_HOME=${CW_HOME}; wall ${wallUrl}`);
+    log(NO_OBSERVER
+      ? `mode: viewpoint, cooperative only (no observer); room "${ROOM}" in CW_HOME=${CW_HOME}; wall ${wallUrl}`
+      : `mode: viewpoint, observer on; watching the real ViewPoint runs root read-only; room "${ROOM}" in CW_HOME=${CW_HOME}; wall ${wallUrl}`);
+    const every = Number(opt("--shots", "0"));
+    let ticker = null;
+    if (every > 0) {
+      const hms = () => { const d = new Date(); return [d.getHours(), d.getMinutes(), d.getSeconds()].map((n) => String(n).padStart(2, "0")).join(""); };
+      const live = () => shot(`live_${hms()}.png`).catch((e) => log(`live shot failed: ${e}`));
+      await live();
+      ticker = setInterval(live, every * 1000);
+    }
     if (HEADLESS) await waitUntilStopped(Number(opt("--duration", "5")) * 1000);
     else { log("Ctrl-C to stop"); await waitUntilStopped(); }
+    if (ticker) clearInterval(ticker);
     await shot("viewpoint.png").catch(() => {});
     cdp.ws.close();
     return watcherExit === null ? 0 : 1;

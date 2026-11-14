@@ -51,18 +51,44 @@ def _title(goal):
     return _redact(goal if isinstance(goal, str) else "")[:120]
 
 
-# U42: capsule inferred from the goal text, then the target names.
+# U42 / A-U42b: capsule inferred from the goal text, then the target names, then any URL/host in the run JSON.
 CAPSULES = (
-    ("ChatGPT", ("chatgpt", "openai")),
-    ("Gemini", ("gemini",)),
-    ("Wikipedia", ("wikipedia",)),
     ("arXiv", ("arxiv",)),
+    ("Gemini", ("gemini", "deepmind.google")),
+    ("GitHub", ("github",)),
+    ("Wikipedia", ("wikipedia",)),
+    ("MDN", ("mdn", "developer.mozilla.org")),
+    ("Hugging Face", ("hugging face", "huggingface")),
 )
+# host suffix -> capsule (matched on the host of url/href/host-like fields)
+CAPSULE_HOSTS = (
+    ("arxiv.org", "arXiv"),
+    ("deepmind.google", "Gemini"),
+    ("gemini.google.com", "Gemini"),
+    ("github.com", "GitHub"),
+    ("wikipedia.org", "Wikipedia"),
+    ("developer.mozilla.org", "MDN"),
+    ("huggingface.co", "Hugging Face"),
+)
+# no capsule matched: title is the bare goal, agent "viewpoint-agent"
 DEFAULT_CAPSULE = "ViewPoint"
+_URL_KEY_RE = re.compile(r"(url|href|host|origin|domain)", re.IGNORECASE)
+_HOST_RE = re.compile(r"^(?:[a-z][a-z0-9+.-]*:)?//([^/?#:@\s]+@)?([^/?#:\s]+)", re.IGNORECASE)
 _TAGGED_TITLE_RE = re.compile(
     r"^\[(%s)\]" % "|".join(re.escape(c) for c, _k in CAPSULES + ((DEFAULT_CAPSULE, ()),)),
     re.IGNORECASE,
 )
+
+
+_KEY_RES = {}
+
+
+def _key_re(k):
+    """Keyword as a whole word ("mdn" must not match inside "cmdnet")."""
+    r = _KEY_RES.get(k)
+    if r is None:
+        r = _KEY_RES[k] = re.compile(r"(?<![a-z0-9])%s(?![a-z0-9])" % re.escape(k))
+    return r
 
 
 def _capsule(goal, names=()):
@@ -75,23 +101,90 @@ def _capsule(goal, names=()):
         best = None
         for cap, keys in CAPSULES:
             for k in keys:
-                i = low.find(k)
-                if i >= 0 and (best is None or i < best[0]):
-                    best = (i, cap)
+                mm = _key_re(k).search(low)
+                if mm is not None and (best is None or mm.start() < best[0]):
+                    best = (mm.start(), cap)
         if best is not None:
             return best[1]
     return DEFAULT_CAPSULE
 
 
+def _host_of(v):
+    v = v.strip().lower()
+    m = _HOST_RE.match(v)
+    if m:
+        return m.group(2)
+    # bare host ("github.com", "en.wikipedia.org/wiki/X")
+    return v.split("/", 1)[0].split(":", 1)[0]
+
+
+def _capsule_from_host(host):
+    for suffix, cap in CAPSULE_HOSTS:
+        if host == suffix or host.endswith("." + suffix):
+            return cap
+    return None
+
+
+def _capsule_from_urls(obj, depth=0):
+    """First capsule named by a url/href/host-like string field (keys matched case-insensitively), else None."""
+    if depth > 8:
+        return None
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if isinstance(v, str) and isinstance(k, str) and _URL_KEY_RE.search(k):
+                cap = _capsule_from_host(_host_of(v))
+                if cap is not None:
+                    return cap
+        for v in obj.values():
+            if isinstance(v, (dict, list)):
+                cap = _capsule_from_urls(v, depth + 1)
+                if cap is not None:
+                    return cap
+    elif isinstance(obj, list):
+        for v in obj[:200]:
+            if isinstance(v, (dict, list)):
+                cap = _capsule_from_urls(v, depth + 1)
+                if cap is not None:
+                    return cap
+    return None
+
+
+# A-U43 merge: a run is not painted as its own card when a cooperative agent "<site>-agent" (any site for an
+# unknown-capsule run, the run's own capsule otherwise) was active in the same room (plan or step) within
+# MERGE_WINDOW_MS before the run started and its latest plan shares a content word with the run (goal, target names,
+# typed text). Counted in stats as merged_skipped.
+MERGE_WINDOW_MS = 120 * 1000
+_OBSERVER_TITLE_RE = re.compile(r"^(%s) \u00b7 " % "|".join(re.escape(c) for c, _k in CAPSULES))
+_COOP_AGENT_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*-agent(-\d+)?$")
+_STOPWORDS = frozenset(
+    "the and for with from into onto this that your you are was were has have not but all any its our out "
+    "click type key press enter open page button link textbox searchbox combobox field box tab step steps "
+    "then when what which who how one two".split()
+)
+
+
+def _words(texts):
+    out = set()
+    for t in texts:
+        if isinstance(t, str):
+            for w in re.findall(r"[a-z0-9]+", t.lower()):
+                if len(w) >= 3 and w not in _STOPWORDS:
+                    out.add(w)
+    return out
+
+
 def _agent_base(capsule):
-    return "%s-agent" % capsule.lower()
+    # "Hugging Face" -> "hugging-face-agent" (room AGENT_RE: [a-z0-9._-])
+    return "%s-agent" % re.sub(r"[^a-z0-9]+", "-", capsule.lower()).strip("-")
 
 
 def _task_title(capsule, goal):
-    """Task title "<Capsule> · <goal>"; a goal already tagged "[<Capsule>]" is kept as is."""
+    """Task title "<Capsule> · <goal>"; a goal already tagged "[<Capsule>]" is kept as is; no capsule -> "<goal>"."""
     g = goal if isinstance(goal, str) else ""
     if _TAGGED_TITLE_RE.match(g):
         t = g
+    elif capsule == DEFAULT_CAPSULE and g:
+        t = g  # A-U42b: no capsule -> the bare goal, never a made-up capsule prefix
     elif g:
         t = "%s \u00b7 %s" % (capsule, g)
     else:
@@ -137,6 +230,9 @@ class ViewpointObserver:
         self._skipped_large = 0
         self._skipped_nonjson = 0
         self._errors = 0
+        self._merged_skipped = 0
+        self._own_ids = set()  # ids of events this observer posted (never taken for a cooperative agent's plan)
+        self._room_cache = None  # per-poll snapshot of the room for the merge check
         self._processed = set()  # (run_id, filename)
         self._cursor_meta = {}  # (run_id, filename) -> (size, mtime_ns)
         self._corrupt = False
@@ -246,7 +342,7 @@ class ViewpointObserver:
         """Capsule (from the first parsable intent), start and end mtimes of a run. Silent."""
         m = self._meta.get(run_id)
         if m is None:
-            m = {"capsule": None, "start": None, "end": None, "slot": None, "agent": None}
+            m = {"capsule": None, "start": None, "end": None, "slot": None, "agent": None, "merged": None}
             self._meta[run_id] = m
         if m["capsule"] is None:
             intents = sorted(
@@ -265,14 +361,39 @@ class ViewpointObserver:
                 except Exception:
                     continue
                 m["capsule"] = _capsule(parsed["goal"], [parsed["name"]])
+                if m["capsule"] == DEFAULT_CAPSULE:
+                    m["capsule"] = self._capsule_from_run_urls(run_dir, entries) or DEFAULT_CAPSULE
                 m["start"] = e["mtime_ns"]
                 break
         reports = [e for e in entries if e["name"] == "report.json"]
         if reports:
             m["end"] = reports[0]["mtime_ns"]
             if m["capsule"] is None:
-                m["capsule"] = DEFAULT_CAPSULE
+                m["capsule"] = self._capsule_from_run_urls(run_dir, entries) or DEFAULT_CAPSULE
                 m["start"] = reports[0]["mtime_ns"]
+
+    _URL_FILE_PREFIXES = ("intent-", "dispatch-", "receipt-", "report")
+
+    def _capsule_from_run_urls(self, run_dir, entries):
+        """A-U42b: capsule from url/href/host fields of the run's intent/dispatch/receipt/report JSON, else None."""
+        files = sorted(
+            [
+                e
+                for e in entries
+                if e["name"].endswith(".json")
+                and e["name"].startswith(self._URL_FILE_PREFIXES)
+                and e["size"] <= MAX_SIZE
+            ],
+            key=lambda e: (e["mtime_ns"], e["name"]),
+        )
+        for e in files:
+            try:
+                cap = _capsule_from_urls(self._read_json(run_dir, e["name"]))
+            except Exception:
+                continue
+            if cap is not None:
+                return cap
+        return None
 
     def _assign_agents(self):
         """Slug per run: "<capsule>-agent", "-2", "-3" for runs of the same capsule that overlap
@@ -299,6 +420,76 @@ class ViewpointObserver:
             m["slot"] = slot
             m["agent"] = base if slot == 1 else "%s-%d" % (base, slot)
 
+    def _room_events(self):
+        if self._room_cache is None:
+            try:
+                from bridge.room import store
+
+                self._room_cache = store.read(self.room, 0, home=self.home)[0]
+            except Exception:
+                self._room_cache = []
+        return self._room_cache
+
+    def _run_words(self, run_dir, entries):
+        texts = []
+        for e in entries:
+            if e["name"].startswith("intent-") and e["name"].endswith(".json") and e["size"] <= MAX_SIZE:
+                try:
+                    obj = self._read_json(run_dir, e["name"])
+                    parsed = self._parse_intent(obj)
+                except Exception:
+                    continue
+                texts += [parsed["goal"], parsed["name"]]
+                act = obj.get("action") if isinstance(obj, dict) else None
+                if isinstance(act, dict) and isinstance(act.get("text"), str):
+                    texts.append(act["text"])  # typed text: compared in memory only, never posted
+        return _words(texts)
+
+    def _is_merged(self, run_id, run_dir, entries):
+        """A-U43: decide once per run whether its work is already on a cooperative agent's card."""
+        m = self._meta.get(run_id)
+        if m is None or m.get("start") is None:
+            return False
+        if m.get("merged") is not None:
+            return m["merged"]
+        merged = False
+        cap = m.get("capsule")
+        if cap is not None:
+            # unknown capsule: any cooperative "<site>-agent"; known capsule: only that capsule's agent id, whose
+            # card the observer would otherwise overwrite (same slug, observer plan replacing the agent's plan).
+            own_base = None if cap == DEFAULT_CAPSULE else _agent_base(cap)
+            start_ms = m["start"] // 1000000
+            last = {}  # agent -> (latest activity ts, latest plan)
+            for ev in self._room_events():
+                ag = ev.get("agent")
+                if not isinstance(ag, str) or not _COOP_AGENT_RE.match(ag) or ag.startswith("viewpoint-agent"):
+                    continue
+                if own_base is not None and ag != own_base and not ag.startswith(own_base + "-"):
+                    continue
+                if ev.get("id") in self._own_ids or ev.get("act") not in ("plan", "step"):
+                    continue
+                if ev.get("act") == "plan" and _OBSERVER_TITLE_RE.match(str((ev.get("plan") or {}).get("title", ""))):
+                    continue  # an observer card ("<Capsule> · <goal>"), e.g. posted before a restart
+                ts = ev.get("ts") if isinstance(ev.get("ts"), int) else 0
+                prev_ts, prev_plan = last.get(ag, (0, None))
+                plan = ev.get("plan") if ev.get("act") == "plan" and isinstance(ev.get("plan"), dict) else prev_plan
+                last[ag] = (max(prev_ts, ts), plan)
+            run_words = None
+            for ag, (ts, plan) in sorted(last.items()):
+                if plan is None or ts < start_ms - MERGE_WINDOW_MS:
+                    continue
+                if run_words is None:
+                    run_words = self._run_words(run_dir, entries)
+                steps = plan.get("steps") if isinstance(plan.get("steps"), list) else []
+                plan_words = _words([plan.get("title")] + [s.get("text") for s in steps if isinstance(s, dict)])
+                if run_words & plan_words:
+                    merged = True
+                    break
+        m["merged"] = merged
+        if merged:
+            self._merged_skipped += 1
+        return merged
+
     def _get_state(self, run_id):
         st = self._state.get(run_id)
         if st is None:
@@ -317,7 +508,9 @@ class ViewpointObserver:
             kw["step"] = step
         kw["home"] = self.home
         kw["clock"] = self.clock
-        fn(self.room, agent, act, text, **kw)
+        ev = fn(self.room, agent, act, text, **kw)
+        if isinstance(ev, dict) and isinstance(ev.get("id"), str):
+            self._own_ids.add(ev["id"])
 
     # ---- scanning ----
     def _discover_runs(self):
@@ -576,6 +769,7 @@ class ViewpointObserver:
                 self.prime()
                 return 0
             posted = 0
+            self._room_cache = None
             try:
                 runs = self._discover_runs()
             except Exception:
@@ -661,6 +855,13 @@ class ViewpointObserver:
         for e in live_other:
             self._processed.add((run_id, e["name"]))
             self._cursor_meta[(run_id, e["name"])] = (e["size"], e["mtime_ns"])
+
+        if (live_intents or live_receipts or live_reports) and self._is_merged(run_id, run_dir, entries):
+            # A-U43: a cooperative agent already shows this work; consume the run silently (no second card).
+            for e in live_intents + live_receipts + live_reports:
+                self._processed.add((run_id, e["name"]))
+                self._cursor_meta[(run_id, e["name"])] = (e["size"], e["mtime_ns"])
+            return 0
 
         # intents
         for e in live_intents:
@@ -781,6 +982,14 @@ class ViewpointObserver:
                 self._processed.add((run_id, name))
                 self._cursor_meta[(run_id, name)] = (e["size"], e["mtime_ns"])
                 continue
+            if not st["labels"]:
+                # A-U42b live finding: a run that never posted a plan (report.json only, no intent) has no card of
+                # its own; a close under its slug would land on the card of an earlier finished run of the same
+                # capsule and overwrite that run's verdict. Consume the report silently.
+                st["closed"] = True
+                self._processed.add((run_id, name))
+                self._cursor_meta[(run_id, name)] = (e["size"], e["mtime_ns"])
+                continue
             # block active first if rc != 0
             try:
                 if rc != 0:
@@ -819,4 +1028,5 @@ class ViewpointObserver:
             "skipped_large": int(self._skipped_large),
             "skipped_nonjson": int(self._skipped_nonjson),
             "errors": int(self._errors),
+            "merged_skipped": int(self._merged_skipped),
         }

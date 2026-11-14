@@ -8,7 +8,7 @@ There are two ways to show the agents:
 | Path | What the agent does | What appears on the wall |
 |---|---|---|
 | Zero-config (U40 observer) | Nothing | One task for each ViewPoint run. The title is the goal, each step is an action, and receipts set each step to done or blocked. The run closes when `report.json` appears. |
-| Cooperative (this file) | Calls `post_plan`, `post_step` and `post_status` on the `context-wall` MCP server | The agent's own task, with a capsule label and your step wording, next to the observer's task |
+| Cooperative (this file) | Calls `post_plan`, `post_step` and `close_task` on the `context-wall` MCP server | The agent's own task, with a capsule label and your step wording. With `--no-observer` it is the only card; with the observer on, a run whose capsule cannot be inferred and whose steps match a recent agent plan is merged (skipped), otherwise it gets its own card |
 
 ## 1. Start the wall
 
@@ -59,7 +59,7 @@ Notes:
   - `CW_HOME` is left unset, so the default `~/.context-wall` is used. That matches `run_tasklight.mjs --viewpoint`.
   - If you start the launcher with a different `CW_HOME` or `--cw-home D`, add `"CW_HOME": "D"` to `env`.
   - If your client ignores `cwd`, `PYTHONPATH` is enough for `-m bridge.room.mcp` to load.
-  - Tools: `post_status`, `post_plan`, `post_step`, `read_inbox`, `wait_inbox`.
+  - Tools: `post_status`, `post_plan`, `post_step`, `close_task`, `read_inbox`, `wait_inbox`.
 - **`viewpoint-agent`**
   - `VP_MCP_SESSION` points to a file that exists only while a ViewPoint take is running.
   - Outside a take, the server has no session to attach to. This is expected and not a config error.
@@ -67,7 +67,7 @@ Notes:
 
 ## 3. Agent instruction (ready to paste)
 
-Replace `<capsule>` with the lowercase slug (`chatgpt`, `gemini`, `wikipedia` or `arxiv`). Replace `<Capsule>` with the display name (`ChatGPT`, `Gemini`, `Wikipedia` or `arXiv`).
+Replace `<capsule>` with the lowercase slug (`arxiv`, `github`, `gemini` or `wikipedia`). Replace `<Capsule>` with the display name (`arXiv`, `GitHub`, `Gemini` or `Wikipedia`). Example: agent `github-agent`, title `[GitHub] Search GitHub for context wall`; agent `gemini-agent`, title `[Gemini] Open deepmind.google/models/gemini/`.
 
 ```
 You report your browser work live on the Tasklight wall through the context-wall MCP server.
@@ -80,17 +80,20 @@ Room: "viewpoint". Agent id: "<capsule>-agent" (lowercase letters, digits, "-", 
    characters, and each optional "accept" is at most 160 characters. No other keys.
 2. When you start an action, call post_step with room "viewpoint", agent "<capsule>-agent", index i (0-based) and
    state "active". After the action, call post_step again with the same index and state "done", or "blocked" if it
-   failed. Add an "outcome" of at most 240 characters.
+   failed. Add an "outcome" of at most 240 characters. Expected refusals (a URL with "?" or "#" that ViewPoint
+   refuses on purpose) are steps marked "done" with outcome "refused as expected", not "blocked".
 3. If you need an extra step, call post_plan again with the same title and the full list, with the new step
    appended. Never remove or reorder steps that were already posted.
-4. At the end, make sure every step is "done" or "blocked". Then call post_status with room "viewpoint",
-   agent "<capsule>-agent" and text "closed: <one-line result>".
+4. At the end, make sure every step is "done" or "blocked". When the task is finished call close_task with
+   room "viewpoint", agent "<capsule>-agent" and outcome "<one line>" (at most 240 characters).
 5. Never put typed text, passwords, tokens, cookies or page content into any title, step, outcome or status.
    Describe the action instead, e.g. "Type the search query".
 ```
 
-The `context-wall` MCP server has no `close` tool. Step 4 therefore ends the task with the final step states and a `post_status` summary.
-A `close` event comes only from the U40 observer, when ViewPoint writes `report.json`, or from `python3 -m bridge.room post --act close`.
+`close_task` (Oracle amendment A-U43) posts the U33 `close` act with the outcome as its text, so the card shows the
+agent's own result line. A `close` event also comes from the U40 observer, when ViewPoint writes `report.json`, or from
+`python3 -m bridge.room post --act close`. For cooperative agents, start TaskLight with `--viewpoint --no-observer` so
+each capsule shows one card (the agent's), not two.
 
 ## 4. Zero-config path
 
@@ -112,4 +115,4 @@ To rehearse without ViewPoint, run:
 node tools/demo/run_tasklight.mjs --replay
 ```
 
-It writes 4 synthetic runs (ChatGPT, Gemini, Wikipedia, arXiv) into a temporary root and shows them on the wall.
+It writes 4 synthetic runs (arXiv "AI agent" search, GitHub, Gemini models page, Wikipedia "Google DeepMind") into a temporary root and shows them on the wall.

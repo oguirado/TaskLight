@@ -49,6 +49,7 @@ This command runs the same local wall pipeline as `run_demo.mjs`. It allows the 
 node tools/demo/run_tasklight.mjs --check [--headless]     # readiness table; exit 1 on any FAIL
 node tools/demo/run_tasklight.mjs --replay [--headless]    # 4 synthetic runs -> wall; screenshot shots/replay.png
 node tools/demo/run_tasklight.mjs --viewpoint              # observe the REAL default runs root (read-only), until Ctrl-C
+node tools/demo/run_tasklight.mjs --viewpoint --no-observer # wall only: cards come from cooperative agents (context-wall MCP)
 node tools/demo/run_tasklight.mjs --stop                   # stop what a previous --keep run started
 ```
 
@@ -66,6 +67,8 @@ Options:
 | `--duration S` | Headless `--viewpoint` stays up for S seconds (default 5) |
 | `--history` | `--viewpoint` repaints runs that existed before the start (default: `--prime`) |
 | `--ext-dir D` | Use a prebuilt unpacked extension instead of running `extension/build.mjs` |
+| `--no-observer` | `--viewpoint` only: do not start the U40 observer. Use it when agents post their own cards through the `context-wall` MCP server (`post_plan`, `post_step`, `close_task`), so each capsule shows one card. The start line prints `mode=viewpoint (cooperative only, observer OFF)` or `(observer ON)` |
+| `--shots N` | `--viewpoint`: save a screenshot every N seconds to `<dir>/shots/live_<HHMMSS>.png`; `--stop` also ends the runner |
 
 What the `--check` rows test:
 - display: refuses DISPLAY `:98`. In headless mode, DISPLAY is removed for child processes.
@@ -84,14 +87,15 @@ What the run modes do:
 - The observer starts only after the wall page has linked, because history is not replayed to a fresh page.
 - `--replay --headless` exits 0 when all of these hold:
   - the replay rc is 0;
-  - room `viewpoint` holds 4 tasks, agents `chatgpt-agent`, `gemini-agent`, `wikipedia-agent`, `arxiv-agent`,
+  - room `viewpoint` holds 4 tasks, agents `arxiv-agent`, `github-agent`, `gemini-agent`, `wikipedia-agent`,
     titled `<Capsule> · <goal>` (U42);
   - each task has at least 3 steps and a `close`;
   - the wall text shows all 4 goals;
   - (U42) the card summaries carry no raw `(rc N)` verdict, no card says "Waiting for a plan", and the chat drawer is closed.
 
-U42 labels (observer): the capsule comes from the goal, then the target name (chatgpt/openai → ChatGPT, gemini → Gemini,
-wikipedia → Wikipedia, arxiv → arXiv, else ViewPoint). The agent is `<capsule>-agent`; overlapping runs of one capsule get
+U42 labels (observer): the capsule comes from the goal, then the target name, then any url/href/host field in the run JSON
+(A-U42b: arxiv → arXiv, gemini / deepmind.google → Gemini, github → GitHub, wikipedia → Wikipedia; plan B mdn /
+developer.mozilla.org → MDN, plan C hugging face / huggingface.co → Hugging Face; no match → title is the bare goal, agent `viewpoint-agent`). The agent is `<capsule>-agent`; overlapping runs of one capsule get
 `-2`, `-3`. A goal (or an MCP `post_plan` title) that already starts with `[<Capsule>]` is kept as is. The wall turns a
 `<CODE> (rc N)` close into "Completed — all steps verified", "Stopped — a step was blocked" or "Failed (<CODE>)"; the raw
 code stays in the last step's detail (or its note when that step is blocked).
@@ -119,10 +123,10 @@ Hard rules:
 
 | Capsule | Goal (verbatim) | Steps |
 |---|---|---|
-| ChatGPT | Ask ChatGPT about on-device AI | 4, all verified |
-| Gemini | Ask Gemini to compare hybrid inference | 4, all verified |
-| Wikipedia | Search Wikipedia for Firebase | 3, all verified |
-| arXiv | Find the latest arXiv paper on small language models | 5; the last is blocked, and the report has rc 1 (`BROWSER_STEP_BLOCKED`) |
+| arXiv | Search arXiv for AI agent | 5; the last is blocked, and the report has rc 1 (`BROWSER_STEP_BLOCKED`) |
+| GitHub | Search GitHub for context wall | 4, all verified |
+| Gemini | Open the Gemini models page on deepmind.google | 3, all verified |
+| Wikipedia | Search Wikipedia for Google DeepMind | 3, all verified |
 
 Each step writes four files: `intent-<pid>.json`, `dispatch-mw-<pid>.json`, `receipt-<pid>.json` and `readback-<pid>.json`. Each run ends with `moves.json` and `report.json`.
 
