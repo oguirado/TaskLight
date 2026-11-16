@@ -3,12 +3,15 @@ import type {
   Admission,
   CapsuleTask,
   DeviceState,
+  ExternalLedgerCounter,
   InferenceMode,
+  InferenceSource,
   Job,
   JobKey,
   Lane,
   LedgerCounter,
   ObservedEvent,
+  PrivacyTier,
   PublishedCapsule,
   QueueSnapshot,
   ReconcileConfig,
@@ -140,6 +143,18 @@ export function createReconciler(deps: ReconcilerDeps, initialCfg: ReconcileConf
       return false;
     }
   }
+  // U54: optional external counter. A port without incExternal counts
+  // nothing and publication proceeds; a throwing one drops like
+  // ledgerOrBlock.
+  function externalLedgerOrBlock(c: ExternalLedgerCounter): boolean {
+    try {
+      const fn = deps.ledger.incExternal;
+      if (typeof fn === 'function') fn.call(deps.ledger, c);
+      return true;
+    } catch {
+      return false;
+    }
+  }
   function normalizeCancel(raw: unknown): () => void {
     if (typeof raw === 'function') {
       const fn = raw as () => void;
@@ -216,6 +231,12 @@ export function createReconciler(deps: ReconcilerDeps, initialCfg: ReconcileConf
   // across every task slot, so a private observation on one task protects
   // in-flight or queued cloud work on another task of the same project.
   const projectTier = new Map<string, Job['tier']>();
+  // Project-wide revision governing non-private tier changes (U54r2).
+  // Slot revisions are per task, so without this an older observation on
+  // one task could reset tier policy set by a newer one on another task.
+  // Revisions are not incarnation-scoped in observe (slots compare
+  // observedRev only), so this is per project. Cleared with projectTier.
+  const tierRev = new Map<string, number>();
   const slots = new Map<string, SlotState>();
   const pending: PendingEntry[] = [];
   const inFlight: InFlightEntry[] = [];
@@ -571,13 +592,20 @@ export function createReconciler(deps: ReconcilerDeps, initialCfg: ReconcileConf
         if (entry.settled || disposed || controller.signal.aborted) return;
         if (!isCurrent(entry.gen, effectiveJob.key.projectId)) return;
         let rawValue: string;
-        let sourceValue: 'ON_DEVICE' | 'IN_CLOUD';
+        let sourceValue: InferenceSource;
         try {
           if (typeof res !== 'object' || res === null) throw new Error('malformed inference outcome');
           const rawProp: unknown = (res as { raw: unknown }).raw;
           const srcProp: unknown = (res as { inferenceSource: unknown }).inferenceSource;
           if (typeof rawProp !== 'string') throw new Error('malformed inference raw');
-          if (srcProp !== 'ON_DEVICE' && srcProp !== 'IN_CLOUD') throw new Error('malformed inference source');
+          if (
+            srcProp !== 'ON_DEVICE' &&
+            srcProp !== 'IN_CLOUD' &&
+            srcProp !== 'LOCAL_SERVER' &&
+            srcProp !== 'REMOTE_PROVIDER'
+          ) {
+            throw new Error('malformed inference source');
+          }
           rawValue = rawProp;
           sourceValue = srcProp;
         } catch {
@@ -651,7 +679,18 @@ export function createReconciler(deps: ReconcilerDeps, initialCfg: ReconcileConf
   // and immediately before each CAS attempt. A failing store read is
   // treated as blocked (drop with retry), never as evidence of absence.
   type PublicationBlock = 'disposed' | 'unregistered' | 'privacy' | 'incarnation' | 'prompt_template' | 'stale_rev' | 'ok';
-  function publicationBlocker(job: Job, source: 'ON_DEVICE' | 'IN_CLOUD', gen: number): PublicationBlock {
+  // U54: source-aware privacy predicate. External sources (LOCAL_SERVER,
+  // REMOTE_PROVIDER) carry no verified private clearance, so they are
+  // fail-closed for private tier, screenshot task and ONLY_ON_DEVICE mode;
+  // REMOTE_PROVIDER is also refused for shared. Old pairs unchanged.
+  function sourceBlocked(tier: PrivacyTier, task: CapsuleTask, mode: InferenceMode, source: InferenceSource): boolean {
+    if (source === 'ON_DEVICE') return false;
+    if (source === 'IN_CLOUD') return tier === 'private';
+    if (source !== 'LOCAL_SERVER' && source !== 'REMOTE_PROVIDER') return true;
+    if (tier === 'private' || task === 'screenshot' || mode === 'ONLY_ON_DEVICE') return true;
+    return source === 'REMOTE_PROVIDER' && tier === 'shared';
+  }
+  function publicationBlocker(job: Job, source: InferenceSource, gen: number): PublicationBlock {
     // Injected port calls FIRST. Any reentrant observe/unregister/
     // updateConfig/dispose inside them mutates projectTier, registration,
     // cfg, or disposed. Every pure check below runs AFTER, so the guard
@@ -679,7 +718,7 @@ export function createReconciler(deps: ReconcilerDeps, initialCfg: ReconcileConf
     // B11: private + IN_CLOUD is discarded and never published. Project-wide
     // tier governs at effect time.
     const effTier = tierForProject(job.key.projectId, slot?.latestTier ?? job.tier);
-    if (effTier === 'private' && source === 'IN_CLOUD') return 'privacy';
+    if (sourceBlocked(effTier, job.task, job.mode, source)) return 'privacy';
     if (!inc.ok) return 'stale_rev';
     if (inc.v !== job.incarnation) return 'incarnation';
     // B12.2 prompt / template against current config and latest slot metadata
@@ -706,7 +745,7 @@ export function createReconciler(deps: ReconcilerDeps, initialCfg: ReconcileConf
   // Total: every injected-port failure, every malformed return shape, and
   // every hostile getter is consumed here. A failure drops the result,
   // records retry intent, schedules progress, and never escapes.
-  function handleOutcome(job: Job, raw: string, source: 'ON_DEVICE' | 'IN_CLOUD', gen: number): void {
+  function handleOutcome(job: Job, raw: string, source: InferenceSource, gen: number): void {
     const sid = slotId(job.key.projectId, job.task);
     const slot = slots.get(sid);
     const drop = (): void => {
@@ -839,14 +878,19 @@ export function createReconciler(deps: ReconcilerDeps, initialCfg: ReconcileConf
       // promote project privacy or dispose the reconciler. A throwing
       // ledger drops the result before publication. Revalidate after
       // each increment and cease further effects on a late block.
-      const counter: LedgerCounter = source === 'ON_DEVICE' ? 'on_device' : 'in_cloud';
-      if (!ledgerOrBlock(counter)) {
+      if (source === 'ON_DEVICE' || source === 'IN_CLOUD') {
+        const counter: LedgerCounter = source === 'ON_DEVICE' ? 'on_device' : 'in_cloud';
+        if (!ledgerOrBlock(counter)) {
+          drop();
+          return;
+        }
+      } else if (!externalLedgerOrBlock(source === 'LOCAL_SERVER' ? 'local_server' : 'remote_provider')) {
         drop();
         return;
       }
       const postLedger0 = publicationBlocker(job, source, gen);
       if (applyBlock(postLedger0)) return;
-      if (job.mode === 'PREFER_ON_DEVICE' && source === 'IN_CLOUD') {
+      if (job.mode === 'PREFER_ON_DEVICE' && source !== 'ON_DEVICE') {
         if (!ledgerOrBlock('fallbacks')) {
           drop();
           return;
@@ -1193,6 +1237,7 @@ export function createReconciler(deps: ReconcilerDeps, initialCfg: ReconcileConf
       registered.delete(projectId);
       lastStart.delete(projectId);
       projectTier.delete(projectId);
+      tierRev.delete(projectId);
       for (let i = pending.length - 1; i >= 0; i--) {
         if (pending[i]?.job.key.projectId === projectId) pending.splice(i, 1);
       }
@@ -1315,9 +1360,20 @@ export function createReconciler(deps: ReconcilerDeps, initialCfg: ReconcileConf
       if (tier === 'private') {
         if (projectTier.get(projectId) !== 'private') authEpoch++;
         projectTier.set(projectId, 'private');
-      } else if (!projectTier.has(projectId)) {
-        projectTier.set(projectId, tier);
+      } else if (projectTier.get(projectId) !== 'private') {
+        // Non-private tiers follow accepted observations in project-wide
+        // revision order (standard <-> shared); private is sticky and never
+        // downgraded. Below the governing revision: ignored. At it: may only
+        // tighten (standard -> shared), never loosen (U54r2).
+        const gov = tierRev.get(projectId);
+        const cur = projectTier.get(projectId);
+        if (gov === undefined || observedRev > gov) {
+          projectTier.set(projectId, tier);
+        } else if (observedRev === gov && tier === 'shared' && cur !== 'shared') {
+          projectTier.set(projectId, tier);
+        }
       }
+      if (observedRev > (tierRev.get(projectId) ?? -1)) tierRev.set(projectId, observedRev);
       const projTier = tierForProject(projectId, tier);
 
       // observedRev > knownRev: raise the slot and coalesce (B2, B3).
@@ -1449,6 +1505,7 @@ export function createReconciler(deps: ReconcilerDeps, initialCfg: ReconcileConf
       intervalDeadline = null;
       lastStart.clear();
       projectTier.clear();
+      tierRev.clear();
       for (const e of inFlight) {
         e.settled = true;
         safeAbort(e.controller);

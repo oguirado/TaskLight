@@ -89,7 +89,7 @@ describe("B1 structure", () => {
   });
 
   it("topbar: view-eyebrow = workspace name, h1.view-title = view title, view-sub carries vm.now", () => {
-    const titles: Record<ViewId, string> = { wall: "Wall", agenda: "Agenda", diary: "Diary", archive: "Archive" };
+    const titles: Record<ViewId, string> = { wall: "Wall", agenda: "Agenda", diary: "Diary", archive: "Archive", memory: "Memory" }; // A-U62b: ViewId gains "memory"
     for (const view of ALL_VIEWS) {
       const { host, handle } = mount(vm({ view }));
       const top = q(host, "header.topbar");

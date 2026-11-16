@@ -11,9 +11,12 @@ export function checkG10(rows: readonly LedgerRow[]): G10Result {
         const row: unknown = rows[i] as unknown;
         if (row === null || typeof row !== "object") continue;
         const rec = row as Record<string, unknown>;
-        if (rec["inference_source"] !== "IN_CLOUD") continue;
+        // U54: null/ON_DEVICE skip; IN_CLOUD keeps its code; any other
+        // value (external or unknown) under a device floor is flagged.
+        const src = rec["inference_source"];
+        if (src === null || src === "ON_DEVICE") continue;
         if (rec["floor"] === "ONLY_ON_DEVICE" || rec["effective"] === "ONLY_ON_DEVICE") {
-          violations.push({ row: i, code: "CLOUD_UNDER_DEVICE_FLOOR" });
+          violations.push({ row: i, code: src === "IN_CLOUD" ? "CLOUD_UNDER_DEVICE_FLOOR" : "NON_DEVICE_UNDER_DEVICE_FLOOR" });
         }
       } catch {
         continue;

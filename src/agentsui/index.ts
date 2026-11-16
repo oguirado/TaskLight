@@ -6,6 +6,8 @@ const SOURCE_NOTES: Record<string, string> = {
   device: "Reviewed by Gemini Nano on this device",
   cloud: "Reviewed by Gemini in the cloud",
   rules: "Reviewed by rules",
+  local: "Reviewed by your local model",
+  remote: "Reviewed by your network model",
 };
 
 function asRecord(v: unknown): Record<string, unknown> {
@@ -244,7 +246,7 @@ export function mountAgentChat(
         }
         const src = asStr(d.source);
         let sourceText = "";
-        if (src === "device" || src === "cloud" || src === "rules") sourceText = SOURCE_NOTES[src] ?? "";
+        if (src === "device" || src === "cloud" || src === "rules" || src === "local" || src === "remote") sourceText = SOURCE_NOTES[src] ?? "";
         const parts: Node[] = [driftReason];
         if (added.length > 0) parts.push(driftAdded);
         if (removed.length > 0) parts.push(driftRemoved);

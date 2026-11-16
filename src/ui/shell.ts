@@ -8,6 +8,7 @@ import { createAnnouncer } from "./announcer";
 import { createKeyboardNav } from "./keyboard";
 import { createOnboarding } from "./onboarding";
 import { getLens } from "../lens";
+import { chipLabel } from "./model_selector";
 
 function el<K extends "div" | "span" | "p" | "button">(tag: K): HTMLElementTagNameMap[K] {
   return document.createElement(tag);
@@ -154,16 +155,10 @@ export function createWallUi(o: UiOptions): WallUi {
     }
   }
 
+  /** U51: the chip names the answering source (card.source), never the selection. */
   function badgeFor(c: CapsuleCardView): string {
-    if (c.tier === "private") {
-      if ((lastView?.privateAvailable ?? false) === false) return "Private: unavailable";
-      if (c.source === "IN_CLOUD") return "";
-      if (c.source === "ON_DEVICE") return "On device";
-      return "";
-    }
-    if (c.source === "IN_CLOUD") return "Cloud";
-    if (c.source === "ON_DEVICE") return "On device";
-    return "";
+    if (c.tier === "private" && (lastView?.privateAvailable ?? false) === false) return "Private: unavailable";
+    return chipLabel(c.source, c.tier);
   }
 
   function refreshBadges(): void {

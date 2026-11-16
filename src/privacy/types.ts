@@ -21,3 +21,21 @@ export type ScreenshotGate =
 
 export type AssertModeAllowed = (task: TaskId, tier: PrivacyTier, mode: ModeName) => PolicyResult;
 export type AssertSourceAllowed = (mode: ModeName, source: InferenceSource) => PolicyResult;
+
+// SPEC_U46 section 2: frozen provider-gate contract (behaviour in policy.ts).
+export type ProviderKind =
+  | "firebase-hybrid" | "firebase-ondevice" | "firebase-cloud"
+  | "local-openai-compatible" | "remote-openai-compatible";
+export interface ProviderGateOpts {
+  readonly loopback: boolean;
+  readonly allowPrivate: boolean;
+  readonly endpointEnabled: boolean;
+}
+export type ProviderViolation =
+  | "PROVIDER_KIND_UNKNOWN"
+  | "CLOUD_PROVIDER_FOR_PRIVATE" | "CLOUD_PROVIDER_FOR_SCREENSHOT"
+  | "LOCAL_FOR_SCREENSHOT" | "LOCAL_NOT_LOOPBACK" | "LOCAL_PRIVATE_NOT_ALLOWED" | "LOCAL_ENDPOINT_DISABLED"
+  | "REMOTE_FOR_SCREENSHOT" | "REMOTE_FOR_PRIVATE" | "REMOTE_FOR_SHARED" | "REMOTE_ENDPOINT_DISABLED";
+export type ProviderPolicyResult = { ok: true } | { ok: false; violation: ProviderViolation };
+export type AssertProviderAllowed =
+  (task: TaskId, tier: PrivacyTier, kind: ProviderKind, opts: ProviderGateOpts) => ProviderPolicyResult;

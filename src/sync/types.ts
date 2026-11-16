@@ -8,13 +8,14 @@ export interface PrivacyPorts {          // U19 syncProjection / guardSyncWrite
 }
 export interface DigestIn {               // subset of U17 DigestRecord
   revVector: Readonly<Record<string, number>>; needs_you: readonly { projectId: string }[];
-  brief: string; origin: "ON_DEVICE" | "IN_CLOUD" | "LOCAL_RULES"; prompt_version: string; builtAt: number;
+  brief: string; origin: "ON_DEVICE" | "IN_CLOUD" | "LOCAL_SERVER" | "REMOTE_PROVIDER" | "LOCAL_RULES"; prompt_version: string; builtAt: number;
 }
 export interface LedgerRemote {           // U19 port
   applyDeltas(dayKey: string, deltas: Readonly<Record<string, Readonly<Record<string, number>>>>): Promise<void>;
 }
 export type RefuseCode = "LOCAL_ONLY" | "NO_META" | "GUARD_REJECT" | "STATUS_NOT_SYNCABLE" | "OUTBOX_FULL"
-  | "ID_COLLISION" | "DIGEST_LOCAL_ORIGIN" | "DIGEST_HAS_PRIVATE" | "DIGEST_OVERSIZE";
+  | "ID_COLLISION" | "DIGEST_LOCAL_ORIGIN" | "DIGEST_HAS_PRIVATE" | "DIGEST_OVERSIZE"
+  | "DIGEST_BAD_ORIGIN" | "DIGEST_REMOTE_SHARED";
 export type Ack = { ok: true; outcome: "queued" | "coalesced" } | { ok: false; code: RefuseCode };
 export interface SyncStatus {
   state: "local_only" | "pending" | "synced";     // = U19 PanelModel.syncState

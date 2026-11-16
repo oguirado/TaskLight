@@ -23,6 +23,7 @@ ROOM_LIMITS = {
 }
 
 _RID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
+_OP_MAX_DEPTH = 32
 
 
 def _is_int(v):
@@ -99,9 +100,96 @@ def _redact_str(s):
         _again, residue_count, _classes2 = redact(redacted)
     except Exception:
         return None
-    if residue_count:
+    if not isinstance(_again, str):
+        return None
+    if residue_count != 0:
         return None
     return redacted
+
+
+def _sanitize_op(op):
+    try:
+        if not isinstance(op, dict):
+            return None
+        new_root = {}
+        stack = [[op, new_root, 1, iter(list(op.items()))]]
+        while stack:
+            frame = stack[-1]
+            old = frame[0]
+            new = frame[1]
+            depth = frame[2]
+            it = frame[3]
+            try:
+                item = next(it)
+            except StopIteration:
+                stack.pop()
+                continue
+            if isinstance(old, dict):
+                k, v = item
+                if not isinstance(k, str):
+                    return None
+                rk = _redact_str(k)
+                if rk is None:
+                    return None
+                if rk in new:
+                    return None
+                if isinstance(v, dict) or isinstance(v, list):
+                    if depth + 1 > _OP_MAX_DEPTH:
+                        return None
+                    if isinstance(v, dict):
+                        new_child = {}
+                        new[rk] = new_child
+                        stack.append([v, new_child, depth + 1, iter(list(v.items()))])
+                    else:
+                        new_child = []
+                        new[rk] = new_child
+                        stack.append([v, new_child, depth + 1, iter(list(v))])
+                elif isinstance(v, str):
+                    rv = _redact_str(v)
+                    if rv is None:
+                        return None
+                    new[rk] = rv
+                elif v is None or isinstance(v, bool):
+                    new[rk] = v
+                elif isinstance(v, int):
+                    new[rk] = v
+                elif isinstance(v, float):
+                    if not math.isfinite(v):
+                        return None
+                    new[rk] = v
+                else:
+                    return None
+            else:
+                v = item
+                if isinstance(v, dict) or isinstance(v, list):
+                    if depth + 1 > _OP_MAX_DEPTH:
+                        return None
+                    if isinstance(v, dict):
+                        new_child = {}
+                        new.append(new_child)
+                        stack.append([v, new_child, depth + 1, iter(list(v.items()))])
+                    else:
+                        new_child = []
+                        new.append(new_child)
+                        stack.append([v, new_child, depth + 1, iter(list(v))])
+                elif isinstance(v, str):
+                    rv = _redact_str(v)
+                    if rv is None:
+                        return None
+                    new.append(rv)
+                elif v is None or isinstance(v, bool):
+                    new.append(v)
+                elif isinstance(v, int):
+                    new.append(v)
+                elif isinstance(v, float):
+                    if not math.isfinite(v):
+                        return None
+                    new.append(v)
+                else:
+                    return None
+        return new_root
+    except Exception:
+        return None
 
 
 def sanitize_event(ev):
@@ -153,6 +241,18 @@ def sanitize_event(ev):
                 if v is None:
                     return None
                 item["path"] = v
+    op_present = "op" in out
+    op_val = out.get("op")
+    if out.get("act") == "op":
+        if not isinstance(op_val, dict):
+            return None
+    elif op_present and op_val is not None and not isinstance(op_val, dict):
+        return None
+    if isinstance(op_val, dict):
+        redacted_op = _sanitize_op(op_val)
+        if redacted_op is None:
+            return None
+        out["op"] = redacted_op
     return out
 
 

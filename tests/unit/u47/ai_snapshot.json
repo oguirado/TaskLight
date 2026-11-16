@@ -1,0 +1,12 @@
+{
+  "root": "src/ai",
+  "algo": "sha256",
+  "files": {
+    "config.ts": "dd0758cbd264a643c261b1c12d9b0394b5af63cd031918033851297a0c9e2a4e",
+    "firebase.ts": "64838cc978166e29eb7dcb8afd7825df30879c07293d4ff70c48cd7cc40df4e2",
+    "hybrid.ts": "531b9a40d92f5148eaf74cee52d4b7197511ac6ec0aca4eae4e42e80b4ffa437",
+    "index.ts": "ca72216db3e20639552fd8c61cd7db8c349e196a4afd885b45b3885174d6a409",
+    "parity.ts": "7018c617ac1f3c187162dd7e9288e15c7f6a16a69fc5823f5901ac9a4a0cdb08",
+    "types.ts": "f67eca0f88d98c3cf38be73aa44228925b30a954bf1635339a8f8d1c4589b71e"
+  }
+}

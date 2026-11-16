@@ -1,0 +1,247 @@
+/* U51 Models sheet and source chips. Existing tokens only (styles/tokens.css); no colour literals, no assets. */
+
+/* Status-line trigger: the model line becomes a button when the sheet is wired. */
+button.status-line {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--c-text-2);
+  text-align: start;
+  cursor: pointer;
+  border-radius: var(--r-1);
+}
+button.status-line:hover .status-text {
+  color: var(--c-text-1);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+button.status-line:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
+/* Sheet: drawer pattern (agents.css .chat-drawer), bottom sheet by default, right panel on wide screens. */
+.model-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 41;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: var(--sp-5) var(--sp-4) var(--sp-4);
+  background: var(--c-surface-1);
+  color: var(--c-text-1);
+  border-top: 1px solid var(--c-line);
+  border-radius: var(--r-3) var(--r-3) 0 0;
+  box-shadow: var(--e-2);
+  font-family: var(--font-ui);
+  font-size: var(--fs-1);
+  line-height: var(--lh-body);
+}
+/* Closed state is data-open="false" (not [hidden]): the sheet stays queryable and its controls are never "hidden" in the DOM. */
+.model-sheet[data-open="false"] {
+  display: none;
+}
+@media (min-width: 1100px) {
+  .model-sheet {
+    top: 0;
+    bottom: 0;
+    right: 0;
+    left: auto;
+    width: min(420px, 100vw);
+    max-height: 100vh;
+    border-top: none;
+    border-left: 1px solid var(--c-line);
+    border-radius: 0;
+  }
+}
+
+.model-sheet-title {
+  margin: 0;
+  font-size: var(--fs-3);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-tight);
+}
+
+.model-sheet-scope {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.model-sheet-scope-label {
+  color: var(--c-text-2);
+  font-size: var(--fs-0);
+  font-weight: var(--fw-medium);
+}
+.model-sheet-scope-select {
+  min-height: var(--touch);
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--r-2);
+  background: var(--c-surface-2);
+  color: var(--c-text-1);
+  font: inherit;
+}
+
+.model-sheet-groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+.model-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.model-group-title {
+  margin: 0;
+  font-size: var(--fs-1);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-snug);
+}
+.model-group-note {
+  margin: 0;
+  color: var(--c-text-2);
+  font-size: var(--fs-0);
+  line-height: var(--lh-snug);
+}
+.model-rows {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-2);
+  background: var(--c-surface-2);
+}
+
+/* Row: radio + status dot + plain-text name; state copy below. */
+.model-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sp-2) var(--sp-3);
+  border-top: 1px solid var(--c-line-soft);
+}
+.model-row:first-child {
+  border-top: none;
+}
+.model-row-main {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--touch);
+  cursor: pointer;
+}
+.model-row-radio {
+  flex: none;
+  margin: 0;
+  accent-color: var(--c-accent);
+}
+.model-row-radio:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+.model-row-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.model-row-tag {
+  flex: none;
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--c-primary-line);
+  border-radius: var(--r-pill);
+  background: var(--c-primary-tint);
+  color: var(--c-primary);
+  font-size: var(--fs-0);
+  font-weight: var(--fw-medium);
+}
+.model-row-state {
+  padding-left: calc(var(--sp-2) * 2 + 20px);
+  color: var(--c-text-2);
+  font-size: var(--fs-0);
+  line-height: var(--lh-snug);
+}
+
+/* Health dots: same tokens as views.css .status-line rules. */
+.model-row .status-dot {
+  margin-top: 0;
+}
+.model-row[data-health="available"] .status-dot {
+  background: var(--c-st-done);
+}
+.model-row[data-health="needs_setup"] .status-dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--c-text-3);
+}
+.model-row[data-health="offline"] .status-dot {
+  background: var(--c-st-waiting);
+}
+.model-row[data-health="blocked"] .status-dot {
+  display: none;
+}
+.model-row[data-health="blocked"],
+.model-row[data-health="blocked"] .model-row-state {
+  color: var(--c-text-3);
+}
+.model-row[data-health="blocked"] .model-row-main,
+.model-row[data-health="needs_setup"] .model-row-main {
+  cursor: default;
+}
+
+.model-sheet-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--c-line);
+}
+.model-sheet-foot button {
+  min-height: var(--touch);
+  padding: 0 var(--sp-4);
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--r-2);
+  background: var(--c-surface-1);
+  color: var(--c-text-1);
+  font: inherit;
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+}
+.model-sheet-foot button:hover {
+  background: var(--c-hover);
+}
+.model-sheet-foot .model-sheet-reset {
+  border-color: var(--c-primary-line);
+  color: var(--c-primary);
+}
+.model-sheet-foot .model-sheet-close {
+  margin-left: auto;
+}
+.model-sheet :focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
+/* Source chips for external providers (views.css owns device/cloud). */
+.source[data-source="local"] {
+  border-color: var(--c-line);
+  background: var(--c-surface-2);
+  color: var(--c-text-2);
+}
+.source[data-source="remote"] {
+  border-color: var(--c-line);
+  border-style: dashed;
+  background: var(--c-surface-2);
+  color: var(--c-text-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .model-sheet {
+    transition: none;
+  }
+}

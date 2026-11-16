@@ -1,8 +1,10 @@
 // Bootstrap: wires createServiceWorker + createAgentRelay on an injected chrome-like object.
 import type { ChromeLike, ChromePortLike } from "./chrome_ports";
-import { manifestExternalMatches } from "./chrome_ports";
+import { createLocalStore, manifestExternalMatches } from "./chrome_ports";
 import { createAgentRelay } from "./agent_relay";
 import type { AgentRelay } from "./agent_relay";
+import { createModelRelay } from "./model_relay";
+import type { ModelRelay } from "./model_relay";
 import type { Clock, ExternalPortGate } from "./types";
 import { createServiceWorker } from "./sw";
 import type { ServiceWorker } from "./sw";
@@ -14,7 +16,7 @@ export interface SwMainDeps {
   nativeHostName?: string;
   maxFrameChars?: number;
 }
-export interface SwMain { sw: ServiceWorker; agent: AgentRelay }
+export interface SwMain { sw: ServiceWorker; agent: AgentRelay; models: ModelRelay }
 
 const DEFAULT_NATIVE_HOST = "com.contextwall.bridge";
 const DEFAULT_MAX_FRAME_CHARS = 65536;
@@ -36,6 +38,7 @@ export async function startSwMain(d: SwMainDeps): Promise<SwMain> {
   const maxFrameChars = d.maxFrameChars ?? DEFAULT_MAX_FRAME_CHARS;
   const hooked = new WeakSet<ChromePortLike>();
   let agent: AgentRelay;
+  let models: ModelRelay;
   const sw = createServiceWorker({
     chrome: d.chrome,
     clock,
@@ -47,14 +50,18 @@ export async function startSwMain(d: SwMainDeps): Promise<SwMain> {
         hooked.add(port);
         port.onDisconnect.addListener(() => {
           agent.onPortClosed(port);
+          models.onPortClosed(port);
         });
       }
-      agent.onPortMessage(port, msg);
+      const t = typeof msg === "object" && msg !== null ? (msg as { t?: unknown }).t : undefined;
+      if (typeof t === "string" && t.startsWith("model_")) models.onPortMessage(port, msg);
+      else agent.onPortMessage(port, msg);
     },
   });
   agent = createAgentRelay({ native: sw.relay, clock });
+  models = createModelRelay({ native: sw.relay, clock, store: createLocalStore(d.chrome) });
   await sw.start();
-  return { sw, agent };
+  return { sw, agent, models };
 }
 
 /**

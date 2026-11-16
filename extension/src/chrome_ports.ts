@@ -55,3 +55,16 @@ export function createSessionStore(c: ChromeLike): SessionStore {
     },
   };
 }
+
+/** SessionStore bound to storage.local (U49: model selection ids only). Key -> {[key]: value}. */
+export function createLocalStore(c: ChromeLike): SessionStore {
+  return {
+    async get(key: string): Promise<unknown> {
+      const rec = await c.storage.local.get(key);
+      return rec[key];
+    },
+    async set(key: string, value: unknown): Promise<void> {
+      await c.storage.local.set({ [key]: value });
+    },
+  };
+}

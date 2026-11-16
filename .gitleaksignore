@@ -1,0 +1,5 @@
+# Planted test fixtures (fake values used by redaction/secret-handling tests). Not real credentials.
+c28aa27464ac43b3ccdead6a6e201e6fdb4e157c:bridge/tests/viewpoint/support.py:generic-api-key:7
+c28aa27464ac43b3ccdead6a6e201e6fdb4e157c:tests/unit/u08/helpers.ts:generic-api-key:8
+c28aa27464ac43b3ccdead6a6e201e6fdb4e157c:tests/unit/u08/helpers.ts:jwt:13
+c28aa27464ac43b3ccdead6a6e201e6fdb4e157c:tests/unit/u22/harness.ts:generic-api-key:9

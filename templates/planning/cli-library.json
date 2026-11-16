@@ -1,0 +1,142 @@
+{
+  "v": 1,
+  "id": "cli-library",
+  "name": "CLI Tool or Library",
+  "summary": "Plan a command-line tool or reusable library from public interface design through implementation, testing, documentation, and packaged release.",
+  "lens_id": "dev",
+  "brief_fields": [
+    {
+      "id": "target-audience",
+      "label": "Target Users and Runtime",
+      "required": true
+    },
+    {
+      "id": "public-interface",
+      "label": "Core Commands or Exported API",
+      "required": true
+    },
+    {
+      "id": "compatibility-target",
+      "label": "Supported Platforms and Versions",
+      "required": true
+    },
+    {
+      "id": "constraints",
+      "label": "Dependencies and Size Limits",
+      "required": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "api-design",
+      "label": "API Design",
+      "exit": "Public flags, signatures, error codes, and stability rules are documented and agreed."
+    },
+    {
+      "id": "implementation",
+      "label": "Implementation",
+      "exit": "Core logic and public entry points handle expected inputs and failure paths cleanly."
+    },
+    {
+      "id": "tests",
+      "label": "Tests",
+      "exit": "Unit, integration, and edge-case suites pass across all supported environments."
+    },
+    {
+      "id": "docs",
+      "label": "Documentation",
+      "exit": "Usage guide, reference entries, and examples match the implemented behavior."
+    },
+    {
+      "id": "packaging-release",
+      "label": "Packaging and Release",
+      "exit": "Versioned artifact builds reproducibly, installs cleanly, and passes smoke checks."
+    }
+  ],
+  "task_types": [
+    {
+      "id": "api-surface",
+      "label": "API Surface",
+      "accept_required": true,
+      "evidence_required": true,
+      "micro_hints": [
+        "Define command arguments, option defaults, and exit codes in the spec",
+        "Verify exported function signatures and return types against the contract",
+        "Confirm invalid inputs produce structured error messages without side effects"
+      ]
+    },
+    {
+      "id": "core-logic",
+      "label": "Core Logic",
+      "accept_required": true,
+      "evidence_required": true,
+      "micro_hints": [
+        "Implement the primary processing path with deterministic output",
+        "Handle boundary values, empty inputs, and failure states explicitly",
+        "Confirm resource cleanup runs on both normal exit and error paths"
+      ]
+    },
+    {
+      "id": "test",
+      "label": "Test",
+      "accept_required": true,
+      "evidence_required": true,
+      "micro_hints": [
+        "Write unit tests covering expected outputs and error cases with zero skips",
+        "Run integration checks against the compiled binary or imported module",
+        "Verify backward compatibility fixtures pass without output regression"
+      ]
+    },
+    {
+      "id": "docs",
+      "label": "Docs",
+      "accept_required": true,
+      "evidence_required": false,
+      "micro_hints": [
+        "Document installation steps and minimal runnable usage examples",
+        "Verify help output and reference pages list every public flag and option",
+        "Confirm changelog notes all breaking changes and migration steps"
+      ]
+    },
+    {
+      "id": "release",
+      "label": "Release",
+      "accept_required": true,
+      "evidence_required": true,
+      "micro_hints": [
+        "Bump the semantic version number and verify package metadata",
+        "Build the distributable archive and verify its checksum",
+        "Install the built package in a clean environment and pass a smoke test"
+      ]
+    }
+  ],
+  "granularity": {
+    "tasks_max": 30,
+    "micro_min": 2,
+    "micro_max": 6,
+    "rule": "Keep each microtask to one small change with a single verifiable outcome and clear acceptance criteria."
+  },
+  "memory_sections": [
+    {
+      "id": "public-api-contract",
+      "label": "Public API Contract",
+      "required": true,
+      "max_chars": 2000,
+      "hint": "Record stable commands, flags, exported symbols, exit codes, and error formats."
+    },
+    {
+      "id": "compatibility-policy",
+      "label": "Compatibility Policy",
+      "required": true,
+      "max_chars": 1500,
+      "hint": "Document versioning rules, deprecation windows, and supported runtime versions."
+    },
+    {
+      "id": "decisions",
+      "label": "Decisions",
+      "required": true,
+      "max_chars": 2000,
+      "hint": "Log key design trade-offs, rejected alternatives, and rationale."
+    }
+  ]
+}

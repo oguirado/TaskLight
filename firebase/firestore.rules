@@ -33,7 +33,7 @@ service cloud.firestore {
           : (request.resource.data.keys().hasOnly(['rev', 'observed_rev', 'status', 'headline', 'summary', 'next_action', 'attention', 'inference_source', 'updated_at', 'writer_uid'])
              && request.resource.data.keys().hasAll(['rev', 'status', 'writer_uid'])
              && (!('inference_source' in request.resource.data)
-                 || request.resource.data.inference_source in ['ON_DEVICE', 'IN_CLOUD'])
+                 || request.resource.data.inference_source in ['ON_DEVICE', 'IN_CLOUD', 'LOCAL_SERVER', 'REMOTE_PROVIDER'])
              && (request.resource.data.get('headline', '') is string)
              && request.resource.data.get('headline', '').size() <= 120
              && (request.resource.data.get('summary', '') is string)
@@ -51,7 +51,7 @@ service cloud.firestore {
       return request.resource != null
         && request.resource.data.keys().hasOnly(['rev_vector', 'needs_you', 'brief', 'inference_source', 'created_at'])
         && request.resource.data.keys().hasAll(['rev_vector', 'needs_you', 'brief', 'inference_source', 'created_at'])
-        && request.resource.data.inference_source in ['ON_DEVICE', 'IN_CLOUD']
+        && request.resource.data.inference_source in ['ON_DEVICE', 'IN_CLOUD', 'LOCAL_SERVER', 'REMOTE_PROVIDER']
         && (request.resource.data.brief is string)
         && request.resource.data.brief.size() <= 600;
     }

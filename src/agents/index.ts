@@ -2,6 +2,7 @@ import type { AccentVM, TaskVM } from "../views/types";
 import type {
   AgentState,
   Contract,
+  DriftSource,
   DriftVerdict,
   FoldRoomResult,
   PlanDiff,
@@ -552,14 +553,14 @@ export function buildDriftPrompt(
 /* ------------------------------------------------------------------ */
 
 export interface DriftPort {
-  generate(prompt: string, schema: object, signal: AbortSignal): Promise<{ text: string; source: "device" | "cloud" }>;
+  generate(prompt: string, schema: object, signal: AbortSignal): Promise<{ text: string; source: DriftSource }>;
 }
 
 export async function reviewDrift(
   port: DriftPort,
   prev: Contract,
   next: Contract,
-  opts?: { timeoutMs?: number },
+  opts?: { timeoutMs?: number; allowExternal?: boolean },
 ): Promise<DriftVerdict> {
   const diff = diffPlans(prev, next);
   const { prompt, schema } = buildDriftPrompt(prev, next, diff);
@@ -595,7 +596,14 @@ export async function reviewDrift(
     if (raced.timedOut) return fallback();
     const r = raced.r as unknown;
     if (!isRecord(r) || !isStr(r["text"])) return fallback();
-    if (r["source"] !== "device" && r["source"] !== "cloud") return fallback();
+    // U54: device/cloud unchanged; local/remote only with an explicit
+    // allowExternal === true; anything else falls back to rules.
+    const src = r["source"];
+    if (src === "local" || src === "remote") {
+      if (opts?.allowExternal !== true) return fallback();
+    } else if (src !== "device" && src !== "cloud") {
+      return fallback();
+    }
     let parsed: unknown;
     try {
       parsed = JSON.parse(r["text"]);
@@ -607,7 +615,7 @@ export async function reviewDrift(
     const reason = parsed["reason"];
     if (!isStr(verdict) || !VERDICTS.has(verdict)) return fallback();
     if (!isStr(reason) || reason.length > 140) return fallback();
-    return { verdict: verdict as DriftVerdict["verdict"], reason, source: r["source"] as "device" | "cloud" };
+    return { verdict: verdict as DriftVerdict["verdict"], reason, source: src as DriftSource };
   } catch {
     return fallback();
   } finally {

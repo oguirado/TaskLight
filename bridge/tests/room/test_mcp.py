@@ -15,9 +15,9 @@ class Handshake(McpCase):
         self.assertEqual(r["jsonrpc"], "2.0")
         self.assertEqual(r["id"], 41)
         res = r["result"]
-        self.assertEqual(res["serverInfo"]["name"], "context-wall")
+        self.assertEqual(res["serverInfo"]["name"], "tasklight")  # A-U57a (R16/Q3 rename)
         self.assertIsInstance(res["serverInfo"]["version"], str)
-        self.assertEqual(res["capabilities"], {"tools": {}})
+        self.assertEqual(res["capabilities"], {"tools": {}, "resources": {}, "prompts": {}})  # A-U57a (MCP v2)
 
     def test_initialized_notification_gets_no_reply(self):
         c = self.client()
@@ -32,10 +32,11 @@ class Handshake(McpCase):
         c = self.client()
         c.initialize()
         tools = c.request("tools/list")["result"]["tools"]
-        self.assertEqual({t["name"] for t in tools}, TOOLS)
-        self.assertEqual(len(tools), 6)  # A-U43
+        # A-U57b: MCP v2 keeps the 6 legacy tools first (byte-identical) and adds 14 planning/memory tools.
+        self.assertEqual({t["name"] for t in tools[:6]}, TOOLS)
+        self.assertEqual(len(tools), 20)
         by = {t["name"]: t for t in tools}
-        for t in tools:
+        for t in tools[:6]:  # A-U57b: legacy contract applies to the 6 legacy tools
             self.assertIsInstance(t.get("description"), str)
             sch = t["inputSchema"]
             self.assertEqual(sch["type"], "object")

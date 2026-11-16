@@ -1,0 +1,78 @@
+{
+  "v": 1,
+  "id": "blank",
+  "name": "Blank Project",
+  "summary": "Minimal generic planning template for any project or domain.",
+  "lens_id": "dev",
+  "brief_fields": [
+    {
+      "id": "goal",
+      "label": "Project goal",
+      "required": true
+    },
+    {
+      "id": "scope",
+      "label": "Scope and boundaries",
+      "required": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "plan",
+      "label": "Plan",
+      "exit": "Goal, scope, and initial tasks are defined."
+    },
+    {
+      "id": "execute",
+      "label": "Execute",
+      "exit": "All planned tasks and acceptance checks are complete."
+    },
+    {
+      "id": "review",
+      "label": "Review",
+      "exit": "Final outcomes and evidence are verified and recorded."
+    }
+  ],
+  "task_types": [
+    {
+      "id": "task",
+      "label": "General task",
+      "accept_required": true,
+      "evidence_required": false,
+      "micro_hints": [
+        "Produce the target draft or artifact for review",
+        "Verify the output against the acceptance criteria",
+        "Record the final outcome and any follow-up notes"
+      ]
+    }
+  ],
+  "granularity": {
+    "tasks_max": 20,
+    "micro_min": 1,
+    "micro_max": 6,
+    "rule": "Each microtask must state a single verifiable outcome."
+  },
+  "memory_sections": [
+    {
+      "id": "goal",
+      "label": "Goal",
+      "required": true,
+      "max_chars": 500,
+      "hint": "State the main objective and definition of done."
+    },
+    {
+      "id": "decisions",
+      "label": "Decisions",
+      "required": false,
+      "max_chars": 800,
+      "hint": "Log key choices made and the reasons behind them."
+    },
+    {
+      "id": "constraints",
+      "label": "Constraints",
+      "required": false,
+      "max_chars": 600,
+      "hint": "List deadlines, limits, and non-negotiable rules."
+    }
+  ]
+}

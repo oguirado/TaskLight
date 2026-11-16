@@ -63,3 +63,5 @@ Rejected / loosened:
 
 ## Amendment A1-U05v2 (orchestrator)
 SPEC_U05v2 adds keys to LIMITS; the v1 constants test now uses toMatchObject (the 8 v1 keys keep their exact values); v2 tests assert the new keys.
+
+A-U46: tests/unit/u05/schema.test.ts:30 expected INFERENCE_SOURCE widened to ["ON_DEVICE","IN_CLOUD","LOCAL_SERVER","REMOTE_PROVIDER"] (SPEC_U46 section 1); repair1.test.ts:42 needed no change (it asserts no source list).

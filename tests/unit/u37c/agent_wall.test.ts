@@ -52,7 +52,7 @@ afterEach(() => { wall?.destroy(); document.body.innerHTML = ""; });
 
 function start(over: Record<string, unknown> = {}): AgentWall {
   const store = { ingest: vi.fn(() => true), ingestJsonl: vi.fn(), since: () => ({}), states: () => states, events: () => [] };
-  wall = startAgentWall({ wallHost, chatHost, link: { post }, store, reviewer: { review }, clock, userAgent: "wall-user", ...over } as Parameters<typeof startAgentWall>[0]);
+  wall = startAgentWall({ wallHost, chatHost, link: { post }, store, reviewer: { review }, clock, userAgent: "wall-user", ...over } as unknown as Parameters<typeof startAgentWall>[0]); // A-U61a
   return wall;
 }
 const lastChatOpts = () => H.toChatVM.mock.calls.at(-1)![2] as { userAgent: string; nowMs: number; drift?: DriftVerdict; sending: boolean };

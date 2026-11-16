@@ -119,7 +119,9 @@ describe("B15 data-* from raw values", () => {
   it("unknown source kind: data-source is never an unsafe value; chip still renders", () => {
     const { host } = mount(withTasks([mkTask("a", { source: { kind: "Mars<3" as never, ms: 5 } })]));
     safeOrAbsent(q(host, "p.provenance span.source"), "data-source");
-    expect(txt(q(host, "p.provenance .source-ms"))).toBe("5 ms");
+    // A-U51: unknown kinds render as "Rules" with no latency (SPEC_U51 §4, U38 V3 source truth)
+    expect(txt(q(host, "p.provenance span.source"))).toContain("Rules");
+    expect(host.querySelector("p.provenance .source-ms")).toBeNull();
   });
 
   it("unknown step state: no throw, data-state never unsafe, no 'undefined' text", () => {

@@ -4,8 +4,8 @@
 import { mountAgentChat } from "../agentsui";
 import type { AgentChatHandlers, AgentChatHandle, AgentChatVM } from "../agentsui/types";
 import { mountWall } from "../views";
-import type { WallHandle } from "../views/types";
-import type { AgentState, DriftVerdict } from "../agents/types";
+import type { WallHandle, ViewId } from "../views/types";
+import type { AgentState, DriftVerdict, TemplateMemorySectionMeta } from "../agents/types";
 import { toChatVM, toWallVM } from "./agent_store";
 import type { AgentLink } from "./agent_link";
 import type { AgentStore } from "./agent_store";
@@ -22,6 +22,10 @@ export interface AgentWallDeps {
   userAgent: string;
   /** Escalation target agent; default "orchestrator". */
   orchestrator?: string | (() => string | undefined);
+  initialView?: ViewId;
+  planVerdicts?: ReadonlyMap<string, DriftVerdict> | (() => ReadonlyMap<string, DriftVerdict>);
+  planBriefs?: ReadonlyMap<string, { text: string; source: string }> | (() => ReadonlyMap<string, { text: string; source: string }>);
+  templateMemorySections?: (templateId: string) => readonly TemplateMemorySectionMeta[] | undefined;
 }
 export interface AgentWall {
   /** Re-reads the store and re-renders (call after store.ingest). */
@@ -29,6 +33,10 @@ export interface AgentWall {
   destroy(): void;
 }
 export const WALL_REFRESH_MS = 30_000 as const;
+
+function readPlanFeed<T>(feed: ReadonlyMap<string, T> | (() => ReadonlyMap<string, T>) | undefined): ReadonlyMap<string, T> | undefined {
+  try { return typeof feed === "function" ? feed() : feed; } catch { return undefined; }
+}
 
 const ESCALATE_TEXT = "Escalation: the user asks the orchestrator to step in.";
 
@@ -43,6 +51,10 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
   const reviewState = new Map<string, { gen: number; hash: string | undefined }>();
   let reviewGen = 0;
 
+  let currentView: ViewId = d.initialView ?? "wall";
+  let currentWorkspace: string | undefined = undefined;
+  let currentArchiveScope: "workspace" | "all" = "workspace";
+
   const verdictKey = (s: AgentState): string => `agent:${s.room}:${s.agent}`;
   // U42: the drawer is closed until the user opens a task (card click or its Chat button).
   // The chat follows the selected task; before any selection it follows the first agent.
@@ -54,11 +66,54 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
   const wallHandlers = {
     onOpenTask: (id: string): void => {
       if (destroyed) return;
-      const found = store.states().find((s) => s.agent !== userAgent && verdictKey(s) === id);
-      if (found === undefined) return;
-      selected = id;
-      drawerOpen = true;
-      render();
+      try {
+        const found = store.states().find((s) => s.agent !== userAgent && verdictKey(s) === id);
+        if (found === undefined) return;
+        selected = id;
+        drawerOpen = true;
+        render();
+      } catch { return; }
+    },
+    onView: (v: ViewId): void => {
+      if (destroyed) return;
+      try {
+        if (v === "wall" || v === "agenda" || v === "diary" || v === "archive" || v === "memory") {
+          currentView = v;
+          render();
+        }
+      } catch { return; }
+    },
+    onWorkspace: (id: string): void => {
+      if (destroyed) return;
+      try {
+        if (typeof id === "string" && id.length > 0) {
+          currentWorkspace = id;
+          render();
+        }
+      } catch { return; }
+    },
+    onArchiveScope: (s: "workspace" | "all"): void => {
+      if (destroyed) return;
+      try {
+        if (s === "workspace" || s === "all") {
+          currentArchiveScope = s;
+          render();
+        }
+      } catch { return; }
+    },
+    onSelectPhase: (phaseId: string): void => {
+      if (destroyed) return;
+      void phaseId;
+      try { render(); } catch { return; }
+    },
+    onToggleMicroDetail: (taskId: string, microIndex: number): void => {
+      if (destroyed) return;
+      void taskId; void microIndex;
+      try { render(); } catch { return; }
+    },
+    onThemeToggle: (): void => {
+      if (destroyed) return;
+      try { render(); } catch { return; }
     },
   };
 
@@ -72,12 +127,31 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
     if (destroyed) return;
     const states = store.states();
     const nowMs = clock.now();
+    let plans: import("./agent_store").PlanProjectionResult[] | undefined;
+    try {
+      const cand = (store as unknown as Record<string, unknown>)["plans"];
+      if (typeof cand === "function") plans = (store as AgentStore).plans();
+    } catch { plans = undefined; }
+    const planVerdicts = readPlanFeed(d.planVerdicts);
+    const planBriefs = readPlanFeed(d.planBriefs);
     const wallVm = toWallVM(states, verdicts, {
       nowMs,
       model: { state: "unavailable", label: "" },
       network: "online",
       userAgent,
-    });
+      view: currentView,
+      ...(currentWorkspace !== undefined ? { workspace: currentWorkspace } : {}),
+      archiveScope: currentArchiveScope,
+      ...(planVerdicts !== undefined ? { planVerdicts } : {}),
+      ...(planBriefs !== undefined ? { planBriefs } : {}),
+      ...(d.templateMemorySections !== undefined ? { templateMemorySections: d.templateMemorySections } : {}),
+    } as import("./agent_store").PlanWallOpts, plans);
+    // Preserve caller-requested workspace if the vm chose a different one but user explicitly selected
+    if (currentWorkspace !== undefined && wallVm.workspace !== currentWorkspace) {
+      try { (wallVm as unknown as Record<string, unknown>)["workspace"] = currentWorkspace; } catch { /* ignore */ }
+    }
+    try { (wallVm as unknown as Record<string, unknown>)["view"] = currentView; } catch { /* ignore */ }
+    try { (wallVm as unknown as Record<string, unknown>)["archiveScope"] = currentArchiveScope; } catch { /* ignore */ }
     if (wallHandle === null) {
       wallHandle = mountWall(wallHost, wallVm, wallHandlers);
     } else {
@@ -124,7 +198,7 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
 
   const resolveOrchestrator = (): string => {
     const o = d.orchestrator;
-    if (typeof o === "function") return o() ?? "orchestrator";
+    if (typeof o === "function") return (o as () => string | undefined)() ?? "orchestrator";
     if (typeof o === "string" && o.length > 0) return o;
     return "orchestrator";
   };

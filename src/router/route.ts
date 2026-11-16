@@ -1,6 +1,6 @@
 // U39 routing: sync stages 0-1 (routeText/routeEvent) + Nano fallback.
 import type { RoomEvent } from "../agents/types";
-import type { PrivacyTier } from "../schema/index";
+import type { InferenceSource, PrivacyTier } from "../schema/index";
 import type { ClassifierPort, RouteDecision, RouteTable } from "./types";
 import { MAX_TEXT, MIN_COVERAGE_PPM, MIN_MARGIN_PPM, NANO_TIMEOUT_MS, exactRoute, lexicalRank, marginPpm } from "./score";
 import { tokenize } from "./tokenize";
@@ -93,7 +93,7 @@ export function routeEvent(ev: RoomEvent, t?: RouteTable): RouteDecision {
   }
 }
 
-type PortValue = { text: string; source: "ON_DEVICE" | "IN_CLOUD" };
+type PortValue = { text: string; source: InferenceSource };
 
 function abstainLike(base: RouteDecision, reason: NonNullable<RouteDecision["reason"]>, stage?: RouteDecision["stage"]): RouteDecision {
   const out: RouteDecision = { status: "ABSTAIN", target: "inbox", reason, scorePpm: base.scorePpm, coveragePpm: base.coveragePpm, marginPpm: base.marginPpm, matched: base.matched, tableHash: base.tableHash };
@@ -172,13 +172,18 @@ export async function routeWithFallback(ev: RoomEvent, tier: PrivacyTier, port?:
     const rec = value as Record<string, unknown>;
     const txt = rec["text"];
     const src = rec["source"];
-    if (typeof txt !== "string" || (src !== "ON_DEVICE" && src !== "IN_CLOUD")) {
+    if (
+      typeof txt !== "string" ||
+      (src !== "ON_DEVICE" && src !== "IN_CLOUD" && src !== "LOCAL_SERVER" && src !== "REMOTE_PROVIDER")
+    ) {
       return abstainLike(base, "nano_unavailable", "nano");
     }
     const label = parseLabel(txt);
     if (label === null) return abstainLike(base, "nano_off_enum", "nano");
     if (label === "abstain") return abstainLike(base, "nano_abstain", "nano");
-    if (src === "IN_CLOUD" && mode === "ONLY_ON_DEVICE") return abstainLike(base, "privacy_cloud", "nano");
+    if (src !== "ON_DEVICE" && mode === "ONLY_ON_DEVICE") return abstainLike(base, "privacy_cloud", "nano");
+    // U54: REMOTE_PROVIDER is refused beyond the standard tier (fail-closed).
+    if (src === "REMOTE_PROVIDER" && tier !== "standard") return abstainLike(base, "privacy_cloud", "nano");
     const ok: RouteDecision = {
       status: "OK",
       target: label,

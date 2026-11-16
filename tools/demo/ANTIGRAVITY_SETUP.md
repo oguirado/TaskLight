@@ -32,22 +32,24 @@ Run `node tools/demo/run_tasklight.mjs --check` first. Its last row confirms tha
 
 Add the two entries under the MCP servers section of Antigravity 2. The JSON below shows only the shape; keep the key names your Antigravity version already uses for its existing entries.
 
+Substitute each `<path-to-...>` placeholder with the corresponding path on your machine.
+
 ```json
 {
   "mcpServers": {
     "context-wall": {
       "command": "python3",
       "args": ["-m", "bridge.room.mcp"],
-      "cwd": "/home/admin/Documentos/FireBase_BuildHybridAI/repo",
+      "cwd": "<path-to-TaskLight-repo>",
       "env": {
-        "PYTHONPATH": "/home/admin/Documentos/FireBase_BuildHybridAI/repo"
+        "PYTHONPATH": "<path-to-TaskLight-repo>"
       }
     },
     "viewpoint-agent": {
       "command": "python3",
-      "args": ["-I", "/home/admin/Documentos/ViewPoint/hackathon/vp_mcp/vp_mcp.py"],
+      "args": ["-I", "<path-to-vp_mcp.py>"],
       "env": {
-        "VP_MCP_SESSION": "/tmp/claude-1000/vparm64/vp_mcp_session.json"
+        "VP_MCP_SESSION": "<path-to-vp_mcp_session.json>"
       }
     }
   }

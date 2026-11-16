@@ -47,5 +47,5 @@ export interface PanelModel {
 export interface LedgerRow { jobKey: string; projectId: string; lens_id: LensId; task: LensTaskId;
   source: LensSource | null; tier: PrivacyTier; floor: LensMode | null; requested: LensMode;
   effective: LensMode; inference_source: InferenceSource | null; pack_hash?: string }
-export type G10Violation = "CLOUD_UNDER_DEVICE_FLOOR" | "TEXT_SYNCED_PRIVATE" | "TEXT_SYNCED_PAGE";
+export type G10Violation = "CLOUD_UNDER_DEVICE_FLOOR" | "NON_DEVICE_UNDER_DEVICE_FLOOR" | "TEXT_SYNCED_PRIVATE" | "TEXT_SYNCED_PAGE";
 export interface G10Result { ok: boolean; violations: { row: number; code: G10Violation }[] }

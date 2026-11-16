@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/schemas/planning-template.v1.schema.json",
+  "title": "Planning Template v1",
+  "description": "Neutral planning template envelope without domain-specific vocabulary.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["v", "id", "name", "summary", "brief_fields", "phases", "task_types", "granularity", "memory_sections"],
+  "properties": {
+    "v": {"const": 1},
+    "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,47}$"},
+    "name": {"type": "string", "maxLength": 40},
+    "summary": {"type": "string", "maxLength": 240},
+    "lens_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,47}$", "maxLength": 40},
+    "brief_fields": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "required"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,47}$"},
+          "label": {"type": "string", "maxLength": 60},
+          "required": {"type": "boolean"}
+        }
+      }
+    },
+    "phases": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "exit"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,47}$"},
+          "label": {"type": "string", "maxLength": 60},
+          "exit": {"type": "string", "maxLength": 160}
+        }
+      }
+    },
+    "task_types": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "accept_required", "evidence_required", "micro_hints"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,47}$"},
+          "label": {"type": "string", "maxLength": 60},
+          "accept_required": {"type": "boolean"},
+          "evidence_required": {"type": "boolean"},
+          "micro_hints": {"type": "array", "maxItems": 12, "items": {"type": "string", "maxLength": 80}}
+        }
+      }
+    },
+    "granularity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tasks_max", "micro_min", "micro_max", "rule"],
+      "properties": {
+        "tasks_max": {"type": "integer", "minimum": 1, "maximum": 40},
+        "micro_min": {"type": "integer", "minimum": 1, "maximum": 12},
+        "micro_max": {"type": "integer", "minimum": 1, "maximum": 12},
+        "rule": {"type": "string", "maxLength": 240}
+      }
+    },
+    "memory_sections": {
+      "type": "array",
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "required", "max_chars", "hint"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,47}$"},
+          "label": {"type": "string", "maxLength": 60},
+          "required": {"type": "boolean"},
+          "max_chars": {"type": "integer", "minimum": 1, "maximum": 2000},
+          "hint": {"type": "string", "maxLength": 160}
+        }
+      }
+    },
+    "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

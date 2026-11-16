@@ -63,3 +63,11 @@ export interface LiveConfig {
   onVisibility(visible: boolean): void;
   dispose(): void;
 }
+
+// U50 (Amendment W0-R) provider flags.
+export interface ProviderFlags {
+  external_providers_enabled: boolean;   // gate for every non-Firebase provider (local and remote)
+  remote_providers_enabled: boolean;     // additional gate for remote-openai-compatible only
+}
+export type ProviderFlagKey = keyof ProviderFlags;
+export interface ExternalProvidersPolicy { local: boolean; remote: boolean }

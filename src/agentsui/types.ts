@@ -19,7 +19,7 @@ export interface AgentChatVM {
     reason: string;
     added: readonly string[];
     removed: readonly string[];
-    source: "device" | "cloud" | "rules";
+    source: "device" | "cloud" | "local" | "remote" | "rules";
   };
   suggestion?: string;
   sending: boolean;

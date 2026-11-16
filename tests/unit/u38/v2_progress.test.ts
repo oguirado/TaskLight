@@ -32,7 +32,7 @@ describe("V2 progress bar", () => {
   });
   it("hosted cascade: the progress track keeps the token track colour (wall.css [role=progressbar] must not paint it)", () => {
     const sheets = hostedRules();
-    expect(sheets.length, "no hosted stylesheets (G4)").toBe(4);
+    expect(sheets.length, "no hosted stylesheets (G4)").toBeGreaterThanOrEqual(4); // A-U52c: U52 adds model_selector.css, U64 adds plan.css
     const h = mountFor(3, 0);
     const bg = winning(track(h) as HTMLElement, "background-color", sheets);
     expect(bg).toBeDefined();

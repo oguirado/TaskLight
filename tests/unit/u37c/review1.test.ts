@@ -183,7 +183,7 @@ describe("review1 #3: agent_wall ignores stale drift results", () => {
       ? new Promise<DriftVerdict>((res) => { gates.set(s.contract!.hash, res); })
       : Promise.resolve(OK)));
     const store = { ingest: vi.fn(() => true), ingestJsonl: vi.fn(), since: () => ({}), states: () => states, events: () => [] };
-    wall = startAgentWall({ wallHost, chatHost, link: { post: vi.fn(async () => ({ ok: true as const, id: idOf(1), lamport: 1 })) }, store, reviewer: { review }, clock, userAgent: "wall-user" } as Parameters<typeof startAgentWall>[0]);
+    wall = startAgentWall({ wallHost, chatHost, link: { post: vi.fn(async () => ({ ok: true as const, id: idOf(1), lamport: 1 })) }, store, reviewer: { review }, clock, userAgent: "wall-user" } as unknown as Parameters<typeof startAgentWall>[0]); // A-U61a
   });
   afterEach(() => { wall?.destroy(); document.body.innerHTML = ""; });
   const chatDrift = () => (H.toChatVM.mock.calls.at(-1)![2] as { drift?: DriftVerdict }).drift;

@@ -2,7 +2,8 @@
 export type CapsulePatch = Readonly<Record<string, unknown>>;
 
 export type InferenceMode = 'PREFER_ON_DEVICE' | 'ONLY_ON_DEVICE' | 'PREFER_IN_CLOUD' | 'ONLY_IN_CLOUD';
-export type InferenceSource = 'ON_DEVICE' | 'IN_CLOUD';
+export type InferenceSource = 'ON_DEVICE' | 'IN_CLOUD' | 'LOCAL_SERVER' | 'REMOTE_PROVIDER';
+export type ExternalLedgerCounter = 'local_server' | 'remote_provider';
 export type CapsuleTask = 'status' | 'summary' | 'next_action' | 'screenshot';
 export type PrivacyTier = 'private' | 'standard' | 'shared';
 export type Lane = 'on_device' | 'cloud';
@@ -86,7 +87,7 @@ export interface Clock {
   now(): number;
   setTimer(ms: number, fn: () => void): () => void;
 }
-export interface LedgerPort { inc(c: LedgerCounter): void; }
+export interface LedgerPort { inc(c: LedgerCounter): void; incExternal?(c: ExternalLedgerCounter): void; }
 
 export interface ReconcilerDeps {
   readonly infer: InferencePort;

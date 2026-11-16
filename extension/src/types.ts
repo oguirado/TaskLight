@@ -71,3 +71,33 @@ export type PortMsg =
   | { t: "ping"; v: 1 } | { t: "pong"; v: 1 };
 export interface ExternalPortGate { allowedOrigins: readonly string[] }
 export interface NativeRelayCfg { hostName: string; maxFrameChars: number }
+
+// ---- U49 (SPEC_U49): model_* passthrough frames. Types and constants are final; functions elsewhere throw. ----
+export const MODEL_RELAY_LIMITS = {
+  FRAME_MAX_BYTES: 65536, QUEUE_MAX: 8, MESSAGES_MAX: 32, MAX_TOKENS_MAX: 8192, SLACK_MS: 2000,
+  LIST_MS: 2000, PROBE_MS: 3500, LOCAL_GENERATE_MS: 32000, REMOTE_GENERATE_MS: 62000,
+} as const;
+export type ModelNackCode =
+  | "unknown_endpoint" | "needs_setup" | "policy" | "busy" | "too_large" | "not_loopback" | "redirect" | "timeout"
+  | "offline" | "auth" | "rate_limited" | "rung_unsupported" | "http_error" | "bad_reply" | "reply_too_large" | "cancelled"
+  | "host_absent" | "bad_request" | "store_failed";
+export type ModelHealthState = "available" | "needs_setup" | "offline" | "blocked";
+export interface ModelEndpointWire {
+  id: string; kind: "local-openai-compatible" | "remote-openai-compatible"; label: string; model: string;
+  loopback: boolean; has_key: boolean; allow_private: boolean;
+}
+export interface StoredSelection { all?: string; groups?: { capsule?: string; digest?: string; routing?: string; drift?: string } }
+export type PageModelMsg =
+  | { t: "model_list"; v: 1; rid: string }
+  | { t: "model_probe"; v: 1; rid: string; id: string }
+  | { t: "model_generate"; v: 1; rid: string; id: string; tier: "private" | "standard" | "shared";
+      messages: Array<{ role: "system" | "user" | "assistant"; content: string }>; max_tokens: number; rung: 1 | 2 | 3; schema?: object }
+  | { t: "model_cancel"; v: 1; rid: string }
+  | { t: "model_sel_get"; v: 1; rid: string }
+  | { t: "model_sel_set"; v: 1; rid: string; selection: StoredSelection };
+export type ExtModelMsg =
+  | { t: "model_hello"; v: 1; rid?: string; endpoints: ModelEndpointWire[] }
+  | { t: "model_health"; v: 1; rid: string; id: string; state: ModelHealthState; rung: 1 | 2 | 3 | null }
+  | { t: "model_result"; v: 1; rid: string; text: string }
+  | { t: "model_nack"; v: 1; rid: string; code: ModelNackCode }
+  | { t: "model_sel"; v: 1; rid: string; selection: StoredSelection };

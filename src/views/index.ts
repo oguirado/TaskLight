@@ -14,6 +14,17 @@ import type {
   WallVM,
   WorkspaceVM,
 } from "./types";
+import {
+  buildPlanAgenda,
+  buildPlanDiary,
+  groupTasksByPhase,
+  renderPlanAgenda,
+  renderPlanArchive,
+  renderPlanBand,
+  renderPlanDiary,
+  renderPhaseTaskCards,
+} from "./plan";
+import { renderMemoryView } from "./memory";
 
 const SAFE_RE = /^[a-z]{1,16}$/;
 
@@ -66,6 +77,7 @@ const VIEWS: [ViewId, string][] = [
   ["agenda", "Agenda"],
   ["diary", "Diary"],
   ["archive", "Archive"],
+  ["memory", "Memory"],
 ];
 
 function statusLabel(status: unknown): string {
@@ -91,6 +103,14 @@ function safeMs(v: unknown): string {
   return "0 ms";
 }
 
+/** U51: explicit chip map; any other kind is treated as Rules (no cloud mislabel). */
+const SOURCE_LABEL: Readonly<Record<string, string>> = {
+  device: "Gemini Nano · on device",
+  cloud: "Gemini · cloud fallback",
+  local: "Local model",
+  remote: "Network model",
+};
+
 function sourcechip(doc: Document, src: unknown): HTMLElement {
   const safe = (src && typeof src === "object" ? src : {}) as Partial<SourceVM>;
   const kind = (safe as { kind?: unknown }).kind;
@@ -107,7 +127,11 @@ function sourcechip(doc: Document, src: unknown): HTMLElement {
     chip.appendChild(el(doc, "span", "source-label", "Rules"));
     return chip;
   }
-  const label = kind === "device" ? "Gemini Nano · on device" : "Gemini · cloud fallback";
+  const label = typeof kind === "string" && Object.prototype.hasOwnProperty.call(SOURCE_LABEL, kind) ? SOURCE_LABEL[kind] : undefined;
+  if (label === undefined) {
+    chip.appendChild(el(doc, "span", "source-label", "Rules"));
+    return chip;
+  }
   chip.appendChild(el(doc, "span", "source-label", label));
   chip.appendChild(el(doc, "span", "source-ms", safeMs(rawMs)));
   return chip;
@@ -129,12 +153,25 @@ function stepTimeText(at: unknown): string {
 let mountSeq = 0;
 
 export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers): WallHandle {
+  if (!host || (host as unknown as { nodeType?: unknown }).nodeType !== 1) {
+    throw new TypeError("mountWall: host element required");
+  }
   const doc: Document = host.ownerDocument;
   const instanceId = `u36-${++mountSeq}`;
   const expanded = new Map<string, boolean>();
   let destroyed = false;
   let currentHandlers = handlers;
   let currentVm: WallVM = vm;
+  let pendingFocusView: ViewId | null = null;
+  let lastLive = "";
+
+  function announceLive(msg: string): void {
+    try {
+      const live = host.querySelector('[aria-live="polite"]');
+      if (live) live.textContent = msg;
+      lastLive = msg;
+    } catch { /* contained */ }
+  }
 
   function expKey(taskId: unknown, idx: number): string {
     return `${asStr(taskId)}:${idx}`;
@@ -155,6 +192,25 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
           break;
         }
         cur = cur.parentElement;
+      }
+    }
+    const tabEl = t && typeof (t as Element).closest === "function" ? ((t as Element).closest('[role="tab"]') as Element | null) : null;
+    if (tabEl && host.contains(tabEl)) {
+      const curVid = (tabEl.getAttribute("data-nav") as ViewId | null) ?? (tabEl.getAttribute("data-view") as ViewId | null);
+      const curIdx = VIEWS.findIndex(([vid]) => vid === curVid);
+      let target: number | null = null;
+      if (e.key === "ArrowRight" && curIdx >= 0) target = (curIdx + 1) % VIEWS.length;
+      else if (e.key === "ArrowLeft" && curIdx >= 0) target = (curIdx - 1 + VIEWS.length) % VIEWS.length;
+      else if (e.key === "Home") target = 0;
+      else if (e.key === "End") target = VIEWS.length - 1;
+      if (target !== null) {
+        const entry = VIEWS[target];
+        if (entry) {
+          e.preventDefault();
+          pendingFocusView = entry[0];
+          if (currentHandlers?.onView) currentHandlers.onView(entry[0]);
+          return;
+        }
       }
     }
     const idx = ["1", "2", "3", "4"].indexOf(e.key);
@@ -197,6 +253,20 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
       if (currentHandlers?.onNewWorkspace) currentHandlers.onNewWorkspace();
       return;
     }
+    // U51: the model trigger is identified by its fixed aria-controls marker, never by the sanitized state.
+    if (btn.classList.contains("status-line") && btn.getAttribute("aria-controls") === "model-sheet") {
+      const open = currentHandlers?.onOpenModels;
+      // Contained: a sync throw or an async rejection from the injected callback never escapes the listener.
+      if (open) {
+        try {
+          const r: unknown = (open as (b: HTMLElement) => unknown)(btn);
+          if (r !== null && (typeof r === "object" || typeof r === "function") && typeof (r as { then?: unknown }).then === "function") {
+            (r as PromiseLike<unknown>).then(undefined, () => { /* contained */ });
+          }
+        } catch { /* contained */ }
+      }
+      return;
+    }
     if (btn.classList.contains("theme-toggle")) {
       if (currentHandlers?.onThemeToggle) currentHandlers.onThemeToggle();
       return;
@@ -226,6 +296,19 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
         if (panel) panel.hidden = !next;
         li.toggleAttribute("data-open", next);
       }
+      const micro = btn.getAttribute("data-micro-id") || `${taskId}.M${String(idx + 1).padStart(2, "0")}`;
+      announceLive(next ? `Expanded outcome for ${micro}` : `Collapsed outcome for ${micro}`);
+      if (currentHandlers?.onToggleMicroDetail) {
+        try { currentHandlers.onToggleMicroDetail(taskId, idx); } catch { /* contained */ }
+      }
+      return;
+    }
+    if (btn.classList.contains("phase-chip")) {
+      const pid = btn.getAttribute("data-phase-id");
+      if (pid !== null && currentHandlers?.onSelectPhase) {
+        try { currentHandlers.onSelectPhase(pid); } catch { /* contained */ }
+        announceLive(`Phase ${pid} selected`);
+      }
       return;
     }
   }
@@ -235,6 +318,8 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
 
   function render(rawVm: WallVM): void {
     if (destroyed) return;
+    // U51: keep the sheet-owned aria-expanded across re-renders of the model trigger.
+    const prevExpanded = host.querySelector('button.status-line[aria-controls="model-sheet"]')?.getAttribute("aria-expanded") === "true";
     host.replaceChildren();
     const input = (rawVm && typeof rawVm === "object" ? rawVm : {}) as Partial<WallVM>;
     const workspaces: WorkspaceVM[] = Array.isArray(input.workspaces) ? (input.workspaces as WorkspaceVM[]) : [];
@@ -242,9 +327,13 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
     const agenda: AgendaGroupVM[] = Array.isArray(input.agenda) ? (input.agenda as AgendaGroupVM[]) : [];
     const archive: ArchivedVM[] = Array.isArray(input.archive) ? (input.archive as ArchivedVM[]) : [];
     const workspaceId = asStr((input as { workspace?: unknown }).workspace);
-    const view = ((input.view as unknown) === "wall" || (input.view as unknown) === "agenda" || (input.view as unknown) === "diary" || (input.view as unknown) === "archive"
+    const view = ((input.view as unknown) === "wall" || (input.view as unknown) === "agenda" || (input.view as unknown) === "diary" || (input.view as unknown) === "archive" || (input.view as unknown) === "memory"
       ? input.view
       : "wall") as ViewId;
+    const planIn = (input as { plan?: unknown }).plan;
+    const hasPlan = planIn !== undefined && planIn !== null;
+    const diaryIn = (input as { diary?: unknown }).diary;
+    const memoryIn = (input as { memory?: unknown }).memory as unknown;
     const archiveScope = (input.archiveScope as unknown) === "all" ? "all" : "workspace";
     const nowText = asStr(input.now);
     const model = (input.model && typeof input.model === "object" ? input.model : {}) as { state?: unknown; label?: unknown };
@@ -277,10 +366,16 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
 
     const nav = el(doc, "nav", "nav");
     nav.setAttribute("aria-label", "Views");
-    VIEWS.forEach(([vid, label], i) => {
+    nav.setAttribute("role", "tablist");
+    const visibleViews: [ViewId, string][] = (hasPlan || view === "memory")
+      ? VIEWS
+      : VIEWS.filter(([vid]) => vid !== "memory");
+    visibleViews.forEach(([vid, label], i) => {
       const b = el(doc, "button", "nav-item");
       b.setAttribute("type", "button");
       b.setAttribute("data-nav", vid);
+      b.setAttribute("role", "tab");
+      b.setAttribute("aria-selected", vid === view ? "true" : "false");
       b.setAttribute("aria-keyshortcuts", String(i + 1));
       if (vid === view) b.setAttribute("aria-current", "page");
       const ic = el(doc, "span", "nav-icon");
@@ -355,7 +450,15 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
     rail.appendChild(wsNew);
 
     const railStatus = el(doc, "div", "rail-status");
-    const modelLine = el(doc, "div", "status-line");
+    // U51: the model line opens the Models sheet when a handler is supplied; otherwise it stays a div.
+    const modelLine: HTMLElement = currentHandlers?.onOpenModels ? el(doc, "button", "status-line") : el(doc, "div", "status-line");
+    // Structural check (not the global constructor): host may live in another same-origin document.
+    if (modelLine.nodeType === 1 && modelLine.tagName === "BUTTON") {
+      modelLine.setAttribute("type", "button");
+      modelLine.setAttribute("aria-haspopup", "dialog");
+      modelLine.setAttribute("aria-controls", "model-sheet");
+      modelLine.setAttribute("aria-expanded", String(prevExpanded));
+    }
     setSafeData(modelLine, "data-model", modelState);
     const mDot = el(doc, "span", "status-dot");
     mDot.setAttribute("aria-hidden", "true");
@@ -522,7 +625,16 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
     }
 
     // ---- view content ----
-    if (view === "wall") {
+    if (view === "wall" && hasPlan) {
+      const planSec = el(doc, "section", "plan-wall");
+      planSec.setAttribute("aria-label", "Plan");
+      const planVm = planIn as unknown as Parameters<typeof renderPlanBand>[1];
+      planSec.appendChild(renderPlanBand(doc, planVm).cloneNode(true) as HTMLElement);
+      const phasesForGroup = (planVm && typeof planVm === "object" ? (planVm as unknown as Record<string, unknown>).phases : undefined) as unknown as Parameters<typeof groupTasksByPhase>[1];
+      const groupsForWall = groupTasksByPhase(tasks as unknown as Parameters<typeof groupTasksByPhase>[0], phasesForGroup);
+      planSec.appendChild(renderPhaseTaskCards(doc, groupsForWall).cloneNode(true) as HTMLElement);
+      viewWrap.appendChild(planSec);
+    } else if (view === "wall") {
       const board = el(doc, "section", "board");
       board.setAttribute("aria-label", "Tasks");
       const list = sortByAttention(wsTasksAll(workspaceId, false));
@@ -603,6 +715,12 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
         board.appendChild(art);
       }
       viewWrap.appendChild(board);
+    } else if (view === "agenda" && hasPlan) {
+      const supplied = agenda;
+      const groupsToRender = supplied.length > 0
+        ? supplied
+        : buildPlanAgenda(tasks as unknown as Parameters<typeof buildPlanAgenda>[0]);
+      viewWrap.appendChild(renderPlanAgenda(doc, groupsToRender as unknown as Parameters<typeof renderPlanAgenda>[1]));
     } else if (view === "agenda") {
       const sec = el(doc, "section", "agenda");
       sec.setAttribute("aria-label", "Agenda");
@@ -651,6 +769,10 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
         sec.appendChild(wrap);
       }
       viewWrap.appendChild(sec);
+    } else if (view === "diary" && (hasPlan || diaryIn !== undefined)) {
+      const entriesForDiary = Array.isArray(diaryIn) ? (diaryIn as readonly unknown[]) : [];
+      const diaryGroups = buildPlanDiary(entriesForDiary as unknown as Parameters<typeof buildPlanDiary>[0]);
+      viewWrap.appendChild(renderPlanDiary(doc, diaryGroups as unknown as Parameters<typeof renderPlanDiary>[1]));
     } else if (view === "diary") {
       const sec = el(doc, "section", "diary");
       sec.setAttribute("aria-label", "Diary");
@@ -707,6 +829,29 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
         g.appendChild(ol);
         sec.appendChild(g);
       }
+      viewWrap.appendChild(sec);
+    } else if (view === "memory") {
+      const memNode = renderMemoryView(doc, (memoryIn ?? undefined) as unknown as Parameters<typeof renderMemoryView>[1]);
+      viewWrap.appendChild(memNode);
+    } else if (view === "archive" && hasPlan) {
+      const sec = el(doc, "section", "archive");
+      sec.setAttribute("aria-label", "Archive");
+      const bar = el(doc, "div", "archive-bar");
+      const filt = el(doc, "div", "archive-filter");
+      filt.setAttribute("role", "group");
+      filt.setAttribute("aria-label", "Archive scope");
+      const opts: [string, string][] = [["workspace", "This workspace"], ["all", "All workspaces"]];
+      for (const [val, label] of opts) {
+        const b = el(doc, "button", "archive-option", label);
+        b.setAttribute("type", "button");
+        b.setAttribute("aria-pressed", String(archiveScope === val));
+        b.setAttribute("data-scope", val);
+        filt.appendChild(b);
+      }
+      bar.appendChild(filt);
+      bar.appendChild(el(doc, "p", "archive-count", archive.length === 1 ? "1 finished task" : `${archive.length} finished tasks`));
+      sec.appendChild(bar);
+      sec.appendChild(renderPlanArchive(doc, archive as unknown as Parameters<typeof renderPlanArchive>[1]));
       viewWrap.appendChild(sec);
     } else {
       // archive
@@ -770,6 +915,39 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
 
     host.appendChild(app);
     // ensure focus hidden property reflects (section.focus.hidden already set)
+    try {
+      const viewLabel = VIEWS.find(([vid]) => vid === view)?.[1] ?? view;
+      const live = el(doc, "div", "announcer");
+      live.setAttribute("aria-live", "polite");
+      live.setAttribute("role", "status");
+      live.textContent = `${viewLabel} view`;
+      topbar.appendChild(live);
+      lastLive = `${viewLabel} view`;
+    } catch { /* contained */ }
+    try {
+      if (pendingFocusView !== null) {
+        const target = host.querySelector(`[role="tab"][data-nav="${pendingFocusView}"]`) as HTMLElement | null;
+        if (target) target.focus();
+        pendingFocusView = null;
+      }
+    } catch { /* contained */ }
+    try {
+      for (const btn of host.querySelectorAll("button.step-row")) {
+        const tid = btn.getAttribute("data-task-id");
+        const idxS = btn.getAttribute("data-step-idx");
+        if (tid === null || idxS === null) continue;
+        const open = expanded.get(expKey(tid, Number(idxS))) === true;
+        if (open) {
+          btn.setAttribute("aria-expanded", "true");
+          const li = btn.closest("li.step");
+          if (li) {
+            const panel = li.querySelector(".step-detail") as HTMLElement | null;
+            if (panel) panel.hidden = false;
+            li.toggleAttribute("data-open", true);
+          }
+        }
+      }
+    } catch { /* contained */ }
   }
 
   render(vm);

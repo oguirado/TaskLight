@@ -1,0 +1,172 @@
+{
+  "v": 1,
+  "id": "web-app",
+  "name": "Web Application",
+  "summary": "Full-stack web application plan covering discovery, design, frontend, backend, verification, and release.",
+  "lens_id": "dev",
+  "brief_fields": [
+    {
+      "id": "goal",
+      "label": "Project goal",
+      "required": true
+    },
+    {
+      "id": "users",
+      "label": "Target users",
+      "required": true
+    },
+    {
+      "id": "stack",
+      "label": "Technical stack",
+      "required": true
+    },
+    {
+      "id": "constraints",
+      "label": "Key constraints",
+      "required": false
+    },
+    {
+      "id": "deploy-target",
+      "label": "Deployment environment",
+      "required": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "discovery",
+      "label": "Discovery",
+      "exit": "Scope, user workflows, and core constraints documented"
+    },
+    {
+      "id": "design",
+      "label": "Design",
+      "exit": "Data model, API contracts, and UI wireframes approved"
+    },
+    {
+      "id": "build",
+      "label": "Build",
+      "exit": "Frontend, backend, and persistence features integrated"
+    },
+    {
+      "id": "verify",
+      "label": "Verify",
+      "exit": "Automated tests, security checks, and staging pass"
+    },
+    {
+      "id": "release",
+      "label": "Release",
+      "exit": "Production deploy verified and monitoring active"
+    }
+  ],
+  "task_types": [
+    {
+      "id": "feature",
+      "label": "Feature",
+      "accept_required": true,
+      "evidence_required": true,
+      "micro_hints": [
+        "Implement end-to-end feature flow behind a route or toggle",
+        "Connect user action to backend state and confirm persistence",
+        "Handle validation errors and empty states cleanly"
+      ]
+    },
+    {
+      "id": "ui",
+      "label": "UI",
+      "accept_required": true,
+      "evidence_required": true,
+      "micro_hints": [
+        "Build responsive component matching layout and states",
+        "Verify keyboard navigation and accessible labels",
+        "Confirm loading, empty, and error states render clearly"
+      ]
+    },
+    {
+      "id": "api",
+      "label": "API",
+      "accept_required": true,
+      "evidence_required": true,
+      "micro_hints": [
+        "Define request schema, response codes, and error shape",
+        "Implement endpoint handler with input validation",
+        "Enforce authentication and authorization checks on route"
+      ]
+    },
+    {
+      "id": "data",
+      "label": "Data",
+      "accept_required": true,
+      "evidence_required": true,
+      "micro_hints": [
+        "Write reversible schema migration and verify rollback",
+        "Add indexes and constraints for required query paths",
+        "Validate seed data and query speed on sample records"
+      ]
+    },
+    {
+      "id": "test",
+      "label": "Test",
+      "accept_required": true,
+      "evidence_required": true,
+      "micro_hints": [
+        "Add unit tests covering core logic and edge cases",
+        "Run integration tests across API and storage layers",
+        "Execute end-to-end browser flow and record passing run"
+      ]
+    },
+    {
+      "id": "ops",
+      "label": "Ops",
+      "accept_required": true,
+      "evidence_required": true,
+      "micro_hints": [
+        "Configure build pipeline and environment variables",
+        "Deploy release artifact and verify health check passes",
+        "Confirm logs, metrics, and alert thresholds are active"
+      ]
+    }
+  ],
+  "granularity": {
+    "tasks_max": 30,
+    "micro_min": 2,
+    "micro_max": 8,
+    "rule": "Split each task into small microtasks where each produces one verifiable outcome."
+  },
+  "memory_sections": [
+    {
+      "id": "architecture",
+      "label": "Architecture",
+      "required": true,
+      "max_chars": 2000,
+      "hint": "System components, data flow, and service boundaries"
+    },
+    {
+      "id": "decisions",
+      "label": "Decisions",
+      "required": true,
+      "max_chars": 2000,
+      "hint": "Key technical choices with rationale and alternatives"
+    },
+    {
+      "id": "constraints",
+      "label": "Constraints",
+      "required": true,
+      "max_chars": 1500,
+      "hint": "Latency, budget, browser support, and compliance limits"
+    },
+    {
+      "id": "glossary",
+      "label": "Glossary",
+      "required": false,
+      "max_chars": 1500,
+      "hint": "Domain terms, user roles, and canonical entity names"
+    },
+    {
+      "id": "risks",
+      "label": "Risks",
+      "required": false,
+      "max_chars": 1500,
+      "hint": "Open technical risks, failure modes, and mitigations"
+    }
+  ]
+}

@@ -27,3 +27,4 @@ Run: `npx vitest run tests/unit/u14`. Fakes only (in-memory FirestorePort with r
 
 ### Oracle amendment A1-U14 (14 Nov)
 S9 asserted that post-switch writes never contain the substring "u1", contradicting the B3 assertion two lines later that the carried-over headline "for-u1" is re-queued. Narrowed to the exact token "u1" (as a value or key).
+- A-U46b (14 Nov): harness rules mirror (capsules and digests inference_source) widened to the 4 sources of firestore.rules:36,54 after U46; required by u54 O4.

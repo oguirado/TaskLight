@@ -5,8 +5,9 @@ import type { AgentState, Contract, DriftVerdict, StepState } from "../agents/ty
 import type { HybridParamsShape, ModelFactory, ModeName } from "../ai/types";
 
 export type DriftFloor = "ONLY_ON_DEVICE" | "PREFER_ON_DEVICE";
+export interface DriftPortGrant { port: DriftPort; allowExternal: boolean }
 export interface DriftReviewerOptions {
-  port?: DriftPort | ((mode: ModeName) => DriftPort);
+  port?: DriftPort | ((mode: ModeName) => DriftPort) | ((mode: ModeName) => DriftPortGrant);
   timeoutMs?: number;
   killSwitchCloud?: boolean;
 }
@@ -129,11 +130,18 @@ export function createDriftReviewer(opts?: DriftReviewerOptions): DriftReviewer 
     };
     if (portOpt === undefined || portOpt === null) return realRules();
     let resolved: DriftPort;
+    let allowExternal = false;
     try {
       if (typeof portOpt === "function") {
         const mode: ModeName =
           floor === "PREFER_ON_DEVICE" && !killSwitchCloud ? "PREFER_ON_DEVICE" : "ONLY_ON_DEVICE";
-        resolved = portOpt(mode);
+        const out = portOpt(mode) as DriftPort | DriftPortGrant;
+        if (isRecord(out as unknown) && "port" in out) {
+          resolved = (out as DriftPortGrant).port;
+          allowExternal = (out as DriftPortGrant).allowExternal === true;
+        } else {
+          resolved = out as DriftPort;
+        }
       } else {
         resolved = portOpt;
       }
@@ -141,7 +149,9 @@ export function createDriftReviewer(opts?: DriftReviewerOptions): DriftReviewer 
       return realRules();
     }
     try {
-      const v = await reviewDrift(resolved, prev, next, timeoutMs === undefined ? undefined : { timeoutMs });
+      const v = allowExternal
+        ? await reviewDrift(resolved, prev, next, timeoutMs === undefined ? { allowExternal: true } : { timeoutMs, allowExternal: true })
+        : await reviewDrift(resolved, prev, next, timeoutMs === undefined ? undefined : { timeoutMs });
       if (isRecord(v as unknown) && (v as DriftVerdict).source !== "rules") return v as DriftVerdict;
       return realRules();
     } catch {

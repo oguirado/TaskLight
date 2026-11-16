@@ -27,7 +27,7 @@ describe("constants (B1/spec 2)", () => {
     expect([...CAPSULE_STATUS]).toEqual(["running", "waiting_input", "blocked", "failed", "done", "idle"]);
     expect([...ATTENTION]).toEqual(["none", "low", "high", "now"]);
     expect([...PRIVACY_TIER]).toEqual(["private", "standard", "shared"]);
-    expect([...INFERENCE_SOURCE]).toEqual(["ON_DEVICE", "IN_CLOUD"]);
+    expect([...INFERENCE_SOURCE]).toEqual(["ON_DEVICE", "IN_CLOUD", "LOCAL_SERVER", "REMOTE_PROVIDER"]);
   });
 });
 

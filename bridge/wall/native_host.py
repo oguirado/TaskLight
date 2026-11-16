@@ -9,6 +9,7 @@ import os
 import select
 import struct
 import sys
+import threading
 import time
 
 from .emit import (
@@ -21,6 +22,12 @@ try:
 except Exception:  # room relay unit not present yet
     RoomRelay = None
     load_room_config = None
+
+try:
+    from .model_relay import ModelRelay, load_model_config
+except Exception:  # model relay absent, or bridge.models not importable (package run as top-level `wall`)
+    ModelRelay = None
+    load_model_config = None
 
 MAX_FRAME = 65536
 SIX_KEYS = {"source", "projectId", "sourceSeq", "ts", "kind", "text"}
@@ -92,6 +99,7 @@ class _Host:
         self._carry = {pid: b"" for pid in self._projects}
         self._skip = {pid: False for pid in self._projects}
         self._latest = {}
+        self._send_lock = threading.Lock()
 
     def _log(self, msg):
         try:
@@ -102,16 +110,21 @@ class _Host:
 
     def _send(self, obj):
         try:
-            body = json.dumps(obj, separators=(",", ":"),
-                              ensure_ascii=False).encode("utf-8")
+            try:
+                body = json.dumps(obj, separators=(",", ":"),
+                                  ensure_ascii=False).encode("utf-8")
+            except UnicodeEncodeError:             # lone surrogate: send escaped ASCII JSON instead
+                body = json.dumps(obj, separators=(",", ":"),
+                                  ensure_ascii=True).encode("ascii")
         except (UnicodeEncodeError, ValueError, TypeError):
             self._log("dropping unencodable outbound frame")
             return False
         if len(body) > MAX_FRAME:
             self._log("dropping oversize outbound frame")
             return False
-        self._stdout.write(struct.pack("<I", len(body)) + body)
-        self._stdout.flush()
+        with self._send_lock:
+            self._stdout.write(struct.pack("<I", len(body)) + body)
+            self._stdout.flush()
         return True
 
     def _floor(self, pid):
@@ -279,7 +292,49 @@ def _relay_poll(relay):
         pass
 
 
-def _handle_frame(host, body, relay=None):
+def _build_model_relay(cfg, send):
+    """ModelRelay when wall.config.json has a valid "models" object, else None. Never raises."""
+    loader = load_model_config
+    ctor = ModelRelay
+    if loader is None or ctor is None:
+        return None
+    try:
+        mcfg = loader(cfg)
+    except BrokenPipeError:
+        raise
+    except Exception:
+        return None
+    if mcfg is None or not isinstance(mcfg, dict):
+        return None
+    try:
+        return ctor(mcfg, send)
+    except BrokenPipeError:
+        raise
+    except Exception:
+        return None
+
+
+def _model_poll(mrelay):
+    if mrelay is None:
+        return
+    try:
+        mrelay.poll()
+    except BrokenPipeError:
+        raise
+    except Exception:
+        pass
+
+
+def _model_close(mrelay):
+    if mrelay is None:
+        return
+    try:
+        mrelay.close()
+    except Exception:
+        pass
+
+
+def _handle_frame(host, body, relay=None, model_relay=None):
     """Process one inbound body. Returns 0 (bye), 2 (fatal) or None."""
     try:
         text = body.decode("utf-8")
@@ -291,6 +346,21 @@ def _handle_frame(host, body, relay=None):
         if isinstance(t0, str) and t0.startswith("room_"):
             try:
                 r = relay.handle(obj)
+            except BrokenPipeError:
+                raise
+            except Exception:
+                return None
+            if r is None:
+                pass  # fall through to strict check
+            elif r == 2:
+                return 2
+            else:
+                return None  # handled; the relay's 0 is not a bye
+    if model_relay is not None and isinstance(obj, dict):
+        t1 = obj.get("t")
+        if isinstance(t1, str) and t1.startswith("model_"):
+            try:
+                r = model_relay.handle(obj)
             except BrokenPipeError:
                 raise
             except Exception:
@@ -316,7 +386,7 @@ def _handle_frame(host, body, relay=None):
     return 2
 
 
-def _process_buffer(host, buf, relay=None):
+def _process_buffer(host, buf, relay=None, model_relay=None):
     """Drain complete frames from buf. Returns 0/2 or None."""
     while len(buf) >= 4:
         (n,) = struct.unpack("<I", bytes(buf[:4]))
@@ -326,7 +396,7 @@ def _process_buffer(host, buf, relay=None):
             break
         body = bytes(buf[4:4 + n])
         del buf[:4 + n]
-        rc = _handle_frame(host, body, relay)
+        rc = _handle_frame(host, body, relay, model_relay)
         if rc is not None:
             return rc
     return None
@@ -348,6 +418,7 @@ def main(argv, stdin=None, stdout=None, stderr=None):
     if origin != expected:
         return 2
     host = _Host(cfg, stdout, stderr)
+    mrelay = None
     try:
         host._send({"t": "hello", "v": 1, "projects": host._projects})
         relay, rcfg = _build_relay(cfg, host._send)
@@ -358,8 +429,17 @@ def main(argv, stdin=None, stdout=None, stderr=None):
                 raise
             except Exception:
                 pass
+        mrelay = _build_model_relay(cfg, host._send)
+        if mrelay is not None:
+            try:
+                host._send(mrelay.hello_frame())
+            except BrokenPipeError:
+                raise
+            except Exception:
+                pass
         host.poll_all()
         _relay_poll(relay)
+        _model_poll(mrelay)
         fd = stdin.fileno()
         try:
             os.set_blocking(fd, False)
@@ -372,11 +452,12 @@ def main(argv, stdin=None, stdout=None, stderr=None):
             # Buffered inbound frames are validated before any spool
             # polling: a fatal frame must exit with no event after it
             # (B14), even when a spool append races the stdin bytes.
-            rc = _process_buffer(host, inbuf, relay)
+            rc = _process_buffer(host, inbuf, relay, mrelay)
             if rc is not None:
                 return rc
             host.poll_all()
             _relay_poll(relay)
+            _model_poll(mrelay)
             if inbuf:
                 now = time.monotonic()
                 if partial_since is None:
@@ -406,6 +487,8 @@ def main(argv, stdin=None, stdout=None, stderr=None):
         return 0
     except OSError:
         return 0
+    finally:
+        _model_close(mrelay)
 
 
 __all__ = ["MAX_FRAME", "main"]

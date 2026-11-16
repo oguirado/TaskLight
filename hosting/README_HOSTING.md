@@ -9,6 +9,13 @@ npx vite build --mode production --config hosting/vite.config.ts
 Deploy with `firebase deploy --only hosting` (preview channels via
 `firebase hosting:channel:deploy CHANNEL_ID`).
 
+## Configuration
+
+Set the App Check site key with the `VITE_RECAPTCHA_SITE_KEY` build variable
+(see `hosting/src/main.ts` and `src/app/index.ts`), not
+`RECAPTCHA_SITE_KEY_PUBLIC` in `src/app/firebase-config.public.ts`.
+App Check debug tokens are for localhost only and must never be committed.
+
 ## Embed contract (extension side panel)
 
 - The extension panel embeds this wall in an iframe. The iframe MUST carry

@@ -302,26 +302,63 @@ export async function onUserActivation(trusted: boolean): Promise<void> {
   // The initializing state is emitted by progress callbacks (and by the final
   // initialized/failed transition), not by a duplicate state here.
   const hy = my.hy;
+  // U52 inactivity bound: re-armed on every progress callback (even repeated
+  // values); a progressing download is legitimate (D-U47-1). A port with no
+  // progress still fails at DEVICE_MODEL_TIMEOUT_MS (u22 stays green). The
+  // wait races the port promise against the inactivity timer so a timeout
+  // settles activation even when the port never resolves.
+  let settled = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let timerReject: (() => void) | null = null;
+  const inactivity = new Promise<never>((_, reject) => {
+    timerReject = () => reject(new Error("device model inactivity timeout"));
+  });
+  const disarm = (): void => {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      timer = undefined;
+    }
+  };
+  const fail = (): void => {
+    if (settled) return;
+    settled = true;
+    disarm();
+    if (generation !== myGen || ctx !== my) return;
+    my.deviceModel = "failed";
+    my.deviceModelProgress = null;
+    pushState(my);
+  };
+  const arm = (): void => {
+    disarm();
+    timer = setTimeout(() => {
+      fail();
+      timerReject?.();
+    }, DEVICE_MODEL_TIMEOUT_MS);
+  };
+  if (generation !== myGen || ctx !== my) return;
+  arm();
   try {
-    await withTimeout(
+    await Promise.race([
       hy.initializeDeviceModel((v) => {
-        if (generation !== myGen || ctx !== my) return;
+        if (settled || generation !== myGen || ctx !== my) return;
         const clamped = Math.min(1, Math.max(0, v));
-        if (my.deviceModelProgress === clamped) return;
-        my.deviceModelProgress = clamped;
-        pushState(my);
+        if (my.deviceModelProgress !== clamped) {
+          my.deviceModelProgress = clamped;
+          pushState(my);
+        }
+        arm();
       }),
-      DEVICE_MODEL_TIMEOUT_MS,
-    );
+      inactivity,
+    ]);
+    if (settled) return;
+    settled = true;
+    disarm();
     if (generation !== myGen || ctx !== my) return;
     my.deviceModel = "initialized";
     my.deviceModelProgress = null;
     pushState(my);
   } catch {
-    if (generation !== myGen || ctx !== my) return;
-    my.deviceModel = "failed";
-    my.deviceModelProgress = null;
-    pushState(my);
+    fail();
   }
 }
 

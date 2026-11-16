@@ -46,6 +46,7 @@ interface DigestEntry {
   needsYouRid: string[];
   brief: string;
   inferenceSource: string;
+  projectIds: string[];
   builtAt: number;
   nextAttemptMs: number;
   backoffCount: number;
@@ -91,6 +92,23 @@ export function createSync(d: SyncDeps): Sync {
   const ridOwner = new Map<string, string>();
   const lastWriteMs = new Map<string, number>();
   const timeoutCancels = new Set<() => void>();
+  // U52a r2: per-project privacy epoch; bumped whenever a queued tier differs from the last
+  // known tier, so an in-flight capsule attempt built under the old tier stages nothing.
+  const tierEpoch = new Map<string, number>();
+  const lastTier = new Map<string, PrivacyTier>();
+  const noteTier = (projectId: string, tier: PrivacyTier): void => {
+    const prev = lastTier.get(projectId);
+    if (prev !== undefined && prev !== tier) tierEpoch.set(projectId, (tierEpoch.get(projectId) ?? 0) + 1);
+    lastTier.set(projectId, tier);
+  };
+  const currentTier = (projectId: string): PrivacyTier | null => {
+    try {
+      const m = d.meta(projectId);
+      return m === null ? null : m.tier;
+    } catch {
+      return null;
+    }
+  };
   const listeners = new Set<(s: SyncStatus) => void>();
   let lastNotified = "";
   let activePromise: Promise<SyncStatus> | null = null;
@@ -220,16 +238,38 @@ export function createSync(d: SyncDeps): Sync {
     }
   };
 
-  type TxnRace<T> = { kind: "value"; v: T } | { kind: "error"; e: unknown } | { kind: "timeout" };
+  type TxnRace<T> =
+    | { kind: "value"; v: T }
+    | { kind: "error"; e: unknown }
+    | { kind: "timeout" }
+    | { kind: "cancelled" };
 
-  const withTimeoutRace = async <T>(p: Promise<T>): Promise<TxnRace<T>> => {
-    const holder: { cancel: () => void } = { cancel: () => undefined };
+  // U52a r3: per-attempt invalidation token. The timeout / cancellation path flips it before
+  // settling the race, so the abandoned txn callback (and any Firestore retry of it) stages nothing.
+  interface AttemptToken { dead: boolean }
+
+  const withTimeoutRace = async <T>(p: Promise<T>, inv: AttemptToken): Promise<TxnRace<T>> => {
+    const holder: { disarm: () => void } = { disarm: () => undefined };
+    let settleCancelled: () => void = () => undefined;
+    // U52a D-U54-1: cancellation (dispose / auth change) settles the race itself,
+    // so a never-settling fs.txn cannot leave flush() pending forever.
+    const cancelled = new Promise<{ kind: "cancelled" }>((resolve) => {
+      settleCancelled = () => {
+        inv.dead = true;
+        resolve({ kind: "cancelled" });
+      };
+    });
     const timer = new Promise<{ kind: "timeout" }>((resolve) => {
-      holder.cancel = d.clock.setTimer(SYNC_LIMITS.TXN_TIMEOUT_MS, () => {
+      holder.disarm = d.clock.setTimer(SYNC_LIMITS.TXN_TIMEOUT_MS, () => {
+        inv.dead = true;
         resolve({ kind: "timeout" });
       });
     });
-    const cancel: () => void = () => holder.cancel();
+    const disarm: () => void = () => holder.disarm();
+    const cancel: () => void = () => {
+      settleCancelled();
+      try { disarm(); } catch { /* fired */ }
+    };
     timeoutCancels.add(cancel);
     try {
       return await Promise.race<TxnRace<T>>([
@@ -238,9 +278,10 @@ export function createSync(d: SyncDeps): Sync {
           (e: unknown): TxnRace<T> => ({ kind: "error", e }),
         ),
         timer.then((t): TxnRace<T> => t),
+        cancelled.then((c): TxnRace<T> => c),
       ]);
     } finally {
-      try { cancel(); } catch { /* fired */ }
+      try { disarm(); } catch { /* fired */ }
       timeoutCancels.delete(cancel);
     }
   };
@@ -294,7 +335,18 @@ export function createSync(d: SyncDeps): Sync {
   const runTxn = async (genAtStart: number, attemptUid: string, entry: Entry): Promise<TxnRace<TxnResult>> => {
     const fs = fsPort;
     if (fs === null) return { kind: "error", e: new Error("NO_FIREBASE") };
+    // U52a r1: cancellation (dispose / auth change) may settle flush() while this callback
+    // is still awaiting reads; re-check immediately before staging so nothing is written late.
+    const inv: AttemptToken = { dead: false };
+    const stale = (): boolean => inv.dead || disposed || generation !== genAtStart;
+    const NO_WRITE: TxnResult = { conflict: false, wrote: false };
+    // U52a r2: privacy state captured at attempt start; re-read before staging each capsule doc.
+    const epochAtStart = entry.kind === "capsule" ? (tierEpoch.get(entry.projectId) ?? 0) : 0;
+    const tierStale = (e: CapsuleEntry): boolean =>
+      (tierEpoch.get(e.projectId) ?? 0) !== epochAtStart || currentTier(e.projectId) !== e.tier;
     const run = (): Promise<TxnResult> => fs.txn(async (tx) => {
+      // U52a r3: a retry of an attempt the timeout already abandoned stages nothing.
+      if (stale()) return NO_WRITE;
       if (entry.kind === "capsule") {
         const wsPath = ["workspaces", attemptUid] as const;
         const projPath = ["workspaces", attemptUid, "projects", entry.rid] as const;
@@ -313,35 +365,51 @@ export function createSync(d: SyncDeps): Sync {
         if (!entry.onlyProject && remoteObserved !== null && remoteObserved > entry.observedRev) {
           return { conflict: true, wrote: false };
         }
+        // Build every document first (fsPort.timestamp may run caller code), then check staleness.
+        const projDoc = entry.onlyProject || entry.forceProject
+          ? buildProjectDoc(entry, attemptUid, proj)
+          : (proj === null ? buildProjectDoc(entry, attemptUid, null) : null);
+        const remoteRev = cap !== null && typeof cap["rev"] === "number" ? cap["rev"] as number : 0;
+        const capDoc = entry.onlyProject ? null : buildCapsuleDoc(entry, attemptUid, remoteRev);
+        if (stale() || tierStale(entry)) return NO_WRITE;
         if (ws === null) {
+          if (stale() || tierStale(entry)) return NO_WRITE;
           tx.set(wsPath, { name: "personal", members: { [attemptUid]: "owner" } });
         }
-        if (entry.onlyProject || entry.forceProject) {
-          tx.set(projPath, buildProjectDoc(entry, attemptUid, proj));
-        } else if (proj === null) {
-          tx.set(projPath, buildProjectDoc(entry, attemptUid, null));
+        if (projDoc !== null) {
+          if (stale() || tierStale(entry)) return NO_WRITE;
+          tx.set(projPath, projDoc);
         }
-        if (!entry.onlyProject) {
-          const remoteRev = cap !== null && typeof cap["rev"] === "number" ? cap["rev"] as number : 0;
-          tx.set(capPath, buildCapsuleDoc(entry, attemptUid, remoteRev));
+        if (capDoc !== null) {
+          if (stale() || tierStale(entry)) return NO_WRITE;
+          tx.set(capPath, capDoc);
         }
         return { conflict: false, wrote: true };
       }
       const wsPath = ["workspaces", attemptUid] as const;
       const digPath = ["workspaces", attemptUid, "digests", entry.did] as const;
+      // U54 r1: tiers may change after enqueue; re-check before and after the reads.
+      if (digestTierBlock(entry.projectIds, entry.inferenceSource) !== null) return { conflict: false, wrote: false };
       const ws = await tx.get(wsPath);
       const existing = await tx.get(digPath);
       if (existing !== null) return { conflict: false, wrote: false };
-      if (ws === null) {
-        tx.set(wsPath, { name: "personal", members: { [attemptUid]: "owner" } });
-      }
-      tx.set(digPath, {
+      // U52a D-U54-2: build the full document (fsPort.timestamp may run caller code)
+      // before the final tier check; tx.set uses the prebuilt object.
+      const digDoc = {
         rev_vector: { ...entry.revVectorRid },
         needs_you: [...entry.needsYouRid],
         brief: entry.brief,
         inference_source: entry.inferenceSource,
         created_at: fsPort === null ? d.clock.nowMs() : fsPort.timestamp(entry.builtAt),
-      });
+      };
+      if (digestTierBlock(entry.projectIds, entry.inferenceSource) !== null) return { conflict: false, wrote: false };
+      if (stale()) return NO_WRITE;
+      if (ws === null) {
+        if (stale()) return NO_WRITE;
+        tx.set(wsPath, { name: "personal", members: { [attemptUid]: "owner" } });
+      }
+      if (stale()) return NO_WRITE;
+      tx.set(digPath, digDoc);
       return { conflict: false, wrote: true };
     });
     let p: Promise<TxnResult>;
@@ -350,8 +418,7 @@ export function createSync(d: SyncDeps): Sync {
     } catch (e) {
       p = Promise.reject(e);
     }
-    void genAtStart;
-    return withTimeoutRace(p);
+    return withTimeoutRace(p, inv);
   };
 
   const attemptEntry = async (entry: Entry, genAtStart: number): Promise<AttemptOutcome> => {
@@ -361,6 +428,7 @@ export function createSync(d: SyncDeps): Sync {
       if (disposed || generation !== genAtStart) return "done";
       const raced = await runTxn(genAtStart, attemptUid, entry);
       if (disposed || generation !== genAtStart) return "done";
+      if (raced.kind === "cancelled") return "done";
       if (raced.kind === "timeout") {
         armBackoff(entry);
         return "transient";
@@ -566,6 +634,7 @@ export function createSync(d: SyncDeps): Sync {
     if (!built.ok) return refuse(built.code);
     const entry = built.e;
     claimRid(projectId, entry.rid);
+    noteTier(projectId, entry.tier);
     rememberCapsule(entry);
     const existed = outbox.has(entry.key);
     if (!existed && outbox.size >= SYNC_LIMITS.OUTBOX_MAX) return refuse("OUTBOX_FULL");
@@ -614,6 +683,7 @@ export function createSync(d: SyncDeps): Sync {
         backoffCount: 0,
       };
       claimRid(projectId, rid);
+      noteTier(projectId, m.tier);
       lastCapsule.set(projectId, null);
       const existed = outbox.has(entry.key);
       if (!existed && outbox.size >= SYNC_LIMITS.OUTBOX_MAX) return refuse("OUTBOX_FULL");
@@ -626,6 +696,7 @@ export function createSync(d: SyncDeps): Sync {
     const entry = built.e;
     entry.forceProject = true;
     claimRid(projectId, entry.rid);
+    noteTier(projectId, entry.tier);
     rememberCapsule(entry);
     const existed = outbox.has(entry.key);
     if (!existed && outbox.size >= SYNC_LIMITS.OUTBOX_MAX) return refuse("OUTBOX_FULL");
@@ -635,22 +706,42 @@ export function createSync(d: SyncDeps): Sync {
     return { ok: true, outcome: existed ? "coalesced" : "queued" };
   };
 
-  const putDigest = (digest: DigestIn): Ack => {
-    if (isLocalOnly()) return refuse("LOCAL_ONLY");
-    if (digest.origin === "LOCAL_RULES") return refuse("DIGEST_LOCAL_ORIGIN");
-    const ids: string[] = [
-      ...Object.keys(digest.revVector),
-      ...digest.needs_you.map((n) => n.projectId),
-    ];
+  // Tier authorization for a digest over `ids` with `source`: shared by putDigest (enqueue) and
+  // runTxn (write time), so a queued digest invalidated by a later tier change is dropped.
+  const digestTierBlock = (
+    ids: readonly string[], source: string,
+  ): "DIGEST_HAS_PRIVATE" | "DIGEST_REMOTE_SHARED" | null => {
+    let remoteShared = false;
     for (const pid of ids) {
       let m: ProjectMeta | null;
       try {
         m = d.meta(pid);
       } catch {
-        return refuse("DIGEST_HAS_PRIVATE");
+        return "DIGEST_HAS_PRIVATE";
       }
-      if (m === null || m.tier === "private") return refuse("DIGEST_HAS_PRIVATE");
+      if (m === null || m.tier === "private") return "DIGEST_HAS_PRIVATE";
+      if (source === "REMOTE_PROVIDER" && m.tier === "shared") remoteShared = true;
     }
+    return remoteShared ? "DIGEST_REMOTE_SHARED" : null;
+  };
+
+  const putDigest = (digest: DigestIn): Ack => {
+    if (isLocalOnly()) return refuse("LOCAL_ONLY");
+    if (digest.origin === "LOCAL_RULES") return refuse("DIGEST_LOCAL_ORIGIN");
+    // U54: explicit origin map; anything else is refused before meta reads.
+    const origin: unknown = digest.origin;
+    let inferenceSource: "ON_DEVICE" | "IN_CLOUD" | "LOCAL_SERVER" | "REMOTE_PROVIDER";
+    if (origin === "ON_DEVICE") inferenceSource = "ON_DEVICE";
+    else if (origin === "IN_CLOUD") inferenceSource = "IN_CLOUD";
+    else if (origin === "LOCAL_SERVER") inferenceSource = "LOCAL_SERVER";
+    else if (origin === "REMOTE_PROVIDER") inferenceSource = "REMOTE_PROVIDER";
+    else return refuse("DIGEST_BAD_ORIGIN");
+    const ids: string[] = [
+      ...Object.keys(digest.revVector),
+      ...digest.needs_you.map((n) => n.projectId),
+    ];
+    const tierBlock = digestTierBlock(ids, inferenceSource);
+    if (tierBlock !== null) return refuse(tierBlock);
     if (digest.brief.length > SYNC_LIMITS.BRIEF_MAX) return refuse("DIGEST_OVERSIZE");
     const revVectorRid: Record<string, number> = {};
     for (const pid of Object.keys(digest.revVector)) {
@@ -665,7 +756,8 @@ export function createSync(d: SyncDeps): Sync {
       revVectorRid,
       needsYouRid,
       brief: digest.brief,
-      inferenceSource: digest.origin === "IN_CLOUD" ? "IN_CLOUD" : "ON_DEVICE",
+      inferenceSource,
+      projectIds: [...new Set(ids)],
       builtAt: digest.builtAt,
       nextAttemptMs: 0,
       backoffCount: 0,
@@ -700,29 +792,43 @@ export function createSync(d: SyncDeps): Sync {
       }
     }
     const genAtStart = generation;
-    const run = (): Promise<void> => fs.txn(async (tx) => {
+    // U52a r1b: dispose / auth change while reads are pending -> stage nothing; the call
+    // rejects SYNC_LOCAL_ONLY so the ledger caller requeues instead of counting it written.
+    // U52a r3: the call also settles on dispose / auth change / TXN_TIMEOUT_MS even if fs.txn
+    // never settles; the abandoned callback is invalidated through `inv` and stages nothing.
+    const inv: AttemptToken = { dead: false };
+    const stale = (): boolean => inv.dead || disposed || generation !== genAtStart;
+    const run = (): Promise<boolean> => fs.txn(async (tx) => {
+      if (stale()) return false;
       const wsPath = ["workspaces", attemptUid] as const;
       const ledgerPath = ["workspaces", attemptUid, "ledger", dayKey] as const;
       const ws = await tx.get(wsPath);
       const prev = await tx.get(ledgerPath);
-      if (ws === null) {
-        tx.set(wsPath, { name: "personal", members: { [attemptUid]: "owner" } });
-      }
       const next: Record<string, unknown> = {};
       for (const k of SYNC_KEYS.LEDGER) {
         const base = prev !== null && typeof prev[k] === "number" ? prev[k] as number : 0;
         next[k] = base + (sums[k] as number);
       }
+      if (stale()) return false;
+      if (ws === null) {
+        if (stale()) return false;
+        tx.set(wsPath, { name: "personal", members: { [attemptUid]: "owner" } });
+      }
+      if (stale()) return false;
       tx.set(ledgerPath, next);
+      return true;
     });
-    let p: Promise<void>;
+    let p: Promise<boolean>;
     try {
       p = run();
     } catch (e) {
-      throw e;
+      p = Promise.reject(e);
     }
-    void genAtStart;
-    await p;
+    // withTimeoutRace attaches a rejection handler to p, so a late rejection of the abandoned
+    // txn is handled; timeout / cancellation reject SYNC_LOCAL_ONLY so the caller requeues.
+    const raced = await withTimeoutRace(p, inv);
+    if (raced.kind === "error") throw raced.e;
+    if (raced.kind !== "value" || !raced.v) throw new Error("SYNC_LOCAL_ONLY");
   };
 
   const onStatus = (cb: (s: SyncStatus) => void): (() => void) => {

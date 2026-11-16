@@ -1,5 +1,5 @@
 // Defaults and key specs: data from SPEC_U16 section 0 / B5 (+ AMEND_C B26). Constants are real; behaviour modules are stubs.
-import type { ConfigKey, KeySpec, WallConfig } from "./types";
+import type { ConfigKey, ConfigWarning, ExternalProvidersPolicy, KeySpec, ProviderFlagKey, ProviderFlags, WallConfig } from "./types";
 
 const MODES = ["PREFER_ON_DEVICE", "ONLY_ON_DEVICE", "PREFER_IN_CLOUD", "ONLY_IN_CLOUD"] as const;
 const mode: KeySpec = { kind: "enum", values: MODES };
@@ -31,3 +31,36 @@ export const KEY_SPECS: Readonly<Record<ConfigKey, KeySpec>> = Object.freeze({
   model_name: { kind: "pattern", re: /^gemini-[a-z0-9.-]{1,48}$/, maxLen: 55 },
   governor_tier_override: { kind: "enum", values: ["none", "T0", "T1", "T2", "T3"] },
 } as Record<ConfigKey, KeySpec>);
+
+// U50 (Amendment W0-R): provider flags live in their own table; WallConfig / CONFIG_DEFAULTS / KEY_SPECS above are untouched.
+export const PROVIDER_FLAG_DEFAULTS: Readonly<ProviderFlags> =
+  Object.freeze({ external_providers_enabled: true, remote_providers_enabled: true });
+export const PROVIDER_FLAG_SPECS: Readonly<Record<ProviderFlagKey, KeySpec>> =
+  Object.freeze({ external_providers_enabled: { kind: "bool" }, remote_providers_enabled: { kind: "bool" } });
+export function parseProviderFlags(
+  get: (k: ProviderFlagKey) => string,
+  prev?: Readonly<ProviderFlags>,
+): { flags: ProviderFlags; warnings: ConfigWarning[] } {
+  const flags = { ...PROVIDER_FLAG_DEFAULTS } as ProviderFlags;
+  const warnings: ConfigWarning[] = [];
+  for (const key of Object.keys(PROVIDER_FLAG_SPECS) as ProviderFlagKey[]) {
+    const fallback = prev ? prev[key] === true : PROVIDER_FLAG_DEFAULTS[key];
+    let raw: unknown;
+    try { raw = get(key); } catch {
+      flags[key] = fallback;
+      warnings.push({ key, code: "INVALID_KEPT" });
+      continue;
+    }
+    if (raw === "true" || raw === "false") { flags[key] = raw === "true"; continue; }
+    flags[key] = fallback;
+    warnings.push(typeof raw === "string" ? { key, code: "INVALID_KEPT", raw } : { key, code: "INVALID_KEPT" });
+  }
+  return { flags, warnings };
+}
+export function externalProvidersPolicy(
+  cfg: Readonly<Pick<WallConfig, "kill_switch_cloud">> & Readonly<ProviderFlags>,
+): ExternalProvidersPolicy {
+  const external = cfg.external_providers_enabled === true;
+  const remote = external && cfg.remote_providers_enabled === true && cfg.kill_switch_cloud !== true;
+  return Object.freeze({ local: external, remote });
+}

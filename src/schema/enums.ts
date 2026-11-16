@@ -4,7 +4,7 @@ export const ATTENTION = Object.freeze(["none", "low", "high", "now"] as const);
 export type Attention = (typeof ATTENTION)[number];
 export const PRIVACY_TIER = Object.freeze(["private", "standard", "shared"] as const);
 export type PrivacyTier = (typeof PRIVACY_TIER)[number];
-export const INFERENCE_SOURCE = Object.freeze(["ON_DEVICE", "IN_CLOUD"] as const);
+export const INFERENCE_SOURCE = Object.freeze(["ON_DEVICE", "IN_CLOUD", "LOCAL_SERVER", "REMOTE_PROVIDER"] as const);
 export type InferenceSource = (typeof INFERENCE_SOURCE)[number];
 export type TaskId = "status" | "summary" | "next_action" | "screenshot" | "digest" | "plan";
 

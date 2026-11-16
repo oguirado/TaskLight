@@ -11,7 +11,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit -p .",
     "test": "vitest run --project unit",
-    "test:rules": "firebase emulators:exec --only firestore --project demo-context-wall \"vitest run --project rules\"",
+    "test:rules": "firebase emulators:exec --only firestore --project demo-context-wall \"vitest run --project rules --no-file-parallelism\"",
     "secret-scan": "bash tools/secret_scan.sh"
   },
   "dependencies": {

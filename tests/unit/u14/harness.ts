@@ -171,12 +171,12 @@ export class FakeFs implements FirestorePort {
           && (SYNC_KEYS.RULES_STATUS as readonly string[]).includes(String(d.status))
           && isInt(d.observed_rev) && d.observed_rev >= 0
           && sz("headline") <= 120 && sz("summary") <= 600 && sz("next_action") <= 120
-          && (!("inference_source" in d) || d.inference_source === "ON_DEVICE" || d.inference_source === "IN_CLOUD");
+          && (!("inference_source" in d) || ["ON_DEVICE", "IN_CLOUD", "LOCAL_SERVER", "REMOTE_PROVIDER"].includes(d.inference_source)) /* A-U46b: mirrors firestore.rules:36 */;
       }
       case "digests":
         return !prev && hasOnly(d, ["rev_vector", "needs_you", "brief", "inference_source", "created_at"])
           && hasAll(d, ["rev_vector", "needs_you", "brief", "inference_source", "created_at"])
-          && (d.inference_source === "ON_DEVICE" || d.inference_source === "IN_CLOUD")
+          && ["ON_DEVICE", "IN_CLOUD", "LOCAL_SERVER", "REMOTE_PROVIDER"].includes(d.inference_source) /* A-U46b: mirrors firestore.rules:54 */
           && typeof d.brief === "string" && d.brief.length <= 600;
       case "ledger": {
         const ks = SYNC_KEYS.LEDGER;

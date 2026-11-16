@@ -1,0 +1,149 @@
+{
+  "v": 1,
+  "id": "data-ml",
+  "name": "Data and ML",
+  "summary": "Plan data preparation, feature work, modelling, evaluation, and monitoring workflows with clear acceptance checks.",
+  "lens_id": "dev",
+  "brief_fields": [
+    {
+      "id": "objective",
+      "label": "Prediction or analysis objective",
+      "required": true
+    },
+    {
+      "id": "success-metric",
+      "label": "Primary success metric and baseline",
+      "required": true
+    },
+    {
+      "id": "data-scope",
+      "label": "Available datasets and access constraints",
+      "required": true
+    },
+    {
+      "id": "constraints",
+      "label": "Latency, privacy, and compute limits",
+      "required": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "problem-framing",
+      "label": "Problem framing",
+      "exit": "Objective, target definition, baseline metric, and data access rules are documented."
+    },
+    {
+      "id": "data",
+      "label": "Data",
+      "exit": "Source datasets are profiled, cleaned, split without leakage, and versioned."
+    },
+    {
+      "id": "modelling",
+      "label": "Modelling",
+      "exit": "Candidate models and features are trained reproducibly against the baseline."
+    },
+    {
+      "id": "evaluation",
+      "label": "Evaluation",
+      "exit": "Holdout metrics, error slices, and bias checks pass acceptance thresholds."
+    },
+    {
+      "id": "deployment-monitoring",
+      "label": "Deployment and monitoring",
+      "exit": "Inference pipeline is verified in production with drift and alert thresholds active."
+    }
+  ],
+  "task_types": [
+    {
+      "id": "dataset",
+      "label": "Dataset",
+      "accept_required": true,
+      "evidence_required": true,
+      "micro_hints": [
+        "Profile raw columns, missing rates, and label balance",
+        "Filter corrupt records and document row count changes",
+        "Create leakage-free train, validation, and test splits"
+      ]
+    },
+    {
+      "id": "feature",
+      "label": "Feature",
+      "accept_required": true,
+      "evidence_required": true,
+      "micro_hints": [
+        "Implement transformation using only training-split statistics",
+        "Verify output distributions and null handling on sample rows",
+        "Add unit test confirming identical offline and serving values"
+      ]
+    },
+    {
+      "id": "experiment",
+      "label": "Experiment",
+      "accept_required": true,
+      "evidence_required": true,
+      "micro_hints": [
+        "Fix random seeds and record exact hyperparameters used",
+        "Train candidate model and log validation metric delta",
+        "Record decision and reason in experiment memory section"
+      ]
+    },
+    {
+      "id": "evaluation",
+      "label": "Evaluation",
+      "accept_required": true,
+      "evidence_required": true,
+      "micro_hints": [
+        "Compute primary and secondary metrics on untouched holdout split",
+        "Measure error rates across key subgroups for fairness checks",
+        "Verify latency and memory footprint meet serving limits"
+      ]
+    },
+    {
+      "id": "pipeline",
+      "label": "Pipeline",
+      "accept_required": true,
+      "evidence_required": true,
+      "micro_hints": [
+        "Run end-to-end pipeline dry run on fixture input data",
+        "Add schema validation and failure alerts at stage boundaries",
+        "Configure drift checks and rollback trigger on live metrics"
+      ]
+    }
+  ],
+  "granularity": {
+    "tasks_max": 40,
+    "micro_min": 1,
+    "micro_max": 12,
+    "rule": "Each microtask must produce one verifiable artifact, metric, or check result."
+  },
+  "memory_sections": [
+    {
+      "id": "data-sources-licences",
+      "label": "Data sources and licences",
+      "required": true,
+      "max_chars": 2000,
+      "hint": "List dataset origins, versions, access dates, and licence or usage restrictions."
+    },
+    {
+      "id": "metrics",
+      "label": "Metrics and baselines",
+      "required": true,
+      "max_chars": 1500,
+      "hint": "Record metric definitions, baseline scores, and target release thresholds."
+    },
+    {
+      "id": "experiment-decisions",
+      "label": "Experiment log decisions",
+      "required": true,
+      "max_chars": 2000,
+      "hint": "Summarize tested hypotheses, selected approaches, and rejected alternatives."
+    },
+    {
+      "id": "risks-bias",
+      "label": "Risks and bias",
+      "required": true,
+      "max_chars": 1500,
+      "hint": "Document leakage risks, subgroup disparities, failure modes, and mitigations."
+    }
+  ]
+}

@@ -57,3 +57,4 @@ Copy beyond the strings listed above (network text wording, "Toggle theme", Rest
 ### Oracle amendment A-R16 (14 Nov): product renamed to Tasklight (operator ruling R16); brand text asserted as "Tasklight".
 
 ### Oracle amendment A-R16b (14 Nov): brand capitalization "TaskLight" per operator.
+- A-U51 (14 Nov): B15 unknown source kind now expects the "Rules" chip with no latency (SPEC_U51 §4, U38 V3); previously "5 ms".

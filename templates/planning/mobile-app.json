@@ -1,0 +1,142 @@
+{
+  "v": 1,
+  "id": "mobile-app",
+  "name": "Mobile App",
+  "summary": "Plan, build, test on physical devices, and release a mobile application.",
+  "lens_id": "dev",
+  "brief_fields": [
+    {
+      "id": "goal",
+      "label": "App goal and core user problem",
+      "required": true
+    },
+    {
+      "id": "platforms",
+      "label": "Target mobile platforms and OS versions",
+      "required": true
+    },
+    {
+      "id": "offline-needs",
+      "label": "Offline capability and sync expectations",
+      "required": false
+    },
+    {
+      "id": "release-channel",
+      "label": "Distribution channel and release target",
+      "required": true
+    }
+  ],
+  "phases": [
+    {
+      "id": "discovery",
+      "label": "Discovery",
+      "exit": "Scope, target devices, and permission requirements are documented."
+    },
+    {
+      "id": "ux",
+      "label": "UX Design",
+      "exit": "User flows, navigation, and screen states are reviewed and signed off."
+    },
+    {
+      "id": "build",
+      "label": "Build",
+      "exit": "Screens, native integrations, and offline sync pass automated checks."
+    },
+    {
+      "id": "device-testing",
+      "label": "Device Testing",
+      "exit": "Core flows pass on target physical devices under varied network states."
+    },
+    {
+      "id": "store-release",
+      "label": "Store Release",
+      "exit": "Store metadata, privacy disclosures, and signed build pass review."
+    }
+  ],
+  "task_types": [
+    {
+      "id": "screen",
+      "label": "Screen",
+      "accept_required": true,
+      "evidence_required": false,
+      "micro_hints": [
+        "Implement layout matching responsive breakpoints for small and large phones",
+        "Wire loading, empty, and error states with accessible labels",
+        "Connect navigation routes and verify back-stack behavior"
+      ]
+    },
+    {
+      "id": "platform-integration",
+      "label": "Platform Integration",
+      "accept_required": true,
+      "evidence_required": true,
+      "micro_hints": [
+        "Request runtime permission with clear rationale and handle denial gracefully",
+        "Integrate native capability behind a platform-agnostic interface",
+        "Verify behavior on physical hardware and record observed output"
+      ]
+    },
+    {
+      "id": "offline-sync",
+      "label": "Offline and Sync",
+      "accept_required": true,
+      "evidence_required": true,
+      "micro_hints": [
+        "Persist pending user actions locally when network is unavailable",
+        "Replay queued updates on reconnect and resolve conflicts predictably",
+        "Verify data integrity across airplane-mode toggle and app restart"
+      ]
+    },
+    {
+      "id": "test",
+      "label": "Test",
+      "accept_required": true,
+      "evidence_required": true,
+      "micro_hints": [
+        "Write automated tests covering primary user flows and edge cases",
+        "Execute manual smoke checklist on each target device class",
+        "Capture test run logs and verify zero critical regressions"
+      ]
+    },
+    {
+      "id": "store-submission",
+      "label": "Store Submission",
+      "accept_required": true,
+      "evidence_required": true,
+      "micro_hints": [
+        "Prepare signed release build with incremented version and build number",
+        "Complete store privacy questionnaire, screenshots, and release notes",
+        "Verify release candidate via closed beta track and archive submission receipt"
+      ]
+    }
+  ],
+  "granularity": {
+    "tasks_max": 30,
+    "micro_min": 1,
+    "micro_max": 8,
+    "rule": "Each microtask must deliver one verifiable outcome that can be checked on a simulator or physical device."
+  },
+  "memory_sections": [
+    {
+      "id": "target-devices",
+      "label": "Target Devices",
+      "required": true,
+      "max_chars": 1200,
+      "hint": "Supported OS versions, screen sizes, and physical test devices."
+    },
+    {
+      "id": "permissions-privacy",
+      "label": "Permissions and Privacy",
+      "required": true,
+      "max_chars": 1500,
+      "hint": "Requested device permissions, user rationales, and data handling rules."
+    },
+    {
+      "id": "decisions",
+      "label": "Decisions",
+      "required": true,
+      "max_chars": 2000,
+      "hint": "Key architecture, offline sync, and release trade-offs with rationale."
+    }
+  ]
+}
