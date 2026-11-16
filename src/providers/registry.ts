@@ -1,6 +1,6 @@
 // U47 provider core: registry, selection, one-hop fallback chain, OpenAI-compatible adapter (SPEC_U47 + Amendment W0-R).
 import { assertProviderAllowed } from "../privacy";
-import type { ProviderKind } from "../privacy";
+import type { ProviderKind, ProviderPolicyTask } from "../privacy";
 import { validateTaskOutput, TASK_SCHEMAS } from "../schema";
 import type { InferenceSource, PrivacyTier, Reject, TaskId, ValidateCtx } from "../schema";
 import { AI_DEFAULTS } from "../ai/types";
@@ -87,9 +87,12 @@ interface ChainReq {
   firebaseMode?: unknown;              // classifier mode: ONLY_ON_DEVICE swaps firebase-hybrid for the on-device overlay
 }
 
-function groupOf(task: CallTask): TaskGroup | undefined {
+/** U93 lane-local liaison group extension (shared TaskGroup lives outside Surface). */
+type LiaisonTaskGroup = TaskGroup | "liaison";
+function groupOf(task: CallTask): LiaisonTaskGroup | undefined {
   if (task === "route") return "routing";
   if (task === "drift") return "drift";
+  if ((task as string) === "liaison") return "liaison";
   if (isTaskId(task) && task !== "screenshot") return TASK_GROUP[task];
   return undefined;
 }
@@ -102,7 +105,26 @@ function validEndpoint(e: unknown): e is EndpointInfo {
 
 function utf8Bytes(s: string): number { return new TextEncoder().encode(s).length; }
 
-export function createProviderRegistry(deps: ProviderDeps): ProviderRegistry {
+export type LiaisonModelSelection = Omit<ModelSelection, "groups"> & {
+  groups?: NonNullable<ModelSelection["groups"]> & { liaison?: string };
+};
+export interface LiaisonProviderRegistry extends ProviderRegistry {
+  getSelection(): LiaisonModelSelection;
+}
+
+/** Provider display labels and configured selections do not identify an answer's model.
+ * Keep the shared string ABI: an empty label means the answerer did not report one. */
+function reportedModel(value: unknown): string {
+  if (typeof value !== "object" || value === null) return "";
+  const record = value as Record<string, unknown>;
+  for (const field of ["modelLabel", "model"]) {
+    const model = record[field];
+    if (typeof model === "string" && model.trim() !== "") return model;
+  }
+  return "";
+}
+
+export function createProviderRegistry(deps: ProviderDeps): LiaisonProviderRegistry {
   const transport: ModelTransport | undefined = deps.transport;
   const clock: Clock = deps.clock ?? HOST_CLOCK;
   let cfg: Partial<AiConfig> = { ...(deps.config ?? {}) };
@@ -224,12 +246,15 @@ export function createProviderRegistry(deps: ProviderDeps): ProviderRegistry {
   function candidateOf(task: CallTask): ProviderId {
     if (task === "screenshot") return ONDEVICE;
     const g = groupOf(task);
-    const fromGroup = g !== undefined ? selection.groups?.[g] : undefined;
+    // Lane-local liaison group read (shared ModelSelection type lives outside Surface).
+    const groups = selection.groups as Record<string, ProviderId> | undefined;
+    const fromGroup = g !== undefined ? (groups !== undefined ? groups[g] : undefined) : undefined;
     return fromGroup ?? selection.all ?? DEFAULT_PROVIDER;
   }
   const terminalOf = (tier: PrivacyTier): ProviderId =>
     ((tier as string) === "standard" || (tier as string) === "shared") ? HYBRID : ONDEVICE;
-  const policyTaskOf = (task: CallTask): TaskId => (task === "route" || task === "drift" ? "status" : (task as TaskId));
+  const policyTaskOf = (task: CallTask): ProviderPolicyTask =>
+    (task === "route" || task === "drift" ? "status" : (task as ProviderPolicyTask));
 
   function resolve(task: CallTask, tier: PrivacyTier): ResolvedChain {
     if (task === "screenshot") return { primary: ONDEVICE, hop: null, blocked: undefined };
@@ -271,7 +296,7 @@ export function createProviderRegistry(deps: ProviderDeps): ProviderRegistry {
   /** Firebase instance for a call; may throw (makeHybrid). Classifier modes pick the matching overlay for the default. */
   function firebaseInstance(id: FirebaseId, r: ChainReq): { inst: Hybrid; pid: FirebaseId } | "blocked" {
     if (id === ONDEVICE) return { inst: overlay("ondevice"), pid: ONDEVICE };
-    if (id === CLOUD) return { inst: overlay("cloud"), pid: CLOUD };
+    if (id === CLOUD) return cloudModeAllowed(r) ? { inst: overlay("cloud"), pid: CLOUD } : "blocked";
     if (r.firebaseMode === "ONLY_ON_DEVICE") return { inst: overlay("ondevice"), pid: ONDEVICE };
     if (r.firebaseMode === "ONLY_IN_CLOUD") {
       // privacy > RC kill switch > mode: cloud only for standard/shared, never under the kill switch, U46 must allow it.
@@ -287,7 +312,7 @@ export function createProviderRegistry(deps: ProviderDeps): ProviderRegistry {
       const v: unknown = res.value;
       let text: string;
       try { text = typeof v === "string" ? v : (JSON.stringify(v) ?? ""); } catch { text = ""; }
-      return { ok: true, text, value: v, source: res.source, providerId: pid, modelLabel: FIREBASE_LABEL[pid], inner: res };
+      return { ok: true, text, value: v, source: res.source, providerId: pid, modelLabel: reportedModel(res), inner: res };
     }
     const code: ProviderErrorCode = res.code === "PRIVACY_VIOLATION" ? "BLOCKED" : "FIREBASE_FAILED";
     return { ok: false, code, providerId: pid, hop: !FIREBASE_NO_HOP.has(res.code), detail: res.code, inner: res };
@@ -302,14 +327,25 @@ export function createProviderRegistry(deps: ProviderDeps): ProviderRegistry {
     } catch { return false; }
   }
 
+  /** U93 lane-local Firebase text request (shared type lives outside Surface). */
+  interface LiaisonFirebaseTextRequest {
+    task: "route" | "drift" | "liaison";
+    mode: ModeName;
+    prompt: string;
+    schema: object;
+    signal: AbortSignal;
+  }
+  type LiaisonFirebaseTextFn = (req: LiaisonFirebaseTextRequest) => Promise<{ text: string; source: "ON_DEVICE" | "IN_CLOUD" }>;
+
   /**
-   * D-U47-2: route/drift through deps.firebaseText. Mode table: ondevice -> ONLY_ON_DEVICE, cloud -> ONLY_IN_CLOUD,
-   * hybrid -> classifier mode (route) or private/kill switch ? ONLY_ON_DEVICE : PREFER_ON_DEVICE (drift). No overlay built.
+   * D-U47-2: route/drift/liaison through deps.firebaseText. Mode table: ondevice -> ONLY_ON_DEVICE,
+   * cloud -> ONLY_IN_CLOUD, hybrid -> classifier mode (route) or private/kill switch ? ONLY_ON_DEVICE :
+   * PREFER_ON_DEVICE (drift/liaison). No overlay built. Liaison uses schema-constrained text, never Hybrid.run.
    */
   function firebaseTextPlan(id: FirebaseId, r: ChainReq): { pid: FirebaseId; mode: ModeName } | "blocked" {
     if (id === ONDEVICE) return { pid: ONDEVICE, mode: "ONLY_ON_DEVICE" };
-    if (id === CLOUD) return { pid: CLOUD, mode: "ONLY_IN_CLOUD" };
-    if (r.task === "drift") {
+    if (id === CLOUD) return cloudModeAllowed(r) ? { pid: CLOUD, mode: "ONLY_IN_CLOUD" } : "blocked";
+    if (r.task === "drift" || (r.task as string) === "liaison") {
       return { pid: HYBRID, mode: terminalOf(r.tier) !== HYBRID || killed() ? "ONLY_ON_DEVICE" : "PREFER_ON_DEVICE" };
     }
     const mode: ModeName = isModeName(r.firebaseMode) ? r.firebaseMode : "PREFER_ON_DEVICE";
@@ -358,24 +394,35 @@ export function createProviderRegistry(deps: ProviderDeps): ProviderRegistry {
     });
   }
 
-  function callFirebaseText(fn: FirebaseTextFn, id: FirebaseId, r: ChainReq): Promise<Outcome> {
+  function callFirebaseText(fn: LiaisonFirebaseTextFn, id: FirebaseId, r: ChainReq): Promise<Outcome> {
     const plan = firebaseTextPlan(id, r);
     if (plan === "blocked") return Promise.resolve({ ok: false, code: "BLOCKED", providerId: CLOUD, hop: false, detail: "ONLY_IN_CLOUD not allowed" });
     const { pid, mode } = plan;
-    const task = r.task as "route" | "drift";
+    const task = r.task as "route" | "drift" | "liaison";
     return boundedFirebase(pid, r.signal, (inner) => Promise.resolve(fn({ task, mode, prompt: r.prompt, schema: r.schema, signal: inner }))
       .then((out): Outcome => {
         const o = typeof out === "object" && out !== null ? out : undefined;
         if (o === undefined || typeof o.text !== "string" || (o.source !== "ON_DEVICE" && o.source !== "IN_CLOUD")) {
           return { ok: false, code: "FIREBASE_FAILED", providerId: pid, hop: true, detail: "bad firebaseText result" };
         }
-        return { ok: true, text: o.text, source: o.source, providerId: pid, modelLabel: FIREBASE_LABEL[pid] };
+        if (mode === "ONLY_ON_DEVICE" && o.source !== "ON_DEVICE") {
+          return { ok: false, code: "BLOCKED", providerId: pid, hop: false, detail: "CLOUD_SOURCE_FOR_ON_DEVICE_ONLY" };
+        }
+        return { ok: true, text: o.text, source: o.source, providerId: pid, modelLabel: reportedModel(o) };
       }));
   }
 
   function callFirebase(id: FirebaseId, r: ChainReq): Promise<Outcome> {
-    const fn = deps.firebaseText;
-    if (typeof fn === "function" && r.taskReq === undefined && (r.task === "route" || r.task === "drift")) {
+    const fn = deps.firebaseText as LiaisonFirebaseTextFn | undefined;
+    if ((r.task as string) === "liaison" && typeof fn !== "function") {
+      return Promise.resolve({ ok: false, code: "FIREBASE_FAILED", providerId: id, hop: true,
+        detail: "Schema-constrained liaison text generation unavailable" });
+    }
+    if (
+      typeof fn === "function"
+      && r.taskReq === undefined
+      && (r.task === "route" || r.task === "drift" || (r.task as string) === "liaison")
+    ) {
       return callFirebaseText(fn, id, r);
     }
     let sel: { inst: Hybrid; pid: FirebaseId } | "blocked";
@@ -434,7 +481,6 @@ export function createProviderRegistry(deps: ProviderDeps): ProviderRegistry {
     const isLocal = e.info.kind === "local-openai-compatible";
     const budget = Math.min(isLocal ? TIMEOUTS_MS.local : TIMEOUTS_MS.remote, TIMEOUTS_MS.ceiling);
     const source: InferenceSource = isLocal ? "LOCAL_SERVER" : "REMOTE_PROVIDER";
-    const modelLabel = typeof e.info.label === "string" && e.info.label !== "" ? e.info.label : String(e.info.model ?? id);
     const signal = r.signal;
 
     return new Promise<Outcome>((resolveOut) => {
@@ -489,6 +535,8 @@ export function createProviderRegistry(deps: ProviderDeps): ProviderRegistry {
           text = s;
         }
         const t = text as string;
+        // Endpoint model metadata is host-reported; the display label is never a model identity.
+        const modelLabel = reportedModel(out) || reportedModel(e.info);
         if (isTaskId(r.task)) {
           const v = validateTaskOutput(r.task, t, r.ctx);
           if (!v.ok) { finish(fail("SCHEMA_REJECT", "validator", v.errors)); return; }
@@ -653,6 +701,7 @@ export function createProviderRegistry(deps: ProviderDeps): ProviderRegistry {
     refresh,
     list,
     select(sel: ModelSelection): void { selection = copySelection(sel); },
+    getSelection: (): LiaisonModelSelection => copySelection(selection),
     applyRemoteConfig(patch: Partial<AiConfig>, g: ProviderGates): void {
       cfg = { ...cfg, ...(patch ?? {}) };
       gates = typeof g === "object" && g !== null ? { ...g } : {};

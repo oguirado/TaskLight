@@ -26,7 +26,7 @@ CRED_RE = re.compile(r"(token|secret|credential|password|\.env|id_rsa|auth\.json
 ACTS = {"open", "plan", "step", "question", "answer", "handoff", "ack", "heartbeat", "verdict", "close", "op"}
 STEP_STATES = {"done", "active", "blocked", "pending"}
 SILENT_AFTER_S = 600
-OP_KINDS = frozenset({"plan.open", "plan.close", "plan.phase", "task.add", "task.set", "task.claim", "task.release", "micro.add", "micro.set", "memory.set"})
+OP_KINDS = frozenset({"plan.open", "plan.close", "plan.phase", "task.add", "task.set", "task.claim", "task.release", "micro.add", "micro.set", "memory.set", "activity.beat"})  # S4 (orchestrator): U90 op kind; validated by bridge/plan/ops.py
 OP_ID_RE = re.compile(r"[A-Za-z0-9_-]{8,64}")
 OP_MAX_BYTES = 8192
 

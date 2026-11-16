@@ -5,6 +5,7 @@ import json
 import os
 import sys
 
+from bridge.room import app
 from bridge.room import store
 from bridge.room.store import RoomError
 
@@ -135,6 +136,61 @@ def main(argv=None):
             except RoomError as e:
                 return _refuse(e.code)
             _emit(s)
+            return 0
+        elif verb == "export":
+            # O-U94c: CLI parity for U94 export (writes PLAN.md and MEMORY.md under $CW_HOME only).
+            ap = _JsonParser(prog="export")
+            ap.add_argument("--room", required=True)
+            ap.add_argument("--out", required=True)
+            args = ap.parse_args(rest)
+            from bridge.room.ext import export as _export
+            try:
+                result = _export.export_room(args.room, args.out)
+            except RoomError as e:
+                if e.code in ("bad_args", "bad_room"):
+                    return _refuse(e.code)
+                _emit({"ok": False, "code": e.code})
+                return 3
+            _emit(result)
+            return 0
+        elif verb == "tools":
+            if rest:
+                _emit({"ok": False, "code": "bad_args"})
+                return 2
+            _emit({"tools": app.list_tools()})
+            return 0
+        elif verb == "call":
+            if len(rest) != 3 or rest[1] != "--json" or not rest[0] or rest[0].startswith("--"):
+                _emit({"ok": False, "code": "bad_args"})
+                return 2
+            tool_name = rest[0]
+            try:
+                call_args = json.loads(rest[2])
+            except Exception:
+                _emit({"ok": False, "code": "bad_args"})
+                return 2
+            if not isinstance(call_args, dict):
+                _emit({"ok": False, "code": "bad_args"})
+                return 2
+            if tool_name not in app.tool_names():
+                _emit({"ok": False, "code": "bad_args"})
+                return 2
+            try:
+                payload = app.dispatch(tool_name, call_args)
+            except RoomError as e:
+                try:
+                    detail = str(e)
+                except Exception:
+                    detail = ""
+                error_payload = {"ok": False, "code": e.code}
+                if detail:
+                    error_payload["detail"] = detail
+                _emit(error_payload)
+                return 3
+            except Exception:
+                _emit({"ok": False, "code": "internal"})
+                return 3
+            _emit(payload)
             return 0
         else:
             _emit({"ok": False, "code": "bad_args"})

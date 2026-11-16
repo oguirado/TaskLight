@@ -68,7 +68,8 @@ describe("O2 plan and task anatomy", () => {
     expect(text(q(cards[1]!, ".status"))).toMatch(/blocked/i);
     expect(cards[2]!.getAttribute("data-ready")).toBe("false");
     expect(text(q(cards[3]!, ".status"))).toMatch(/done/i);
-    expect(text(root).toLowerCase().replaceAll("_", " ")).toContain(verdict.replaceAll("_", " "));
+    // A-U91b: reviewer needs_user is labelled Review request, U91 M4.
+    expect(text(q(cards[0]!, ".verdict-badge")).toLowerCase().replaceAll("_", " ")).toBe(verdict === "needs_user" ? "review request" : verdict.replaceAll("_", " "));
     expect(cards[0]!.querySelector(".source")).not.toBeNull();
     expect(all(root, ".steps .step-row")).toHaveLength(4);
     safeDOM(root);

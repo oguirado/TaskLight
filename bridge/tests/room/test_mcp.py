@@ -34,7 +34,7 @@ class Handshake(McpCase):
         tools = c.request("tools/list")["result"]["tools"]
         # A-U57b: MCP v2 keeps the 6 legacy tools first (byte-identical) and adds 14 planning/memory tools.
         self.assertEqual({t["name"] for t in tools[:6]}, TOOLS)
-        self.assertEqual(len(tools), 22)  # A-U69a: + plan_phase, plan_close
+        self.assertGreaterEqual(len(tools), 22)  # A-U69a: + plan_phase, plan_close  # A-U89a: extension tools (S0) append after the 22 core tools
         by = {t["name"]: t for t in tools}
         for t in tools[:6]:  # A-U57b: legacy contract applies to the 6 legacy tools
             self.assertIsInstance(t.get("description"), str)

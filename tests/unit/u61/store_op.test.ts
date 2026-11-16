@@ -32,8 +32,13 @@ describe("O1 operation ingestion (structural acceptance, not stateful applicatio
   it("O1 enforces the configured room buffer while preserving the high-water mark", () => {
     const s = createAgentStore({ maxPerRoom: 2 });
     for (const n of [3, 1, 2]) expect(s.ingest(opEvent(n, { ...openOp(), op_id: `unique_${n}` }))).toBe(true);
-    expect(s.events("oracle").map(e => e.lamport)).toEqual([2, 3]);
+    // A-U85c: pin every accepted operation; bound only non-op display events, M1.
+    expect(s.events("oracle").map(e => e.lamport)).toEqual([1, 2, 3]);
     expect(s.since()).toEqual({ oracle: 3 });
+    for (const n of [6, 4, 5]) expect(s.ingest(event(n))).toBe(true);
+    expect(s.events("oracle").map(e => e.lamport)).toEqual([1, 2, 3, 5, 6]);
+    expect(s.events("oracle").filter(e => e.act !== "op")).toHaveLength(2);
+    expect(s.since()).toEqual({ oracle: 6 });
   });
 });
 

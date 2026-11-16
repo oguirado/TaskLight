@@ -244,4 +244,25 @@ button.status-line:focus-visible {
   .model-sheet {
     transition: none;
   }
+  .liaison-panel {
+    transition: none;
+    animation: none;
+  }
+}
+
+/* U93 liaison panel: plain layout on existing tokens; no motion, no chrome. */
+.liaison-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  background: var(--c-surface-1);
+  color: var(--c-text-1);
+  font-family: var(--font-ui);
+  font-size: var(--fs-1);
+  line-height: var(--lh-body);
+}
+.liaison-panel :focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
 }

@@ -9,7 +9,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from bridge.room import mcp
+from bridge.room import app, mcp
 
 ROOT = Path(__file__).resolve().parents[4]
 
@@ -56,7 +56,7 @@ class Repair1(unittest.TestCase):
         self.assertEqual(observed.count(str(ROOT)), 1)
         replies = [json.loads(line) for line in child.stdout.splitlines()]
         self.assertEqual(replies[0]["result"]["serverInfo"]["name"], "tasklight")
-        self.assertEqual(len(replies[1]["result"]["tools"]), 22)
+        self.assertGreaterEqual(len(replies[1]["result"]["tools"]), 22)  # A-U89a: extension tools (S0) append after the 22 core tools
 
     @staticmethod
     def reference(tasks, agent, limit=None):
@@ -114,7 +114,8 @@ class Repair1(unittest.TestCase):
         tasks[5]["state"] = "done"
         tasks[6]["explicit_state"] = "blocked"
         tasks[7]["microtasks"][0]["state"] = "blocked"
-        with patch.object(mcp, "_fold", return_value=dict(plan=dict(state="active"), tasks=tasks)):
+        with patch.object(app, "_fold",  # A-U87b: handlers live in bridge.room.app (U87)
+                          return_value=dict(plan=dict(state="active"), tasks=tasks)):
             for agent in ("alice", "bob"):
                 for limit in (None, 0, 1, 2, 20):
                     with self.subTest(agent=agent, limit=limit):

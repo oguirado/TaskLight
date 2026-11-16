@@ -32,11 +32,14 @@ Every template is checked for control characters and code-like strings
 before use. Templates supplied by the user live in `CW_HOME/templates/`
 and are validated as untrusted data.
 
-**Known limit (Markdown exports):** Markdown renderers exist in
-`bridge/plan/markdown.py` (`render_plan_md` and `render_memory_md`), but
-no command writes `rooms/<room>/PLAN.md` or `rooms/<room>/MEMORY.md`
-files to disk yet. The room event log (`events.jsonl`) is the
-authoritative source of truth.
+**Markdown exports and memory history:** `room_export` is shipped and
+returns `{format:"markdown",text,rev}` for `what:"plan"` or `what:"memory"`.
+`memory_history` returns accepted memory revisions newest first. Both are
+available through MCP and `python3 -m bridge.room call`; see
+[HEADLESS.md](HEADLESS.md#5-cli-parity) for examples and the unwired
+`export --room R --out DIR` command. The file exporter implementation
+writes `PLAN.md` and `MEMORY.md` only beneath `$CW_HOME`. The room event
+log (`events.jsonl`) remains authoritative.
 
 ## Starter templates
 
@@ -68,7 +71,13 @@ only inside development starters. Starter templates ship in
 5. Execute with `next_work`, `task_claim`, `task_release`,
    `microtask_add`, `microtask_set`, `plan_phase` (op `plan.phase`) and
    `plan_close` (op `plan.close`).
-   Agents that need context can call `resume_from_memory`.
+   Send `activity_beat` every 30 seconds while assigned work is active;
+   beats supply liveness, not task completion. Use a separate stdio
+   connection for blocking waits so beats can continue. After 90 seconds
+   without a valid beat the wall shows unknown liveness; partially done
+   work alone is not evidence of execution.
+   Agents that need context follow the [resume ladder](PLANNING_CONTRACT.md#5-resume-after-context-loss)
+   or call `resume_from_memory`.
 
 ## Task and microtask model
 
@@ -92,6 +101,8 @@ only inside development starters. Starter templates ship in
   `done` microtasks divided by total microtasks, computed from the
   folded projection.
 - A dependency is satisfied when its task is `done` or `cancelled`.
+  Cancellation unblocks dependants but does not count as completed work
+  or establish acceptance; cancelled tasks are excluded from `next_work`.
   Dependency readiness excludes those completed or cancelled tasks;
   agenda eligibility additionally excludes `blocked` tasks. A task whose dependencies are unsatisfied waits and reports
   `ready: false`.

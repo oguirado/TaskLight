@@ -10,7 +10,10 @@ import "../../styles/agents.css";
 import { boot, onGoogleSignIn, onUserActivation } from "../../src/app/boot";
 import { createConnector } from "../../src/app/connector";
 import { createAgentLink } from "../../src/app/agent_link";
+import type { RoomGapFrame, RoomSyncedFrame } from "../../src/app/agent_link";
 import { createAgentStore } from "../../src/app/agent_store";
+import { createSyncNotice } from "../../src/views/sync_notice";
+import * as Plan from "../../src/plan";
 import { createDriftReviewer, driftPortFromFactory } from "../../src/app/agent_drift";
 import { createPlanWiring } from "../../src/app/plan_wiring";
 import type { PlanWiring, RoomPlanSnapshot } from "../../src/app/plan_wiring";
@@ -26,6 +29,10 @@ import type { ModelSheetIntent } from "../../src/ui/model_selector";
 import type { ModelSelection } from "../../src/providers/types";
 import { startAgentWall } from "../../src/app/agent_wall";
 import type { AgentWall } from "../../src/app/agent_wall";
+import { createLiaisonController } from "../../src/app/liaison";
+import type { LiaisonInput, LiaisonProviderPort } from "../../src/app/liaison";
+import { mountLiaisonPanel } from "../../src/agentsui/liaison_panel";
+import type { LiaisonPanelHandle } from "../../src/agentsui/liaison_panel";
 import { isPlaceholderConfig } from "../../src/app/firebase-config.public";
 import { readHostEnv } from "../../src/app/index";
 import { renderHostState } from "../../src/app/ui";
@@ -239,6 +246,7 @@ let driftFactory: ModelFactory | null = null;
 let deviceModelState: string | undefined;
 /** U52 model services; built inside hy.create, null when construction fails (F4). */
 let services: ModelServices | null = null;
+let refreshLiaison = (): void => undefined;
 let offModelSheet: (() => void) | undefined;
 if (WIRE_REAL) {
   const { createFirebasePorts } = await import("../../src/app/firebase_ports");
@@ -259,8 +267,9 @@ if (WIRE_REAL) {
           clock: wallClock,
           channel: modelBus,
         });
-        offModelSheet = services.sheet().subscribe(renderSheet);
+        offModelSheet = services.sheet().subscribe(() => { renderSheet(); refreshLiaison(); });
         renderSheet();
+        refreshLiaison();
       } catch {
         services = null;
       }
@@ -333,7 +342,146 @@ if (extId !== null) {
   root.appendChild(chatHost);
   const store = createAgentStore({ templates: resolveStarterTemplate });
   const roomFloors = new Map<string, string>();
+  type SyncFault = { kind: "unknown" } | { kind: "interval"; from: number; to: number };
+  interface RecoveryState { startSince: number; faultKeys: Set<string>; sawOverlap: boolean; sawFailure: boolean }
+  const helloRooms = new Set<string>();
+  const faults = new Map<string, Map<string, SyncFault>>();
+  const recovery = new Map<string, RecoveryState>();
+  const noticeHost = document.createElement("div");
+  root.appendChild(noticeHost);
+  const syncNotice = createSyncNotice(noticeHost);
+  const faultKey = (f: SyncFault): string =>
+    f.kind === "interval" ? `${String(f.from)}:${String(f.to)}` : "unknown";
+  const earliestFaultFrom = (room: string): number | undefined => {
+    const set = faults.get(room);
+    if (set === undefined || set.size === 0) return undefined;
+    let best: number | undefined;
+    for (const f of set.values()) {
+      // An unknown position requires full history, even alongside known gaps.
+      if (f.kind === "unknown") return 0;
+      best = best === undefined ? f.from : Math.min(best, f.from);
+    }
+    return best;
+  };
+  const isStale = (): boolean => {
+    for (const room of helloRooms) if ((faults.get(room)?.size ?? 0) > 0) return true;
+    return false;
+  };
+  const refreshNotice = (): void => {
+    const list: { room: string; fromLamport?: number; toLamport?: number }[] = [];
+    for (const room of [...faults.keys()].sort()) {
+      if (!helloRooms.has(room)) continue;
+      const set = faults.get(room);
+      if (set === undefined) continue;
+      const intervals = [...set.values()].sort((a, b) =>
+        (a.kind === "interval" ? a.from : 0) - (b.kind === "interval" ? b.from : 0));
+      for (const f of intervals) {
+        if (f.kind === "interval") list.push({ room, fromLamport: f.from, toLamport: f.to });
+        else list.push({ room });
+      }
+    }
+    syncNotice.update(list);
+  };
+  const addFault = (room: string, f: SyncFault): void => {
+    if (!helloRooms.has(room)) return;
+    let set = faults.get(room);
+    if (set === undefined) {
+      set = new Map<string, SyncFault>();
+      faults.set(room, set);
+    }
+    const key = faultKey(f);
+    if (set.has(key)) return;
+    set.set(key, { ...f });
+    refreshNotice();
+  };
+  const eventLamport = (ev: unknown): number | undefined => {
+    if (typeof ev === "object" && ev !== null && !Array.isArray(ev)) {
+      const lam = (ev as Record<string, unknown>)["lamport"];
+      if (typeof lam === "number" && Number.isSafeInteger(lam) && lam >= 1) return lam;
+    }
+    return undefined;
+  };
+  const foldDiagnosticLamport = (room: string): number | undefined => {
+    try {
+      const res = store.plan(room);
+      if (res === undefined) return undefined;
+      if (res.errors !== undefined) {
+        for (const e of res.errors) if (typeof e.lamport === "number" && Number.isSafeInteger(e.lamport)) return e.lamport;
+      }
+      const rejected = res.projection.rejected;
+      if (Array.isArray(rejected)) {
+        for (const r of rejected) {
+          if (typeof r.lamport === "number" && Number.isSafeInteger(r.lamport)) return r.lamport;
+        }
+      }
+    } catch {
+      return undefined;
+    }
+    return undefined;
+  };
+  const foldHasFailure = (room: string): boolean => {
+    try {
+      const res = store.plan(room);
+      if (res !== undefined) {
+        if (res.invalidOps > 0) return true;
+        if ((res.rejectedOps ?? 0) > 0) return true;
+        if ((res.errors?.length ?? 0) > 0) return true;
+        if ((res.projection.rejected?.length ?? 0) > 0) return true;
+      }
+    } catch {
+      return false;
+    }
+    try {
+      const display = store.events(room);
+      let latest: Record<string, unknown> | undefined;
+      for (const e of display) {
+        if (e.act !== "op") continue;
+        const op = (e as { op?: unknown }).op;
+        if (typeof op !== "object" || op === null || Array.isArray(op)) continue;
+        if ((op as Record<string, unknown>)["kind"] !== "plan.open") continue;
+        latest = op as Record<string, unknown>;
+      }
+      let template: ReturnType<typeof resolveStarterTemplate> | undefined;
+      if (latest !== undefined) {
+        const tid = latest["template_id"];
+        const thash = latest["template_hash"];
+        if (typeof tid === "string" && typeof thash === "string") {
+          const candidate = resolveStarterTemplate(tid, thash);
+          if (typeof candidate === "object" && candidate !== null && (candidate as { hash?: unknown }).hash === thash) {
+            template = candidate;
+          }
+        }
+      }
+      const folded = template !== undefined ? Plan.foldPlan(display as unknown, template) : Plan.foldPlan(display as unknown);
+      const stats = folded.stats;
+      if (stats.invalid > 0 || stats.rejected > 0 || stats.errors.length > 0) return true;
+      if (folded.projection.rejected.length > 0) return true;
+      return false;
+    } catch {
+      return false;
+    }
+  };
+  const recoverySince = (): Record<string, number> => {
+    const base = store.since();
+    const out: Record<string, number> = { ...base };
+    for (const room of faults.keys()) {
+      const early = earliestFaultFrom(room);
+      if (early === undefined) continue;
+      out[room] = Math.min(base[room] ?? 0, Math.max(0, early - 1));
+    }
+    return out;
+  };
   let wall: AgentWall | undefined;
+  const refreshWall = (): void => {
+    refreshLiaison();
+    if (isStale()) return;
+    try {
+      wall?.refresh();
+      refreshLiaison();
+    } catch {
+      /* wall failures never break room callbacks */
+    }
+  };
   const templateMemorySections = (templateId: string) => {
     try {
       const sections = getTemplateMemorySections(templateId);
@@ -354,7 +502,7 @@ if (extId !== null) {
       adaptDriftPort: (port) => port as unknown as import("../../src/planai/types").PlanAiPort,
       getSnapshots,
       getTier: (room) => roomFloors.get(room) === "PREFER_ON_DEVICE" ? "standard" : "private",
-      onUpdate: () => wall?.refresh(),
+      onUpdate: () => refreshWall(),
     });
   } catch {
     planWiring = null;
@@ -398,17 +546,92 @@ if (extId !== null) {
       return port;
     },
     clock: wallClock,
-    since: () => store.since(),
+    since: () => recoverySince(),
     onRoomEvent: (frame) => {
       roomFloors.set(frame.room, frame.floor);
-      store.ingest(frame.event);
+      refreshLiaison();
+      if (!helloRooms.has(frame.room)) return;
+      const ingested = store.ingestChecked(frame.event);
+      if (ingested === "invalid") {
+        const lam = eventLamport(frame.event);
+        addFault(frame.room, lam !== undefined ? { kind: "interval", from: lam, to: lam } : { kind: "unknown" });
+        const rec = recovery.get(frame.room);
+        if (rec !== undefined) rec.sawFailure = true;
+      } else if (ingested === "accepted" && foldHasFailure(frame.room)) {
+        const lam = foldDiagnosticLamport(frame.room) ?? eventLamport(frame.event);
+        addFault(frame.room, lam !== undefined ? { kind: "interval", from: lam, to: lam } : { kind: "unknown" });
+        const rec = recovery.get(frame.room);
+        if (rec !== undefined) rec.sawFailure = true;
+      }
       notifyPlan();
-      wall?.refresh();
+      refreshWall();
+    },
+    onRoomGap: (frame: RoomGapFrame) => {
+      const room = frame.room;
+      if (!helloRooms.has(room)) return;
+      const rec = recovery.get(room);
+      if (rec !== undefined) {
+        const set = faults.get(room);
+        if (set !== undefined) {
+          for (const f of set.values()) {
+            if (f.kind === "interval"
+              && frame.from_lamport <= f.to && frame.to_lamport >= f.from) {
+              rec.sawOverlap = true;
+              break;
+            }
+          }
+        }
+      }
+      addFault(room, { kind: "interval", from: frame.from_lamport, to: frame.to_lamport });
+      notifyPlan();
+      refreshWall();
+    },
+    onRoomSynced: (frame: RoomSyncedFrame) => {
+      if (frame.more) return;
+      const room = frame.room;
+      const rec = recovery.get(room);
+      if (rec === undefined) return;
+      recovery.delete(room);
+      const early = earliestFaultFrom(room);
+      if (early === undefined) return;
+      if (early === 0 ? rec.startSince !== 0 : rec.startSince >= early) return;
+      if (rec.sawOverlap || rec.sawFailure) return;
+      if (foldHasFailure(room)) return;
+      const set = faults.get(room);
+      if (set === undefined) return;
+      if (set.size !== rec.faultKeys.size) return;
+      for (const [key, fault] of set) {
+        if (!rec.faultKeys.has(key)) return;
+        if (fault.kind === "interval" && frame.upto < fault.to) return;
+      }
+      faults.delete(room);
+      refreshNotice();
+      notifyPlan();
+      refreshWall();
     },
     onRoomHello: (frame) => {
+      roomFloors.clear();
       for (const room of frame.rooms) roomFloors.set(room.room, room.floor);
+      refreshLiaison();
+      helloRooms.clear();
+      recovery.clear();
+      for (const room of frame.rooms) helloRooms.add(room.room);
+      for (const room of [...faults.keys()]) {
+        if (!helloRooms.has(room)) continue;
+        const early = earliestFaultFrom(room);
+        if (early === undefined) continue;
+        const set = faults.get(room);
+        if (set === undefined) continue;
+        recovery.set(room, {
+          startSince: Math.max(0, early - 1),
+          faultKeys: new Set(set.keys()),
+          sawOverlap: false,
+          sawFailure: false,
+        });
+      }
+      refreshNotice();
       notifyPlan();
-      wall?.refresh();
+      refreshWall();
     },
   });
   const reviewer = WIRE_REAL
@@ -427,6 +650,111 @@ if (extId !== null) {
     return undefined;
   };
   wall = startAgentWall({ modelStatus, wallHost, chatHost, link, store, reviewer, clock: wallClock, userAgent: "wall-user", planVerdicts, planBriefs, templateMemorySections });
+  // Each mounted panel belongs to one task, executor, host floor and model
+  // selection. Replacing it aborts pending work and discards stale output.
+  let liaisonPanel: LiaisonPanelHandle | undefined;
+  let liaisonHost: HTMLElement | undefined;
+  let liaisonTrigger: HTMLButtonElement | undefined;
+  let liaisonKey = "";
+  let pageClosed = false;
+  const clearLiaison = (): void => {
+    liaisonPanel?.destroy();
+    liaisonPanel = undefined;
+    liaisonHost?.remove();
+    liaisonTrigger?.remove();
+    liaisonHost = undefined;
+    liaisonTrigger = undefined;
+    liaisonKey = "";
+  };
+  const getLiaisonContext = (): LiaisonInput => {
+    const selected = wall?.selection?.();
+    const handle = wall?.chat?.();
+    if (selected == null || handle == null) throw new Error("No selected task composer");
+    const projection = store.plan(selected.room)?.projection;
+    const task = projection?.tasks.find(t => t.id === selected.taskId);
+    if (task === undefined) throw new Error("Selected task unavailable");
+    const floor = roomFloors.get(selected.room);
+    // An absent/unknown host floor remains invalid; the controller blocks it
+    // before persistence or inference rather than assuming a privacy tier.
+    const tier = floor === "ONLY_ON_DEVICE" ? "private"
+      : floor === "PREFER_ON_DEVICE" ? "standard" : undefined;
+    return {
+      room: selected.room, task_id: selected.taskId,
+      human: { id: `human:${selected.room}:${selected.taskId}`, text: handle.getDraft() },
+      tier: tier as LiaisonInput["tier"],
+      rules: task.accept, projection,
+      history: store.events(selected.room)
+        .filter(e => e.agent === selected.assignee || e.to === selected.assignee)
+        .slice(-20).map(e => ({ id: e.id, text: e.text })),
+      cursor: store.since()[selected.room] ?? 0,
+    };
+  };
+  const liaisonRegistry: LiaisonProviderPort = {
+    select: selection => (services?.registry as unknown as LiaisonProviderPort | undefined)?.select(selection),
+    resolve: (task, tier) => (services?.registry as unknown as LiaisonProviderPort | undefined)?.resolve(task, tier)
+      ?? { primary: "firebase-hybrid", hop: null, blocked: undefined },
+    generate: async request => {
+      if (services === null) return { ok: false, code: "NEEDS_SETUP", providerId: "firebase-hybrid", fallback: false };
+      services.refreshFlags();
+      return (services.registry as unknown as LiaisonProviderPort).generate(request);
+    },
+  };
+  refreshLiaison = (): void => {
+    if (pageClosed) return;
+    const selected = wall?.selection?.();
+    if (selected == null || wall?.chat?.() == null) { clearLiaison(); return; }
+    const key = JSON.stringify([selected, roomFloors.get(selected.room), services?.sheet().selection()]);
+    if (key !== liaisonKey) {
+      clearLiaison();
+      liaisonKey = key;
+      const controller = createLiaisonController({ registry: liaisonRegistry });
+      controller.setContext(getLiaisonContext());
+      liaisonTrigger = document.createElement("button");
+      liaisonTrigger.type = "button";
+      liaisonTrigger.textContent = "Liaison";
+      liaisonHost = document.createElement("div");
+      const host = liaisonHost;
+      liaisonTrigger.addEventListener("click", () => {
+        host.hidden = !host.hidden;
+        liaisonTrigger?.setAttribute("aria-expanded", String(!host.hidden));
+        liaisonPanel?.refresh();
+      });
+      liaisonTrigger.setAttribute("aria-expanded", "true");
+      chatHost.append(liaisonTrigger, host);
+      liaisonPanel = mountLiaisonPanel(host, {
+        controller, getContext: getLiaisonContext,
+        getChatHandle: context => {
+          const current = wall?.selection?.();
+          return current?.room === context.room && current.taskId === context.task_id
+            ? wall?.chat?.() ?? undefined : undefined;
+        },
+        // Explicit human action activates the existing delivery control; the
+        // wall retains recipient validation, deduplication and receipts.
+        onSend: context => {
+          const current = wall?.selection?.();
+          if (current?.room !== context.room || current.taskId !== context.task_id) return;
+          chatHost.querySelector<HTMLButtonElement>(".chat-send")?.click();
+        },
+        onPlan: () => wallHost.querySelector<HTMLButtonElement>('[data-nav="wall"]')?.click(),
+        onMemory: () => wallHost.querySelector<HTMLButtonElement>('[data-nav="memory"]')?.click(),
+        trigger: liaisonTrigger,
+      });
+    } else {
+      liaisonPanel?.refresh();
+    }
+  };
+  const offLiaisonSelection = wall.onSelection?.(() => refreshLiaison()) ?? (() => undefined);
+  refreshLiaison();
+  const teardown = (): void => {
+    if (pageClosed) return;
+    pageClosed = true;
+    offLiaisonSelection();
+    clearLiaison();
+    refreshLiaison = () => undefined;
+    try { wall?.destroy(); } finally { link.stop(); }
+    window.removeEventListener("pagehide", teardown);
+  };
+  window.addEventListener("pagehide", teardown);
   // The first render has already built the rail; anchor the boot controls.
   // Later re-renders are covered by the MutationObserver above.
   ensureBootControls();

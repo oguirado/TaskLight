@@ -33,9 +33,25 @@ Privacy policy is fail-closed and takes precedence over user selection and Remot
 | `shared` | Allowed | Allowed | Allowed | Denied |
 | `screenshot` (any tier) | Allowed | Denied | Denied | Denied (no override) |
 
+## Liaison task group
+
+The `liaison` task group uses `firebase-hybrid` as its factory default and
+can be assigned a user-configured endpoint under the same privacy rules
+as other groups. Network models are optional user-configured endpoints;
+TaskLight supplies no bundled network provider selection or credentials.
+The liaison drafts, clarifies, and summarizes. It never sends to executors
+without human action and cannot claim tasks, complete work, or issue rulings.
+An unavailable model leaves the human's draft and direct messaging available.
+Browser on-device inference requires the browser; headless planning and
+memory remain usable without inference. See [HEADLESS.md](HEADLESS.md).
+
 ## Configuring Endpoints in the Native Host
 
 TaskLight ships zero third-party endpoints, API keys, or external SDKs. You bring your own endpoint and credentials, and you are responsible for complying with your chosen provider's terms of service.
+
+The desktop config is `$CW_HOME/wall.config.json` when `CW_HOME` is set,
+otherwise `~/.context-wall/wall.config.json`. The historical
+`.contextwall/wall.config.json` path is not a supported default.
 
 To enable the model relay in the native host, add `"models": {}` (or `{"models": {"home": "<dir>"}}` to override the storage directory) in your local `wall.config.json`:
 
@@ -75,7 +91,7 @@ Click the status line in the TaskLight rail to open the **Models** sheet:
 - **Firebase AI Logic**: Hybrid (recommended, default), On-device only, and Cloud only, each showing live device readiness.
 - **Your local models**: plain-text `<label> · <model>` entries reported by the native host (hidden when the native host is absent).
 - **Your network providers**: plain-text entries with the notice *"Not used for private projects or screenshots"*.
-- **Task assignment and reset**: assign models per task group (Capsule tasks, Digest, Routing, Drift review) or click **Reset to Firebase hybrid**.
+- **Task assignment and reset**: assign models per task group (Capsule tasks, Digest, Routing, Drift review, Liaison) or click **Reset to Firebase hybrid**.
 
 Endpoint states shown in the sheet:
 - **Ready**: probe succeeded and policy allows use.

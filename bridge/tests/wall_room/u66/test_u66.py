@@ -13,7 +13,7 @@ from unittest import mock
 from bridge.plan.conformance import check_conformance
 from bridge.plan.fold import fold_plan
 from bridge.plan.template import validate_template
-from bridge.room import mcp, store
+from bridge.room import app, mcp, store
 from bridge.wall import room_relay as relay
 from bridge.wall.emit import redact
 from bridge.tests.wall_room import support as S
@@ -286,7 +286,7 @@ class McpOracle(unittest.TestCase):
         custom["phases"] = []
         class Captured(Exception):
             pass
-        with mock.patch.object(mcp, "_template_by_id", return_value=custom):
+        with mock.patch.object(app, "_template_by_id", return_value=custom):  # A-U87b: handlers live in bridge.room.app
             with mock.patch.object(store, "post_ops", side_effect=Captured) as post:
                 with self.assertRaises(Captured):
                     mcp._do_plan_create(self.args())

@@ -70,7 +70,8 @@ export function createModelServices(d: ModelServicesDeps): ModelServices {
   const makeHybrid = (o: Partial<import("../ai/types").AiConfig>): Hybrid =>
     createHybrid({ factory, origin: d.origin, appCheckReady: true, config: o });
 
-  const firebaseText = (req: { task: "route" | "drift"; mode: ModeName; prompt: string; schema: object; signal: AbortSignal }): Promise<{ text: string; source: "ON_DEVICE" | "IN_CLOUD" }> =>
+  // U93: liaison shares the schema-constrained Firebase text channel (same closed schema to both model channels).
+  const firebaseText = (req: { task: "route" | "drift" | "liaison"; mode: ModeName; prompt: string; schema: object; signal: AbortSignal }): Promise<{ text: string; source: "ON_DEVICE" | "IN_CLOUD" }> =>
     driftPortFromFactory(factory, req.mode).generate(req.prompt, req.schema, req.signal).then((r) => ({
       text: r.text,
       source: (r.source === "device" ? "ON_DEVICE" : "IN_CLOUD") as "ON_DEVICE" | "IN_CLOUD",

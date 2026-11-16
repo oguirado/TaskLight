@@ -5,7 +5,7 @@ export type RoomAct =
 export type PlanOpKind =
   | "plan.open" | "plan.close" | "plan.phase"
   | "task.add" | "task.set" | "task.claim" | "task.release"
-  | "micro.add" | "micro.set" | "memory.set";
+  | "micro.add" | "micro.set" | "memory.set" | "activity.beat";
 
 export interface RoomOpBody {
   kind: PlanOpKind;

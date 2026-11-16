@@ -9,6 +9,11 @@ from .ops import validate_op_shape
 
 _SAFE_MAX = 9007199254740991
 _TS_MAX = 8640000000000000
+_ACTIVITY_RETIRED = "activity.retired"
+# At most 256 opaque IDs per task/microtask scope (520 scopes per plan).
+# Saturation seals the scope until plan.open; evicting IDs would admit old runs.
+_ACTIVITY_RETIRED_MAX = 256
+_ACTIVITY_SEALED = "*"  # Cannot be a valid run_id.
 
 
 class PlanProjection(dict):
@@ -66,10 +71,59 @@ def _derived(task: dict, by_id: dict):
             if dep is None:
                 ready = False
                 break
-            if dep.get("state") != "done":
+            if dep.get("state") not in ("done", "cancelled"):
                 ready = False
                 break
     return state, bool(ready)
+
+
+def _remember_retired(state: dict, scope: str, run_id: str):
+    retired = state["replayed_ops"].setdefault(_ACTIVITY_RETIRED, {})
+    runs = retired.setdefault(scope, [])
+    if _ACTIVITY_SEALED in runs or run_id in runs:
+        return
+    if run_id == _ACTIVITY_SEALED or len(runs) >= _ACTIVITY_RETIRED_MAX:
+        retired[scope] = [_ACTIVITY_SEALED]
+    else:
+        runs.append(run_id)
+
+
+def _is_retired(state: dict, scope: str, run_id: str) -> bool:
+    runs = state["replayed_ops"].get(_ACTIVITY_RETIRED, {}).get(scope, [])
+    return _ACTIVITY_SEALED in runs or run_id in runs
+
+
+def _retire_live(state: dict, micro: dict):
+    live = micro.pop("live", None)
+    if live is not None:
+        # Replay-cache metadata survives JSON continuation without extending
+        # the public task or microtask shape. Run IDs are opaque tokens.
+        _remember_retired(state, micro["id"], live["run_id"])
+
+
+def _retire_task_activity(state: dict, task: dict):
+    for micro in task.get("microtasks", []):
+        live = micro.get("live")
+        if live is not None:
+            _remember_retired(state, task["id"], live["run_id"])
+        # Include runs whose microtask already left active before this transition.
+        runs = state["replayed_ops"].get(_ACTIVITY_RETIRED, {}).get(micro["id"], [])
+        for run_id in runs:
+            _remember_retired(state, task["id"], run_id)
+        _retire_live(state, micro)
+
+
+def _retire_inactive_activity(state: dict):
+    plan = state.get("plan")
+    for task in state.get("tasks", []):
+        allowed = plan is not None and plan.get("state") == "active" and task.get("state") not in ("blocked", "cancelled")
+        if not allowed or any(m.get("live") is not None and task.get("assignee") != m["live"]["agent"] for m in task.get("microtasks", [])):
+            _retire_task_activity(state, task)
+            continue
+        for micro in task.get("microtasks", []):
+            live = micro.get("live")
+            if live is not None and micro.get("state") != "active":
+                _retire_live(state, micro)
 
 
 def _recompute(state: dict):
@@ -114,6 +168,7 @@ def _recompute(state: dict):
         "progress": float(progress),
         "progress_pct": int(progress_pct),
     }
+    _retire_inactive_activity(state)
 
 
 def _template_for_plan(state: dict, templates):
@@ -269,6 +324,9 @@ def apply_op_event(state: dict, event: dict, *, templates: Mapping[str, dict] | 
         # Closed plans were already archived at close time. Reopening only
         # resets per-plan tasks; project memory and replay history survive.
         new["tasks"] = []
+        # Retirement (including sealed scopes) belongs to the old plan only;
+        # preserve ordinary replay receipts while allowing reused task/run IDs.
+        new["replayed_ops"].pop(_ACTIVITY_RETIRED, None)
         new["plan"] = new_plan
         result = {"kind": kind, "op_id": op_id}
         _recompute(new)
@@ -438,6 +496,11 @@ def apply_op_event(state: dict, event: dict, *, templates: Mapping[str, dict] | 
             cts = task.get("claim_ts")
             if cts is not None:
                 candidates.append(cts)
+            # Accepted beats remain owner activity after their live runs retire,
+            # including beats on the owner's other tasks during JSON continuation.
+            for receipt in new["replayed_ops"].values():
+                if isinstance(receipt, dict) and receipt.get("kind") == "activity.beat" and receipt.get("agent") == assignee and _is_safe_int(receipt.get("beat_ts")):
+                    candidates.append(receipt["beat_ts"])
             if last_by_agent is not None:
                 v = last_by_agent.get(assignee)
                 if v is not None:
@@ -447,6 +510,8 @@ def apply_op_event(state: dict, event: dict, *, templates: Mapping[str, dict] | 
             last = max(candidates)
             if not (ts - last > 600000):
                 raise PlanError("claimed_by_other", "not silent")
+        if assignee != agent:
+            _retire_task_activity(new, task)
         task["assignee"] = agent
         task["claim_lamport"] = lamport
         task["claim_ts"] = ts
@@ -464,6 +529,7 @@ def apply_op_event(state: dict, event: dict, *, templates: Mapping[str, dict] | 
         assignee = task.get("assignee")
         if assignee not in (None, agent):
             raise PlanError("claimed_by_other", "claimed")
+        _retire_task_activity(new, task)
         task["assignee"] = None
         task["claim_lamport"] = None
         task["claim_ts"] = None
@@ -497,6 +563,37 @@ def apply_op_event(state: dict, event: dict, *, templates: Mapping[str, dict] | 
         task["rev"] = lamport
         result = {"kind": kind, "op_id": op_id}
         _recompute(new)
+
+    elif kind == "activity.beat":
+        require_active()
+        task = _find_task(new, op["task_id"])
+        if task is None:
+            raise PlanError("not_found", "task")
+        if task.get("assignee") != agent:
+            raise PlanError("claimed_by_other", "claimed")
+        micros = task.get("microtasks", [])
+        if "micro_id" in op:
+            micros = [m for m in micros if m["id"] == op["micro_id"]]
+            if not micros:
+                raise PlanError("not_found", "micro")
+        run_id = op["run_id"]
+        if task.get("state") not in ("blocked", "cancelled") and not _is_retired(new, task["id"], run_id):
+            eligible = [m for m in micros if m["state"] == "active" and not _is_retired(new, m["id"], run_id)]
+            if eligible:
+                # Supersession fences the old task run on every sibling.
+                for micro in task.get("microtasks", []):
+                    live = micro.get("live")
+                    if live is not None and live["run_id"] != run_id:
+                        _remember_retired(new, task["id"], live["run_id"])
+                        _retire_live(new, micro)
+                if _is_retired(new, task["id"], run_id):
+                    _retire_task_activity(new, task)
+                else:
+                    for micro in eligible:
+                        if not _is_retired(new, micro["id"], run_id):
+                            micro["live"] = {"agent": agent, "run_id": run_id, "beat_ts": ts, "beat_lamport": lamport}
+        # A beat changes only liveness and the journal/replay cursors.
+        result = {"kind": kind, "op_id": op_id, "agent": agent, "beat_ts": ts}
 
     elif kind == "micro.set":
         act = require_active()

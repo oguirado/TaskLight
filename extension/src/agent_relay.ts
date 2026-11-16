@@ -21,6 +21,7 @@ export const AGENT_RELAY_LIMITS = { FRAME_MAX_CHARS: 65536, TEXT_MAX_BYTES: 4096
 const RID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const ROOM_RE = /^[a-z0-9][a-z0-9-]{0,47}$/;
 const FLOORS: ReadonlySet<string> = new Set(["ONLY_ON_DEVICE", "PREFER_ON_DEVICE"]);
+const GAP_REASONS: ReadonlySet<string> = new Set(["sanitize_failed", "oversize"]);
 const ROOMS_MAX = 12;
 const hasControls = (s: string): boolean => { for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); if (c < 32 || c === 127) return true; } return false; };
 const encoder = new TextEncoder();
@@ -231,6 +232,38 @@ export function createAgentRelay(d: { native: AgentRelayNative; clock: Clock }):
       const rid = frame["rid"];
       if (rid !== undefined) {
         if (typeof rid !== "string") {
+          rejected += 1;
+          return;
+        }
+        const p = pending.get(rid);
+        if (p === undefined || p.kind !== "sync") {
+          rejected += 1;
+          return;
+        }
+        if (p.requested.size > 0 && !p.requested.has(frame["room"] as string)) {
+          rejected += 1;
+          return;
+        }
+        deliver(p.port, { ...frame, rid: p.pageRid });
+        return;
+      }
+      fanOut(frame);
+      return;
+    }
+    if (t === "room_gap") {
+      if (frame["v"] !== 1 || !isRoom(frame["room"])
+        || typeof frame["from_lamport"] !== "number" || !Number.isSafeInteger(frame["from_lamport"])
+        || (frame["from_lamport"] as number) < 1
+        || typeof frame["to_lamport"] !== "number" || !Number.isSafeInteger(frame["to_lamport"])
+        || (frame["to_lamport"] as number) < 1
+        || (frame["from_lamport"] as number) > (frame["to_lamport"] as number)
+        || typeof frame["reason"] !== "string" || !GAP_REASONS.has(frame["reason"] as string)) {
+        rejected += 1;
+        return;
+      }
+      const rid = frame["rid"];
+      if (rid !== undefined) {
+        if (typeof rid !== "string" || !isRid(rid)) {
           rejected += 1;
           return;
         }

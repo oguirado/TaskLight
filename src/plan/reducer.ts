@@ -1,12 +1,18 @@
 import type {
   PlanningTemplate, PlanProjection, PlanTask, TaskStatus, PlanConformance,
-  PlanApplyResult, PlanFoldResult, PlanOpEvent, PlanOpErrorCode,
+  PlanApplyResult, PlanFoldResult, PlanOpEvent, PlanOpErrorCode, PlanMicrotask,
 } from "./types";
 import { PLAN_LIMITS, AGENT_RE } from "./limits";
 import { opEventErrorCode, isPlainObjectExport, isJsonSafe, collectionHasDangerous, safeField, hasDangerousOwnKey } from "./validate";
 
 const SILENT_AFTER_MS = PLAN_LIMITS.SILENT_AFTER_MS;
 const TS_MAX_ABS = 8.64e15;
+const ACTIVITY_RETIRED = "activity.retired";
+// At most 256 opaque IDs per task/microtask scope (520 scopes per plan).
+// Saturation seals the scope until plan.open; evicting IDs would admit old runs.
+const ACTIVITY_RETIRED_MAX = 256;
+const ACTIVITY_SEALED = "*"; // Cannot be a valid run_id.
+type RetiredRuns = Record<string, string[]>;
 
 function isSafeInt(v: unknown): v is number {
   return typeof v === "number" && Number.isSafeInteger(v);
@@ -76,7 +82,7 @@ export function isTaskReady(task: PlanTask, byId: ReadonlyMap<string, PlanTask>)
       if (typeof d !== "string") return false;
       const dep = (map as Map<string, unknown>).get(d);
       if (!dep || typeof dep !== "object") return false;
-      if ((dep as Record<string, unknown>)["state"] !== "done") return false;
+      if ((dep as Record<string, unknown>)["state"] !== "done" && (dep as Record<string, unknown>)["state"] !== "cancelled") return false;
     }
     return true;
   } catch { return false; }
@@ -249,45 +255,91 @@ function derived(task: Record<string, unknown>, byId: Map<string, Record<string,
       if (typeof d !== "string") { ready = false; break; }
       const dep = byId.get(d);
       if (!dep) { ready = false; break; }
-      if ((dep as Record<string, unknown>)["state"] !== "done") { ready = false; break; }
+      if ((dep as Record<string, unknown>)["state"] !== "done" && (dep as Record<string, unknown>)["state"] !== "cancelled") { ready = false; break; }
     }
   }
   return { state, ready };
 }
 
+function rememberRetired(proj: PlanProjection, scope: string, runId: string): void {
+  const cache = proj.replayed_ops as Record<string, unknown>;
+  const retired = (cache[ACTIVITY_RETIRED] ??= {}) as RetiredRuns;
+  const runs = retired[scope] ??= [];
+  if (runs.includes(ACTIVITY_SEALED) || runs.includes(runId)) return;
+  if (runId === ACTIVITY_SEALED || runs.length >= ACTIVITY_RETIRED_MAX) retired[scope] = [ACTIVITY_SEALED];
+  else retired[scope] = [...runs, runId];
+}
+
+function isRetired(proj: PlanProjection, scope: string, runId: string): boolean {
+  const retired = proj.replayed_ops[ACTIVITY_RETIRED] as RetiredRuns | undefined;
+  const runs = retired?.[scope];
+  return runs?.includes(ACTIVITY_SEALED) === true || runs?.includes(runId) === true;
+}
+
+function retireLive(proj: PlanProjection, micro: PlanMicrotask): void {
+  const live = micro.live;
+  if (!live) return;
+  // Opaque replay-cache metadata keeps JSON continuation deterministic without
+  // adding fields to the public task or microtask shape.
+  rememberRetired(proj, micro.id, live.run_id);
+  delete micro.live;
+}
+
+function retireTaskActivity(proj: PlanProjection, task: PlanTask): void {
+  for (const micro of task.microtasks) {
+    if (micro.live) rememberRetired(proj, task.id, micro.live.run_id);
+    // Include runs whose microtask already left active before this transition.
+    const retired = proj.replayed_ops[ACTIVITY_RETIRED] as RetiredRuns | undefined;
+    for (const runId of retired?.[micro.id] ?? []) rememberRetired(proj, task.id, runId);
+    retireLive(proj, micro);
+  }
+}
+
+function retireInactiveActivity(proj: PlanProjection): void {
+  for (const task of proj.tasks) {
+    const allowed = proj.plan?.state === "active" && task.state !== "blocked" && task.state !== "cancelled";
+    if (!allowed || task.microtasks.some((m) => m.live && task.assignee !== m.live.agent)) {
+      retireTaskActivity(proj, task);
+      continue;
+    }
+    for (const micro of task.microtasks) {
+      if (micro.live && micro.state !== "active") retireLive(proj, micro);
+    }
+  }
+}
+
 function recompute(proj: PlanProjection): void {
-  try {
-    const tasks = proj.tasks as unknown as Array<Record<string, unknown>>;
-    if (!Array.isArray(tasks)) return;
-    for (let iter = 0; iter < 5; iter++) {
-      const byId = new Map<string, Record<string, unknown>>();
-      for (const t of tasks) if (t && typeof t["id"] === "string") byId.set(t["id"] as string, t);
-      let changed = false;
-      for (const t of tasks) {
-        const { state, ready } = derived(t, byId);
-        if (t["state"] !== state || t["ready"] !== ready) { t["state"] = state; t["ready"] = ready; changed = true; }
-      }
-      if (!changed) break;
-    }
-    const tasks_total = tasks.length;
-    const tasks_done = tasks.filter((t) => t["state"] === "done").length;
-    const tasks_blocked = tasks.filter((t) => t["state"] === "blocked").length;
-    const tasks_ready = tasks.filter((t) => t["ready"] === true).length;
-    let micro_total = 0;
-    let micro_done = 0;
+  const tasks = proj.tasks as unknown as Array<Record<string, unknown>>;
+  if (!Array.isArray(tasks)) return;
+  for (let iter = 0; iter < 5; iter++) {
+    const byId = new Map<string, Record<string, unknown>>();
+    for (const t of tasks) if (t && typeof t["id"] === "string") byId.set(t["id"] as string, t);
+    let changed = false;
     for (const t of tasks) {
-      const mir = Array.isArray(t["microtasks"]) ? (t["microtasks"] as unknown[]) : [];
-      for (const m of mir) {
-        micro_total += 1;
-        if (m && typeof m === "object" && (m as Record<string, unknown>)["state"] === "done") micro_done += 1;
-      }
+      const { state, ready } = derived(t, byId);
+      if (t["state"] !== state || t["ready"] !== ready) { t["state"] = state; t["ready"] = ready; changed = true; }
     }
-    const progress = micro_total > 0 ? micro_done / micro_total : 0;
-    proj.rollup = {
-      tasks_total, tasks_done, tasks_blocked, tasks_ready, micro_total, micro_done,
-      progress: floatProgress(progress), progress_pct: intPct(progress),
-    };
-  } catch { /* keep */ }
+    if (!changed) break;
+  }
+  const tasks_total = tasks.length;
+  const tasks_done = tasks.filter((t) => t["state"] === "done").length;
+  const tasks_blocked = tasks.filter((t) => t["state"] === "blocked").length;
+  const tasks_ready = tasks.filter((t) => t["ready"] === true).length;
+  let micro_total = 0;
+  let micro_done = 0;
+  for (const t of tasks) {
+    const mir = Array.isArray(t["microtasks"]) ? (t["microtasks"] as unknown[]) : [];
+    for (const m of mir) {
+      micro_total += 1;
+      if (m && typeof m === "object" && (m as Record<string, unknown>)["state"] === "done") micro_done += 1;
+    }
+  }
+  const progress = micro_total > 0 ? micro_done / micro_total : 0;
+  proj.rollup = {
+    tasks_total, tasks_done, tasks_blocked, tasks_ready, micro_total, micro_done,
+    progress: floatProgress(progress), progress_pct: intPct(progress),
+  };
+  retireInactiveActivity(proj);
 }
 function floatProgress(n: number): number { const v = n; return v; }
 function intPct(n: number): number { return Math.trunc(n * 100); }
@@ -330,17 +382,43 @@ function safeReadLamportTsAgent(ev: unknown): { lamport: number | undefined; ts:
   } catch { return { lamport: undefined, ts: undefined, agent: undefined }; }
 }
 
+// Handlers replace nested payloads; recompute only changes task status/live.
+// Snapshot those mutable records, never the unbounded ordinary replay cache.
+// Retirement arrays are replaced by rememberRetired, so its scope map is shallow.
+function projectionRollback(proj: PlanProjection, replayKey: string | undefined): () => void {
+  const saved = {
+    ...proj,
+    plan: proj.plan === null ? null : { ...proj.plan },
+    tasks: proj.tasks.map((task) => ({
+      ...task, microtasks: task.microtasks.map((micro) => ({ ...micro })),
+    })),
+    memory: { ...proj.memory },
+  };
+  const cache = proj.replayed_ops as Record<string, unknown>;
+  const hadRetired = Object.prototype.hasOwnProperty.call(cache, ACTIVITY_RETIRED);
+  const retired = cache[ACTIVITY_RETIRED];
+  const savedRetired = retired && typeof retired === "object" ? { ...(retired as RetiredRuns) } : retired;
+  return () => {
+    Object.assign(proj, saved);
+    if (hadRetired) cache[ACTIVITY_RETIRED] = savedRetired;
+    else delete cache[ACTIVITY_RETIRED];
+    // The replay check established that this receipt did not exist before apply.
+    if (replayKey !== undefined) delete cache[replayKey];
+  };
+}
+
 function applyOpInternal(
   proj: PlanProjection,
   ev: unknown,
   template: PlanningTemplate | undefined,
   lastByAgent: ReadonlyMap<string, number> | undefined,
+  owned = false,
 ): PlanApplyResult & { replayed?: boolean } {
-  // Clone base first (never mutate input)
+  // Only foldPlan may reuse its private accumulator; public applyOp clones.
   let base: PlanProjection;
   try {
     if (!proj || typeof proj !== "object" || Array.isArray(proj)) base = emptyProjection();
-    else base = cloneProjection(proj);
+    else base = owned ? proj : cloneProjection(proj);
   } catch { base = emptyProjection(); }
   // Ensure keys exist
   try {
@@ -378,16 +456,21 @@ function applyOpInternal(
   const opId = hasOpId ? (op["op_id"] as string) : undefined;
 
   // Replay check before domain
-  if (opId !== undefined) {
-    const key = JSON.stringify([agent, opId]);
-    if (Object.prototype.hasOwnProperty.call(base.replayed_ops, key)) {
-      return { ok: true, projection: base, replayed: true };
-    }
+  const replayKey = opId === undefined ? undefined : JSON.stringify([agent, opId]);
+  if (replayKey !== undefined && Object.prototype.hasOwnProperty.call(base.replayed_ops, replayKey)) {
+    return { ok: true, projection: base, replayed: true };
   }
 
-  const fail = (c: PlanOpErrorCode): PlanApplyResult => ({ ok: false, code: c, projection: base });
+  let rollback: (() => void) | undefined;
+  const fail = (c: PlanOpErrorCode): PlanApplyResult => {
+    rollback?.();
+    return { ok: false, code: c, projection: base };
+  };
 
   try {
+    // Keep the eligible watermark, but roll back every domain/replay mutation
+    // on rejection or exception, including failures inside recompute.
+    rollback = projectionRollback(base, replayKey);
     if (kind === "plan.open") {
       const plan = base.plan as Record<string, unknown> | null;
       if (plan && plan["state"] === "active") return fail("plan_exists");
@@ -426,6 +509,8 @@ function applyOpInternal(
       // Closed plans were already archived at close time (A-U55b). Reopening
       // only resets per-plan tasks; memory and archive history survive.
       if (plan === null || plan["state"] === "closed") base.tasks = [];
+      // Sealed/retired activity scopes are plan-local; replay receipts survive.
+      delete (base.replayed_ops as Record<string, unknown>)[ACTIVITY_RETIRED];
       base.plan = newPlan as unknown as PlanProjection["plan"];
       recompute(base);
       if (opId !== undefined) {
@@ -598,6 +683,14 @@ function applyOpInternal(
         const candidates: number[] = [];
         const cts = task["claim_ts"];
         if (isSafeInt(cts)) candidates.push(cts as number);
+        // Beat receipts remain owner activity after runs retire and across tasks.
+        for (const value of Object.values(base.replayed_ops)) {
+          if (!value || typeof value !== "object") continue;
+          const receipt = value as Record<string, unknown>;
+          if (receipt["kind"] === "activity.beat" && receipt["agent"] === assignee && isSafeInt(receipt["beat_ts"])) {
+            candidates.push(receipt["beat_ts"]);
+          }
+        }
         if (lastByAgent) {
           const v = lastByAgent.get(assignee);
           if (v !== undefined) candidates.push(v);
@@ -606,6 +699,7 @@ function applyOpInternal(
         const last = Math.max(...candidates);
         if (!(ts - last > SILENT_AFTER_MS)) return fail("claimed_by_other");
       }
+      if (assignee !== agent) retireTaskActivity(base, task as unknown as PlanTask);
       task["assignee"] = agent;
       task["claim_lamport"] = lamport;
       task["claim_ts"] = ts;
@@ -621,6 +715,7 @@ function applyOpInternal(
       if (Object.prototype.hasOwnProperty.call(op, "base_rev") && (op["base_rev"] as number) !== (task["rev"] as number)) return fail("stale_rev");
       const assignee = task["assignee"] as string | null | undefined;
       if (assignee !== null && assignee !== undefined && assignee !== agent) return fail("claimed_by_other");
+      retireTaskActivity(base, task as unknown as PlanTask);
       task["assignee"] = null;
       task["claim_lamport"] = null;
       task["claim_ts"] = null;
@@ -648,6 +743,36 @@ function applyOpInternal(
       if (opId !== undefined) (base.replayed_ops as Record<string, unknown>)[JSON.stringify([agent, opId])] = { kind, op_id: opId };
       return { ok: true, projection: base, replayed: false };
     }
+    if (kind === "activity.beat") {
+      const task = base.tasks.find((t) => t.id === op["task_id"]);
+      if (!task) return fail("not_found");
+      if (task.assignee !== agent) return fail("claimed_by_other");
+      const micros = Object.prototype.hasOwnProperty.call(op, "micro_id")
+        ? task.microtasks.filter((m) => m.id === op["micro_id"]) : task.microtasks;
+      if (Object.prototype.hasOwnProperty.call(op, "micro_id") && micros.length === 0) return fail("not_found");
+      const runId = op["run_id"] as string;
+      if (task.state !== "blocked" && task.state !== "cancelled" && !isRetired(base, task.id, runId)) {
+        const eligible = micros.filter((m) => m.state === "active" && !isRetired(base, m.id, runId));
+        if (eligible.length > 0) {
+          // Supersession fences the old task run on every sibling.
+          for (const micro of task.microtasks) {
+            if (micro.live && micro.live.run_id !== runId) {
+              rememberRetired(base, task.id, micro.live.run_id);
+              retireLive(base, micro);
+            }
+          }
+          if (isRetired(base, task.id, runId)) retireTaskActivity(base, task);
+          else {
+            for (const micro of eligible) {
+              if (!isRetired(base, micro.id, runId)) micro.live = { agent, run_id: runId, beat_ts: ts, beat_lamport: lamport };
+            }
+          }
+        }
+      }
+      // Semantic revisions and progress are deliberately untouched.
+      if (opId !== undefined) (base.replayed_ops as Record<string, unknown>)[JSON.stringify([agent, opId])] = { kind, op_id: opId, agent, beat_ts: ts };
+      return { ok: true, projection: base, replayed: false };
+    }
     if (kind === "micro.set") {
       const microId = op["micro_id"] as string;
       const taskId = microId.split(".", 1)[0] as string;
@@ -673,7 +798,7 @@ function applyOpInternal(
 
     return fail("bad_op");
   } catch {
-    return { ok: false, code: "bad_op", projection: base };
+    return fail("bad_op");
   }
   void id;
 }
@@ -742,8 +867,7 @@ export function foldPlan(events: unknown, template?: PlanningTemplate): PlanFold
     for (let i = 0; i < n; i++) {
       let entry: unknown;
       try {
-        const descs = Object.getOwnPropertyDescriptors(events as object) as Record<string, PropertyDescriptor>;
-        const d = descs[String(i)];
+        const d = Object.getOwnPropertyDescriptor(events as object, String(i));
         if (!d) continue;
         if (d.get !== undefined || d.set !== undefined) continue;
         entry = d.value;
@@ -819,7 +943,7 @@ export function foldPlan(events: unknown, template?: PlanningTemplate): PlanFold
       void beforeLast;
       let result: PlanApplyResult & { replayed?: boolean };
       try {
-        result = applyOpInternal(state, er, template, snapshot) as PlanApplyResult & { replayed?: boolean };
+        result = applyOpInternal(state, er, template, snapshot, true) as PlanApplyResult & { replayed?: boolean };
       } catch {
         result = { ok: false, code: "bad_op", projection: state };
       }

@@ -1,6 +1,7 @@
 import copy
 import json
 import math
+import re
 
 from .errors import PlanError
 from .limits import (
@@ -27,6 +28,7 @@ from .limits import (
 
 _DANGEROUS = frozenset({"__proto__", "constructor", "prototype"})
 _SAFE_MAX = 9007199254740991
+_RUN_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
 def _bad(msg: str = "") -> PlanError:
@@ -129,11 +131,28 @@ def validate_op_shape(op: object) -> dict:
     if _canonical_bytes(op) > OP_BYTES_MAX:
         raise _limit("op bytes")
     kind = op.get("kind")
-    if not isinstance(kind, str) or kind not in OP_KINDS:
+    if not isinstance(kind, str) or (kind not in OP_KINDS and kind != "activity.beat"):
         raise _bad("kind")
     _check_op_id(op)
 
-    if kind == "plan.open":
+    if kind == "activity.beat":
+        _check_unknown(op, {"kind", "task_id", "micro_id", "run_id", "note", "op_id"})
+        for req in ("task_id", "run_id", "op_id"):
+            if req not in op:
+                raise _bad(f"missing {req}")
+        if not isinstance(op["task_id"], str) or TASK_ID_RE.fullmatch(op["task_id"]) is None:
+            raise _bad("task_id")
+        if not isinstance(op["run_id"], str) or _RUN_ID_RE.fullmatch(op["run_id"]) is None:
+            raise _bad("run_id")
+        if "micro_id" in op:
+            if not isinstance(op["micro_id"], str) or MICRO_ID_RE.fullmatch(op["micro_id"]) is None:
+                raise _bad("micro_id")
+        if "note" in op:
+            _check_str_len(op["note"], 0, 240)
+            if re.search(r"[\x00-\x1f\x7f-\x9f]", op["note"]) is not None:
+                raise _bad("note controls")
+
+    elif kind == "plan.open":
         _check_unknown(op, {"kind", "op_id", "title", "template_id", "template_hash", "brief", "phase"})
         for req in ("title", "template_id", "template_hash"):
             if req not in op:

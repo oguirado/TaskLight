@@ -78,7 +78,8 @@ describe("B6 step rows", () => {
   it("the state text is a sibling of .step-label inside .step-text, in order label then hidden text", () => {
     const { host } = mount();
     const t = q(nth(stepsOf(host), 0), ".step-text");
-    expect(Array.from(t.children).map((c) => c.className)).toEqual(["step-label", "visually-hidden"]);
+    // A-U91b: visible activity text accompanies the committed step state, U91 M2/M8.
+    expect(Array.from(t.children).map((c) => c.className)).toEqual(["step-label", "step-activity-label", "visually-hidden"]);
   });
 
   it("no step-time on non-done steps without 'at'", () => {

@@ -1,0 +1,198 @@
+{
+  "template": {
+    "v": 1,
+    "id": "neutral",
+    "name": "Neutral",
+    "summary": "A neutral workflow",
+    "lens_id": "neutral",
+    "brief_fields": [
+      {
+        "id": "goal",
+        "label": "Goal",
+        "required": true
+      }
+    ],
+    "phases": [
+      {
+        "id": "start",
+        "label": "Start",
+        "exit": "Ready"
+      },
+      {
+        "id": "finish",
+        "label": "Finish",
+        "exit": "Complete"
+      }
+    ],
+    "task_types": [
+      {
+        "id": "action",
+        "label": "Action",
+        "accept_required": true,
+        "evidence_required": true,
+        "micro_hints": [
+          "Take a step"
+        ]
+      }
+    ],
+    "granularity": {
+      "tasks_max": 40,
+      "micro_min": 1,
+      "micro_max": 12,
+      "rule": "Small steps"
+    },
+    "memory_sections": [
+      {
+        "id": "notes",
+        "label": "Notes",
+        "required": true,
+        "max_chars": 100,
+        "hint": "Keep decisions"
+      }
+    ],
+    "hash": "bc21815d772de0d05df4b2e78c58438de8ede7f321daa5ecf8424d1e92f0a945"
+  },
+  "events": [
+    {
+      "id": "e-0000000000000001",
+      "room": "demo",
+      "agent": "alice",
+      "act": "op",
+      "text": "",
+      "ts": 1700000000001,
+      "lamport": 1,
+      "op": {
+        "kind": "plan.open",
+        "title": "TaskLight oracle",
+        "template_id": "neutral",
+        "template_hash": "bc21815d772de0d05df4b2e78c58438de8ede7f321daa5ecf8424d1e92f0a945",
+        "brief": {
+          "goal": "Ship TaskLight"
+        },
+        "phase": "start"
+      }
+    },
+    {
+      "id": "e-0000000000000002",
+      "room": "demo",
+      "agent": "alice",
+      "act": "op",
+      "text": "",
+      "ts": 1700000000002,
+      "lamport": 2,
+      "op": {
+        "kind": "task.add",
+        "title": "First task",
+        "type": "action",
+        "phase": "start",
+        "accept": "Evidence retained",
+        "microtasks": [
+          {
+            "text": "First microtask",
+            "accept": "Verified"
+          }
+        ]
+      }
+    },
+    {
+      "id": "e-0000000000000003",
+      "room": "demo",
+      "agent": "alice",
+      "act": "op",
+      "text": "",
+      "ts": 1700000000003,
+      "lamport": 3,
+      "op": {
+        "kind": "task.add",
+        "title": "Second task",
+        "type": "action",
+        "phase": "start",
+        "accept": "Verified",
+        "microtasks": [
+          {
+            "text": "Second microtask"
+          }
+        ]
+      }
+    },
+    {
+      "id": "e-0000000000000004",
+      "room": "demo",
+      "agent": "alice",
+      "act": "op",
+      "text": "",
+      "ts": 1700000000004,
+      "lamport": 4,
+      "op": {
+        "kind": "task.claim",
+        "task_id": "T01"
+      }
+    },
+    {
+      "id": "e-0000000000000005",
+      "room": "demo",
+      "agent": "alice",
+      "act": "op",
+      "text": "",
+      "ts": 1700000000005,
+      "lamport": 5,
+      "op": {
+        "kind": "micro.set",
+        "micro_id": "T01.M01",
+        "state": "active"
+      }
+    },
+    {
+      "id": "e-0000000000000006",
+      "room": "demo",
+      "agent": "alice",
+      "act": "op",
+      "text": "",
+      "ts": 1700000000006,
+      "lamport": 6,
+      "op": {
+        "kind": "memory.set",
+        "section": "goal",
+        "text": "Ship TaskLight",
+        "base_rev": 0
+      }
+    },
+    {
+      "id": "e-0000000000000007",
+      "room": "demo",
+      "agent": "alice",
+      "act": "op",
+      "text": "",
+      "ts": 1700000000007,
+      "lamport": 7,
+      "op": {
+        "kind": "memory.set",
+        "section": "decisions",
+        "text": "Keep evidence and uncertainty visible",
+        "base_rev": 0
+      }
+    },
+    {
+      "id": "e-0000000000000008",
+      "room": "demo",
+      "agent": "alice",
+      "act": "op",
+      "text": "",
+      "ts": 1700000000008,
+      "lamport": 8,
+      "op": {
+        "kind": "micro.set",
+        "micro_id": "T01.M01",
+        "state": "done",
+        "outcome": "Verified",
+        "took": "1m",
+        "evidence": [
+          {
+            "path": "tests/unit/u85/evidence.md",
+            "sha256": "2b504639f69d0f5ced71cbee6bd4363d838aa6536b37d69b6cf21154060fbe65"
+          }
+        ]
+      }
+    }
+  ]
+}

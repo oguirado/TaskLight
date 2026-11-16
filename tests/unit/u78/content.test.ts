@@ -29,7 +29,7 @@ describe("A6 / M6 full-width memory text", () => {
 describe("A7 / M7 human labels", () => {
   it("memory metadata labels revision, author and time together", () => {
     const host = memoryWall("memory");
-    expect(q(host, ".memory-panel").textContent).toMatch(/rev 12, by builder, 09:00/);
+    expect(q(host, ".memory-panel").textContent).toMatch(/Revision 12, by builder, 09:00/ /* A-U94b: U94 renames the memory rev label to "Revision N" */);
   });
   it("hostile memory metadata remains literal text", () => {
     const hostile = '<img src=x onerror="alert(1)">';

@@ -8,7 +8,7 @@ TaskLight is built for developers and AI agent operators who want local-first pr
 
 1. **Set up with your AI assistant:** Open your AI assistant in this folder and say: `Set up TaskLight for me`. Following [AGENTS.md](AGENTS.md) and [docs/SETUP_WITH_AI.md](docs/SETUP_WITH_AI.md), it installs dependencies, builds the extension, configures MCP, starts the wall, and guides you through the browser clicks.
 2. **Try the local demo** without installing anything or creating a Firebase project: follow [tools/demo/README_DEMO.md](tools/demo/README_DEMO.md) (or run `node tools/demo/run_demo.mjs`).
-3. **Set up manually** by building the extension, installing the native host, and connecting your MCP client with [docs/DESKTOP_SETUP.md](docs/DESKTOP_SETUP.md) and [docs/MCP.md](docs/MCP.md).
+3. **Set up manually** by building the extension, installing the native host, and connecting your MCP client with [docs/DESKTOP_SETUP.md](docs/DESKTOP_SETUP.md) and [docs/MCP.md](docs/MCP.md). For browser-free planning and memory, follow [docs/HEADLESS.md](docs/HEADLESS.md).
 
 All agents follow [docs/PLANNING_CONTRACT.md](docs/PLANNING_CONTRACT.md) (also served over MCP via `tasklight://contract` and the `planning_contract` prompt). See [docs/PLANNING.md](docs/PLANNING.md) and [docs/MODELS.md](docs/MODELS.md) for templates and model routing.
 
@@ -21,7 +21,7 @@ All agents follow [docs/PLANNING_CONTRACT.md](docs/PLANNING_CONTRACT.md) (also s
 
 ## Plans, tasks and microtasks
 
-Any AI agent acting as an MCP client can plan a project from a planning template (`planning-template/v1`) over MCP. TaskLight keeps a project `MEMORY` and a live `PLAN` of phases, dependencies, tasks and verifiable microtasks in the local room log, exporting human-readable `PLAN.md` and `MEMORY.md` views while showing progress, blocked states and outcomes on the wall.
+Any AI agent acting as an MCP client can plan a project from a planning template (`planning-template/v1`) over MCP. TaskLight keeps a project `MEMORY` and a live `PLAN` of phases, dependencies, tasks and verifiable microtasks in the local room log, with shipped `room_export` and `memory_history` tools for Markdown views and accepted memory revisions, while showing progress, blocked states and outcomes on the wall. See [headless usage](docs/HEADLESS.md#5-cli-parity) for the `export` command.
 
 While any MCP client can author and update the plan, on-device Gemini Nano through Firebase AI Logic reviews each task against its acceptance criteria and checks for plan drift locally. Plan and memory data stay on your machine.
 

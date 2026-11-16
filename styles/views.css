@@ -299,6 +299,8 @@ a {
   border: 2px solid var(--c-st-running-soft);
   border-top-color: var(--c-st-running);
   border-right-color: var(--c-st-running);
+}
+.ws-running[data-activity="working"]::before {
   animation: wall-spin var(--dur-spin) linear infinite;
 }
 .ws-needs {
@@ -578,6 +580,13 @@ a {
   border-top-color: var(--c-st-running);
   border-right-color: var(--c-st-running);
 }
+.status-icon[data-activity="working"] {
+  box-shadow: none;
+  border: 1.75px solid var(--c-st-running-soft);
+  border-top-color: var(--c-st-running);
+  border-right-color: var(--c-st-running);
+  animation: wall-spin var(--dur-spin) linear infinite;
+}
 .status[data-status="waiting"] {
   color: var(--c-st-waiting);
   border-color: var(--c-st-waiting-tint);
@@ -727,11 +736,11 @@ button.step-row:active {
   box-shadow: none;
   background: var(--c-st-done);
 }
-.step[data-state="active"] .step-indicator {
+.step[data-activity="working"] .step-indicator {
   box-shadow: inset 0 0 0 1.75px var(--c-st-running-soft);
   background: var(--c-surface-1);
 }
-.step[data-state="active"] .step-indicator::before {
+.step[data-activity="working"] .step-indicator::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -1121,9 +1130,7 @@ button.step-row:active {
 .archived-project {
   min-width: 0;
   font-weight: var(--fw-medium);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 .archived-ws {
   padding: 0 7px;
@@ -1213,8 +1220,11 @@ button.step-row:active {
     animation-duration: 0.01ms;
     animation-iteration-count: 1;
   }
-  .step[data-state="active"] .step-indicator::before,
-  .ws-running::before {
+  .step[data-activity="working"] .step-indicator::before,
+  .status-icon[data-activity="working"],
+  .status-icon[data-activity="working"]::before,
+  .status-icon[data-activity="working"]::after,
+  .ws-running[data-activity="working"]::before {
     animation: none;
   }
 }
@@ -1243,4 +1253,61 @@ button.step-row:active {
 .boot-btn:focus-visible {
   outline: 2px solid var(--c-focus);
   outline-offset: 2px;
+}
+/* U94: readable memory panel. */
+.memory {
+  display: block;
+  min-width: 0;
+}
+.memory-list {
+  display: grid;
+  gap: var(--sp-5);
+  min-width: 0;
+}
+.memory-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: var(--sp-2);
+  padding: var(--sp-4) var(--sp-5);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-3);
+  background: var(--c-surface-1);
+}
+.memory-label {
+  color: var(--c-text-1);
+  font-size: var(--fs-3);
+  font-weight: var(--fw-medium);
+  overflow-wrap: anywhere;
+}
+.memory-meta,
+.memory-note {
+  color: var(--c-text-3);
+  font-size: var(--fs-1);
+  overflow-wrap: anywhere;
+}
+.memory-flag {
+  color: var(--c-attention-ink);
+  font-size: var(--fs-1);
+}
+.memory-text {
+  color: var(--c-text-2);
+  font-size: var(--fs-2);
+  line-height: var(--lh-body);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.memory-empty {
+  color: var(--c-text-3);
+  font-size: var(--fs-2);
+}
+/* U94: diary stacks on narrow screens. */
+@media (max-width: 640px) {
+  .entry {
+    grid-template-columns: 1fr;
+  }
+  .entry-time {
+    text-align: left;
+  }
 }

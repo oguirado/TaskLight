@@ -21,7 +21,8 @@ async function page(fault: "none" | "construction" | "notification") {
   const actualBoot = await vi.importActual<typeof import("../../../src/app/boot")>("../../../src/app/boot");
   actualBoot.resetBootStateForTests();
   const storeModule = await vi.importActual<typeof import("../../../src/app/agent_store")>("../../../src/app/agent_store");
-  const store = storeModule.createAgentStore(); const ingest = vi.spyOn(store, "ingest");
+  const store = storeModule.createAgentStore(); // A-U85c: observe checked ingestion used by hosting, M2/M5.
+  const ingest = vi.spyOn(store, "ingestChecked");
   let linkDeps: AgentLinkDeps | undefined, wallDeps: AgentWallDeps | undefined, wiringDeps: PlanWiringDeps | undefined;
   const refresh = vi.fn(), start = vi.fn();
   const notifications: number[] = [];
@@ -60,6 +61,8 @@ describe("U64 hosted entry isolation", () => {
   it.each(["construction", "notification"] as const)("A8 %s failures leave boot, wall and room callbacks alive", async fault => {
     const p = await page(fault); expect(p.construct).toHaveBeenCalled();
     const event = { id: "e-0000000000000001", lamport: 1, ts: 1, room: "room", agent: "alice", act: "open", text: "Hello" };
+    // A-U85c: announce room membership before exercising event failure isolation, M5.
+    expect(() => p.link().onRoomHello({ t: "room_hello", v: 1, rooms: [{ room: "room", floor: "PREFER_ON_DEVICE" }], agent: "alice" })).not.toThrow();
     expect(() => p.link().onRoomEvent({ t: "room_event", v: 1, room: "room", floor: "PREFER_ON_DEVICE", event })).not.toThrow();
     expect(p.ingest).toHaveBeenCalledWith(event);
     expect(() => p.link().onRoomHello({ t: "room_hello", v: 1, rooms: [], agent: "alice" })).not.toThrow();

@@ -67,6 +67,7 @@ export function mountAgentChat(
   closeBtn.type = "button";
   closeBtn.setAttribute("aria-label", "Close chat");
   closeBtn.textContent = "Close";
+  const meta = el<HTMLDivElement>("div", "chat-meta");
   header.append(title, closeBtn);
 
   const silentBanner = el<HTMLDivElement>("div", "chat-banner");
@@ -104,7 +105,33 @@ export function mountAgentChat(
   const note = el<HTMLParagraphElement>("p", "chat-suggest-note");
   note.textContent = SUGGEST_NOTE;
   const suggestNoticeEl = el<HTMLParagraphElement>("p", "chat-suggest-notice");
-  form.append(textarea, suggestBtn, sendBtn, counter);
+  form.append(textarea, suggestBtn, sendBtn, counter, meta);
+
+  let blocked = false;
+  let lastMessagesFingerprint: string | null = null;
+  let lastMessages: readonly unknown[] = [];
+  const seenDeliveryStates = new Map<string, string>();
+  let lastDeliveryContext: string | null = null;
+  let deliveryAnnouncementsEnabled = false;
+  // Cover synchronous activation before the controller supplies its next VM.
+  const submittedTexts = new Set<string>();
+
+  const pendingLock = (): boolean => {
+    const trimmed = textarea.value.trim();
+    if (submittedTexts.has(trimmed)) return true;
+    let anySending = false;
+    for (const m of lastMessages) {
+      if (typeof m !== "object" || m === null) continue;
+      const mr = m as Record<string, unknown>;
+      const del = mr.delivery;
+      if (typeof del !== "object" || del === null) continue;
+      const d = del as Record<string, unknown>;
+      if (d.state !== "sending") continue;
+      anySending = true;
+      if (asStr(mr.text).trim() === trimmed) return true;
+    }
+    return sendingNow && !anySending;
+  };
 
   const refreshComposer = (): void => {
     const trimmed = textarea.value.trim();
@@ -112,15 +139,23 @@ export function mountAgentChat(
     counter.textContent = `${bytes} / ${LIMIT}`;
     if (bytes > LIMIT) counter.setAttribute("data-over", "true");
     else counter.removeAttribute("data-over");
-    sendBtn.disabled = trimmed === "" || bytes > LIMIT || sendingNow;
+    sendBtn.disabled = trimmed === "" || bytes > LIMIT || pendingLock() || blocked;
+    suggestBtn.disabled = blocked;
   };
 
   const trySend = (): void => {
-    if (destroyed || sendingNow) return;
+    if (destroyed || blocked) return;
     const trimmed = textarea.value.trim();
     if (trimmed === "") return;
     if (utf8Bytes(trimmed) > LIMIT) return;
-    textarea.value = "";
+    if (pendingLock()) return;
+    if (sendingNow && !lastMessages.some((m) => {
+      if (typeof m !== "object" || m === null) return false;
+      const d = (m as Record<string, unknown>).delivery;
+      return typeof d === "object" && d !== null && (d as Record<string, unknown>).state === "sending";
+    })) return;
+    if (typeof currentHandlers?.onSend !== "function") return;
+    submittedTexts.add(trimmed);
     refreshComposer();
     invoke(() => currentHandlers?.onSend?.(trimmed));
   };
@@ -151,18 +186,18 @@ export function mountAgentChat(
     invoke(() => currentHandlers?.onClose?.());
   };
   const onSuggest = (): void => {
-    if (destroyed) return;
+    if (destroyed || blocked) return;
     invoke(() => currentHandlers?.onSuggest?.());
   };
   const onEscalate = (): void => {
-    if (destroyed) return;
+    if (destroyed || blocked) return;
     if (escalateUsed) return;
     escalateUsed = true;
     escalateBtn.disabled = true;
     invoke(() => currentHandlers?.onEscalate?.());
   };
   const onAccept = (): void => {
-    if (destroyed) return;
+    if (destroyed || blocked) return;
     invoke(() => currentHandlers?.onAcceptDrift?.());
   };
 
@@ -196,6 +231,7 @@ export function mountAgentChat(
   };
 
   const render = (rawVm: unknown): void => {
+    submittedTexts.clear();
     const rec = asRecord(rawVm);
     const agent = asStr(rec.agent);
     const room = asStr(rec.room);
@@ -210,6 +246,38 @@ export function mountAgentChat(
     section.setAttribute("data-room", room);
     title.textContent = titleText;
     textarea.setAttribute("aria-label", `Message to ${agent}`);
+
+    const taskRaw = rec.task;
+    let taskId: string | null = null;
+    let taskAssignee: string | null = null;
+    let hasTask = false;
+    if (typeof taskRaw === "object" && taskRaw !== null) {
+      const trec = taskRaw as Record<string, unknown>;
+      const tid = asStr(trec.id);
+      if (tid.length > 0) {
+        hasTask = true;
+        taskId = tid;
+        const asg = trec.assignee;
+        taskAssignee = typeof asg === "string" && asg.length > 0 ? asg : null;
+      }
+    }
+    blocked = agent === "" || (hasTask && taskAssignee === null);
+    if (hasTask) {
+      const executorText = taskAssignee ?? "Executor unassigned";
+      const roomSpan = doc.createElement("span");
+      roomSpan.textContent = room;
+      const taskSpan = doc.createElement("span");
+      taskSpan.textContent = taskId ?? "";
+      const execSpan = doc.createElement("span");
+      execSpan.textContent = executorText;
+      meta.replaceChildren(roomSpan, taskSpan, execSpan);
+    } else {
+      meta.replaceChildren();
+    }
+    acceptBtn.disabled = blocked;
+    if (blocked) {
+      escalateBtn.disabled = true;
+    }
 
     if (silent) {
       silentText.textContent =
@@ -267,30 +335,111 @@ export function mountAgentChat(
       driftShown = false;
     }
 
+    // A task switch or reopening the drawer restores history. Only changes
+    // within the same visible conversation should announce delivery status.
+    const deliveryContext = JSON.stringify([room, hasTask ? taskId : null, hasTask ? null : agent]);
+    const announcementsEnabled = rec.deliveryAnnouncements !== false;
+    const restoringDelivery = deliveryContext !== lastDeliveryContext ||
+      !deliveryAnnouncementsEnabled || !announcementsEnabled;
+    lastDeliveryContext = deliveryContext;
+    deliveryAnnouncementsEnabled = announcementsEnabled;
+
     const msgsRaw: unknown = rec.messages;
     const list: unknown[] = Array.isArray(msgsRaw) ? msgsRaw : [];
-    log.replaceChildren();
-    for (const m of list) {
-      if (typeof m !== "object" || m === null) continue;
-      const mr = m as Record<string, unknown>;
-      const f0 = asStr(mr.from);
-      const from = f0 === "user" || f0 === "agent" || f0 === "nano" ? f0 : "agent";
-      const fromLabel = from === "user" ? "You" : from === "nano" ? "Gemini Nano" : asStr(mr.agent);
-      const li = doc.createElement("li");
-      li.className = "chat-msg";
-      li.setAttribute("data-from", from);
-      const span = doc.createElement("span");
-      span.className = "chat-from";
-      span.textContent = fromLabel;
-      const p = doc.createElement("p");
-      p.className = "chat-text";
-      p.textContent = asStr(mr.text);
-      const t = doc.createElement("time");
-      t.className = "chat-at";
-      t.textContent = asStr(mr.at);
-      li.append(span, p, t);
-      log.append(li);
+    const fingerprint = JSON.stringify([list, hasTask, taskId, taskAssignee, room, agent]);
+    const messagesChanged = fingerprint !== lastMessagesFingerprint;
+    if (messagesChanged) {
+      let hasDelivery = false;
+      let hasNewDelivery = false;
+      for (const m of list) {
+        if (typeof m !== "object" || m === null) continue;
+        const del = (m as Record<string, unknown>).delivery;
+        if (typeof del !== "object" || del === null) continue;
+        const d = del as Record<string, unknown>;
+        const cid = asStr(d.client_id);
+        const st = asStr(d.state);
+        if (cid === "" || st === "") continue;
+        hasDelivery = true;
+        if (seenDeliveryStates.get(cid) !== st) hasNewDelivery = true;
+      }
+      const silenced = restoringDelivery || (hasDelivery && !hasNewDelivery);
+      if (silenced) log.setAttribute("aria-live", "off");
+      log.replaceChildren();
+      for (const m of list) {
+        if (typeof m !== "object" || m === null) continue;
+        const mr = m as Record<string, unknown>;
+        const f0 = asStr(mr.from);
+        const from = f0 === "user" || f0 === "agent" || f0 === "nano" ? f0 : "agent";
+        const fromLabel = from === "user" ? "You" : from === "nano" ? "Gemini Nano" : asStr(mr.agent);
+        const li = doc.createElement("li");
+        li.className = "chat-msg";
+        li.setAttribute("data-from", from);
+        const span = doc.createElement("span");
+        span.className = "chat-from";
+        span.textContent = fromLabel;
+        const p = doc.createElement("p");
+        p.className = "chat-text";
+        p.textContent = asStr(mr.text);
+        const t = doc.createElement("time");
+        t.className = "chat-at";
+        t.textContent = asStr(mr.at);
+        li.append(span, p, t);
+        const del = mr.delivery;
+        if (typeof del === "object" && del !== null) {
+          const d = del as Record<string, unknown>;
+          const cid = asStr(d.client_id);
+          const st = asStr(d.state);
+          if (cid !== "" && (st === "sending" || st === "delivered" || st === "failed" || st === "unknown")) {
+            li.setAttribute("data-client-id", cid);
+            li.setAttribute("data-delivery", st);
+            const status = doc.createElement("span");
+            status.className = "chat-delivery";
+            let statusText = "";
+            let mismatch: string | null = null;
+            if (st === "sending") statusText = "Sending";
+            else if (st === "delivered") {
+              statusText = `Delivered · ${asStr(d.event_id)} · ${String(d.lamport)}`;
+            } else if (st === "failed") {
+              statusText = `Failed (${asStr(d.code)})`;
+              if (hasTask && taskAssignee !== asStr(mr.agent)) {
+                mismatch = taskAssignee === null
+                  ? "Retry unavailable: this task is unassigned"
+                  : `Retry unavailable: this task is assigned to ${taskAssignee}`;
+              }
+            } else {
+              statusText = `Delivery unknown (${asStr(d.code)})`;
+            }
+            status.textContent = mismatch !== null ? `${statusText} — ${mismatch}` : statusText;
+            li.append(status);
+            if (st === "failed") {
+              const retry = doc.createElement("button");
+              retry.type = "button";
+              retry.className = "chat-retry";
+              retry.textContent = "Retry";
+              retry.disabled = mismatch !== null;
+              retry.addEventListener("click", () => {
+                if (destroyed || retry.disabled) return;
+                invoke(() => currentHandlers?.onRetry?.(cid));
+              });
+              li.append(retry);
+            }
+          }
+        }
+        log.append(li);
+      }
+      for (const m of list) {
+        if (typeof m !== "object" || m === null) continue;
+        const del = (m as Record<string, unknown>).delivery;
+        if (typeof del !== "object" || del === null) continue;
+        const d = del as Record<string, unknown>;
+        const cid = asStr(d.client_id);
+        const st = asStr(d.state);
+        if (cid !== "" && st !== "") seenDeliveryStates.set(cid, st);
+      }
+      if (silenced) log.setAttribute("aria-live", "polite");
+      lastMessagesFingerprint = fingerprint;
     }
+    lastMessages = list;
 
     const sugg = typeof rec.suggestion === "string" && rec.suggestion.length > 0 ? rec.suggestion : null;
     if (sugg !== null && textarea.value === "") textarea.value = sugg;
@@ -328,6 +477,15 @@ export function mountAgentChat(
       } catch {
         /* never throw on malformed VM */
       }
+    },
+    setDraft(text: string): void {
+      if (destroyed) return;
+      textarea.value = typeof text === "string" ? text : "";
+      refreshComposer();
+    },
+    getDraft(): string {
+      if (destroyed) return "";
+      return textarea.value;
     },
     destroy(): void {
       if (destroyed) return;

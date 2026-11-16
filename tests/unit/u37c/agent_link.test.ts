@@ -135,6 +135,8 @@ describe("only the latest port is trusted", () => {
     expect(r.onRoomHello).not.toHaveBeenCalled();
     expect(cur.ofType("room_sync")).toHaveLength(before);
     expect(old.ofType("room_sync")).toHaveLength(1); // only the one sent before the drop
+    // A-U85c: the current port must announce room membership before events, M5.
+    cur.emit(HELLO);
     cur.emit({ t: "room_event", v: 1, room: ROOM, floor: FLOOR, event: roomEvent(2) });
     expect(r.onRoomEvent).toHaveBeenCalledTimes(1);
   });
@@ -152,8 +154,11 @@ describe("only the latest port is trusted", () => {
 describe("room frames to callbacks", () => {
   it("room_event (live or replay, with/without rid) -> onRoomEvent(frame) unchanged", () => {
     const p = linkUp(r);
+    // A-U85c: admit hello rooms and match replay rid to the outstanding sync, M5.
+    p.emit(HELLO);
+    const rid = p.ofType("room_sync").at(-1)!["rid"];
     const live = { t: "room_event", v: 1, room: ROOM, floor: "PREFER_ON_DEVICE", event: roomEvent(1) };
-    const replay = { t: "room_event", v: 1, room: ROOM, floor: FLOOR, event: roomEvent(2), rid: "x" };
+    const replay = { t: "room_event", v: 1, room: ROOM, floor: FLOOR, event: roomEvent(2), rid };
     p.emit(live); p.emit(replay);
     expect(r.onRoomEvent.mock.calls.map((c) => c[0])).toEqual([live, replay]);
   });

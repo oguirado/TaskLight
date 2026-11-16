@@ -7,7 +7,7 @@ export type TaskStatus = "pending" | "active" | "blocked" | "done" | "cancelled"
 export type PlanOpKind =
   | "plan.open" | "plan.close" | "plan.phase"
   | "task.add" | "task.set" | "task.claim" | "task.release"
-  | "micro.add" | "micro.set" | "memory.set";
+  | "micro.add" | "micro.set" | "memory.set" | "activity.beat";
 
 export type PlanOpErrorCode =
   | "no_plan" | "plan_exists" | "unknown_template" | "bad_template"
@@ -58,10 +58,14 @@ export interface MicroSetOp extends PlanOpBase {
   outcome?: string; took?: string; evidence?: readonly RoomEvidence[];
 }
 export interface MemorySetOp extends PlanOpBase { kind: "memory.set"; section: string; text: string; base_rev: number }
+export interface ActivityBeatOp extends PlanOpBase {
+  kind: "activity.beat"; task_id: string; micro_id?: string; run_id: string;
+  note?: string; op_id: string; base_rev?: never;
+}
 
 export type PlanOpBody =
   | PlanOpenOp | PlanCloseOp | PlanPhaseOp | TaskAddOp | TaskSetOp
-  | TaskClaimOp | TaskReleaseOp | MicroAddOp | MicroSetOp | MemorySetOp;
+  | TaskClaimOp | TaskReleaseOp | MicroAddOp | MicroSetOp | MemorySetOp | ActivityBeatOp;
 
 export interface PlanOpEvent {
   id: string; lamport: number; ts: number; room: string; agent: string; act: "op"; text: string; op: PlanOpBody;
@@ -70,6 +74,7 @@ export interface PlanOpEvent {
 export interface PlanMicrotask {
   id: string; text: string; accept: string; state: MicroState;
   outcome: string | null; took: string | null; evidence: readonly RoomEvidence[]; rev: number;
+  live?: { agent: string; run_id: string; beat_ts: number; beat_lamport: number };
 }
 export interface PlanTask {
   id: string; title: string; type: string; phase: string; accept: string;

@@ -8,6 +8,8 @@ import type {
   StepVM,
   TaskStatusVM,
   TaskVM,
+  PlanVM,
+  AgendaItemVM,
   ViewId,
   WallHandle,
   WallHandlers,
@@ -17,6 +19,7 @@ import type {
 import {
   buildPlanAgenda,
   buildPlanDiary,
+  containViewCallback,
   groupTasksByPhase,
   renderPlanAgenda,
   renderPlanArchive,
@@ -82,6 +85,125 @@ const STEP_LABEL: Record<string, string> = {
   blocked: "Blocked",
   pending: "To do",
 };
+
+const ACTIVITY_LABEL: Record<string, string> = {
+  idle: "Idle", working: "Working", done: "Done", blocked: "Blocked",
+  waiting: "Waiting", needs_you: "Needs you", unknown: "Liveness unknown", cancelled: "Cancelled",
+};
+const ACTIVITY_GLYPH: Record<string, string> = {
+  idle: "○", working: "◐", done: "✓", blocked: "■",
+  waiting: "◇", needs_you: "!", unknown: "?", cancelled: "✕",
+};
+const ACTIVITY_STATES: ReadonlySet<string> = new Set(["idle", "working", "done", "blocked", "waiting", "needs_you", "unknown", "cancelled"]);
+
+function resolveActivity(raw: unknown): string {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return "unknown";
+  const state = (raw as { state?: unknown }).state;
+  if (typeof state !== "string" || !ACTIVITY_STATES.has(state)) return "unknown";
+  return state;
+}
+
+function displayActivity(raw: unknown, stale: boolean): string {
+  const state = resolveActivity(raw);
+  if (stale && state === "working") return "unknown";
+  return state;
+}
+
+function activityIcon(doc: Document, cls: string, state: string): HTMLElement {
+  const icon = el(doc, "span", cls);
+  icon.setAttribute("aria-hidden", "true");
+  icon.setAttribute("data-activity", state);
+  icon.textContent = ACTIVITY_GLYPH[state] ?? "?";
+  return icon;
+}
+
+/** View-side expiry: derive the VM with expired working activity dropped to unknown. Never mutates input. */
+function expireVm(vm: WallVM, now: number): WallVM {
+  if (!vm || typeof vm !== "object") return vm;
+  const stale = (vm as { syncStale?: unknown }).syncStale === true;
+  if (stale) return vm;
+  const tasks = Array.isArray(vm.tasks) ? vm.tasks : [];
+  let changed = false;
+  const nextTasks = tasks.map((t) => {
+    if (!t || typeof t !== "object") return t;
+    const rec = t as unknown as Record<string, unknown>;
+    const steps = Array.isArray((t as TaskVM).steps) ? (t as TaskVM).steps : [];
+    let taskChanged = false;
+    const nextSteps = steps.map((s) => {
+      if (!s || typeof s !== "object") return s;
+      const raw = (s as { activity?: unknown }).activity;
+      if (!raw || typeof raw !== "object") return s;
+      const act = raw as { state?: unknown; expiresAt?: unknown };
+      if (act.state !== "working") return s;
+      const exp = act.expiresAt;
+      if (typeof exp !== "number" || !Number.isFinite(exp) || now <= exp) return s;
+      taskChanged = true;
+      return { ...(s as object), activity: { state: "unknown" } } as StepVM;
+    });
+    const rawT0 = rec["activity"];
+    let taskDue = false;
+    if (rawT0 && typeof rawT0 === "object") {
+      const actT0 = rawT0 as { state?: unknown; expiresAt?: unknown };
+      const expT0 = actT0.expiresAt;
+      taskDue = actT0.state === "working" && typeof expT0 === "number" && Number.isFinite(expT0) && now > expT0;
+    }
+    if (taskChanged || taskDue) {
+      const nextTask = { ...(t as unknown as Record<string, unknown>), steps: nextSteps } as unknown as TaskVM;
+      // A parent's earliest deadline is a refresh boundary, not the end of
+      // every child's work. Preserve scheduling/terminal overrides.
+      const state = resolveActivity(rawT0);
+      if (state === "working" || state === "unknown" || state === "idle") {
+        const working = nextSteps.filter((step) => step?.activity?.state === "working");
+        const deadlines = working.map((step) => step.activity?.expiresAt)
+          .filter((deadline): deadline is number => typeof deadline === "number" && Number.isFinite(deadline));
+        nextTask.activity = working.length > 0
+          ? { state: "working", ...(deadlines.length > 0 ? { expiresAt: Math.min(...deadlines) } : {}) }
+          : { state: "unknown" };
+      }
+      changed = true;
+      return nextTask;
+    }
+    return t as TaskVM;
+  });
+  if (!changed) return vm;
+  const plan = (vm as WallVM).plan;
+  let nextPlan = plan as PlanVM | undefined;
+  if (plan && typeof plan === "object" && Array.isArray((plan as { agents?: unknown }).agents)) {
+    const agents = (plan as { agents: readonly { agent: string; active: boolean }[] }).agents;
+    const workingAgents = new Set<string>();
+    for (const t of nextTasks) {
+      if (!t || typeof t !== "object") continue;
+      if ((t as TaskVM).workspace !== vm.workspace || (t as TaskVM).archived) continue;
+      if ((t as TaskVM).activity?.state !== "working") continue;
+      const a = (t as TaskVM).assignee;
+      if (typeof a === "string" && a.length > 0) workingAgents.add(a);
+    }
+    nextPlan = { ...plan, agents: agents.map((a) => ({ ...a, active: workingAgents.has(a.agent) })) } as PlanVM;
+  }
+  return { ...vm, tasks: nextTasks, ...(nextPlan !== undefined ? { plan: nextPlan } : {}) };
+}
+
+function minExpiry(vm: WallVM): number | undefined {
+  if (!vm || typeof vm !== "object") return undefined;
+  const stale = (vm as { syncStale?: unknown }).syncStale === true;
+  if (stale) return undefined;
+  let min: number | undefined;
+  const consider = (raw: unknown): void => {
+    if (!raw || typeof raw !== "object") return;
+    const act = raw as { state?: unknown; expiresAt?: unknown };
+    if (act.state !== "working") return;
+    const exp = act.expiresAt;
+    if (typeof exp === "number" && Number.isFinite(exp)) min = min === undefined ? exp : Math.min(min, exp);
+  };
+  for (const t of Array.isArray(vm.tasks) ? vm.tasks : []) {
+    if (!t || typeof t !== "object") continue;
+    consider((t as TaskVM).activity);
+    for (const s of Array.isArray((t as TaskVM).steps) ? (t as TaskVM).steps : []) {
+      if (s && typeof s === "object") consider((s as { activity?: unknown }).activity);
+    }
+  }
+  return min;
+}
 
 const ATT_ORDER: Record<string, number> = { now: 0, high: 1, low: 2, none: 3 };
 
@@ -187,12 +309,91 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
   let currentVm: WallVM = vm;
   let pendingFocusView: ViewId | null = null;
   let lastLive = "";
+  let lastView: ViewId | undefined;
+  let lastActivities = new Map<string, string>();
+  let expiryTimer: ReturnType<typeof setTimeout> | undefined;
+
+  // Keep the single app root and its polite region attached across refreshes.
+  const app = el(doc, "div", "app");
+  const rail = el(doc, "aside", "rail");
+  const announcer = el(doc, "div", "announcer visually-hidden");
+  announcer.setAttribute("aria-live", "polite");
+  announcer.setAttribute("role", "status");
+  rail.appendChild(announcer);
+  app.appendChild(rail);
+  host.replaceChildren(app);
 
   function announceLive(msg: string): void {
     try {
-      const live = host.querySelector('[aria-live="polite"]');
-      if (live) live.textContent = msg;
+      announcer.textContent = msg;
       lastLive = msg;
+    } catch { /* contained */ }
+  }
+
+  function clearExpiry(): void {
+    if (expiryTimer !== undefined) {
+      try { clearTimeout(expiryTimer); } catch { /* contained */ }
+      expiryTimer = undefined;
+    }
+  }
+
+  function scheduleExpiry(): void {
+    clearExpiry();
+    if (destroyed) return;
+    const min = minExpiry(currentVm);
+    if (min === undefined) return;
+    const delay = Math.max(0, min - Date.now() + 1);
+    expiryTimer = setTimeout(() => {
+      expiryTimer = undefined;
+      if (destroyed) return;
+      const next = expireVm(currentVm, Date.now());
+      if (next === currentVm) return;
+      currentVm = next;
+      render(next);
+    }, delay);
+  }
+
+  type FocusDescriptor = { kind: "step"; taskId: string; idx: string; microId: string }
+    | { kind: "chat"; id: string }
+    | { kind: "phase"; phaseId: string }
+    | { kind: "nav"; nav: string };
+
+  function captureFocus(): FocusDescriptor | undefined {
+    try {
+      const active = doc.activeElement;
+      if (!active || active === doc.body || !host.contains(active)) return undefined;
+      const elc = active as HTMLElement;
+      if (elc.classList && elc.classList.contains("task-chat")) return { kind: "chat", id: elc.id || elc.getAttribute("data-task-vm-id") || elc.getAttribute("data-task-id") || "" };
+      if (elc.classList && elc.classList.contains("phase-chip")) return { kind: "phase", phaseId: elc.getAttribute("data-phase-id") || "" };
+      if (elc.classList && elc.classList.contains("step-row")) {
+        return { kind: "step", taskId: elc.getAttribute("data-task-id") || "", idx: elc.getAttribute("data-step-idx") || "", microId: elc.getAttribute("data-micro-id") || "" };
+      }
+      const tab = typeof (active as Element).closest === "function" ? ((active as Element).closest('[role="tab"]') as Element | null) : null;
+      if (tab) return { kind: "nav", nav: tab.getAttribute("data-nav") || "" };
+    } catch { /* contained */ }
+    return undefined;
+  }
+
+  function restoreFocus(descriptor: FocusDescriptor | undefined): void {
+    if (!descriptor || destroyed) return;
+    try {
+      let target: Element | null = null;
+      if (descriptor.kind === "chat") {
+        target = descriptor.id && document.getElementById(descriptor.id) !== null && host.contains(document.getElementById(descriptor.id)) ? document.getElementById(descriptor.id) : null;
+        if (!target) target = host.querySelector<HTMLElement>("button.task-chat");
+      } else if (descriptor.kind === "phase") {
+        target = host.querySelector(`button.phase-chip[data-phase-id="${descriptor.phaseId.replace(/"/g, '')}"]`);
+      } else if (descriptor.kind === "step") {
+        target = [...host.querySelectorAll<HTMLElement>("button.step-row")].find((n) => {
+          const micro = n.getAttribute("data-micro-id");
+          const task = n.getAttribute("data-task-id");
+          const idxAttr = n.getAttribute("data-step-idx");
+          return (descriptor.microId !== "" && micro === descriptor.microId) || (task === descriptor.taskId && idxAttr === descriptor.idx);
+        }) ?? null;
+      } else if (descriptor.kind === "nav") {
+        target = host.querySelector(`[role="tab"][data-nav="${descriptor.nav}"]`);
+      }
+      if (target && typeof (target as HTMLElement).focus === "function") (target as HTMLElement).focus();
     } catch { /* contained */ }
   }
 
@@ -236,7 +437,7 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
         if (entry) {
           e.preventDefault();
           pendingFocusView = entry[0];
-          if (currentHandlers?.onView) currentHandlers.onView(entry[0]);
+          if (currentHandlers?.onView) containViewCallback(() => currentHandlers?.onView?.(entry[0]));
           return;
         }
       }
@@ -245,7 +446,7 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
     if (idx < 0) return;
     const entry = VIEWS[idx];
     if (!entry) return;
-    if (currentHandlers?.onView) currentHandlers.onView(entry[0]);
+    if (currentHandlers?.onView) containViewCallback(() => currentHandlers?.onView?.(entry[0]));
   }
 
   function onClick(e: MouseEvent): void {
@@ -257,29 +458,38 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
       // U42: a click on a task card (outside its buttons) opens that task's chat.
       const card = (target as Element).closest("article.task");
       if (card && host.contains(card) && currentHandlers?.onOpenTask) {
-        const id = card.getAttribute("data-task-id");
-        if (id !== null) currentHandlers.onOpenTask(id);
+        const id = card.getAttribute("data-task-vm-id") ?? card.getAttribute("data-task-id");
+        if (id !== null) containViewCallback(() => currentHandlers?.onOpenTask?.(id));
       }
       return;
     }
     if (btn.classList.contains("task-chat")) {
-      const id = btn.getAttribute("data-task-id");
-      if (id !== null && currentHandlers?.onOpenTask) currentHandlers.onOpenTask(id);
+      if (currentHandlers?.onOpenTask) {
+        const card = btn.closest("article.task");
+        const fullId = btn.getAttribute("data-task-vm-id") ?? card?.getAttribute("data-task-vm-id") ?? btn.getAttribute("data-task-id");
+        if (fullId !== null) {
+          const taskId = btn.getAttribute("data-task-id") ?? "";
+          const microId = btn.getAttribute("data-micro-id") ?? undefined;
+          const trig: { triggerId: string; taskId: string; microId?: string } = { triggerId: btn.id || fullId, taskId };
+          if (microId !== undefined) trig.microId = microId;
+          containViewCallback(() => currentHandlers?.onOpenTask?.(fullId, btn.id || fullId, trig));
+        }
+      }
       return;
     }
     if (btn.classList.contains("nav-item")) {
       const v = btn.getAttribute("data-nav") as ViewId | null;
-      if (v && currentHandlers?.onView) currentHandlers.onView(v);
+      if (v && currentHandlers?.onView) containViewCallback(() => currentHandlers?.onView?.(v));
       return;
     }
     if (btn.classList.contains("workspace")) {
       const id = btn.getAttribute("data-wsid");
-      if (id !== null && currentHandlers?.onWorkspace) currentHandlers.onWorkspace(id);
+      if (id !== null && currentHandlers?.onWorkspace) containViewCallback(() => currentHandlers?.onWorkspace?.(id));
       return;
     }
     if (btn.classList.contains("ws-new")) {
       wsHelpOpen = true;
-      if (currentHandlers?.onNewWorkspace) currentHandlers.onNewWorkspace();
+      if (currentHandlers?.onNewWorkspace) containViewCallback(() => currentHandlers?.onNewWorkspace?.());
       render(currentVm);
       return;
     }
@@ -308,18 +518,18 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
       return;
     }
     if (btn.classList.contains("theme-toggle")) {
-      if (currentHandlers?.onThemeToggle) currentHandlers.onThemeToggle();
+      if (currentHandlers?.onThemeToggle) containViewCallback(() => currentHandlers?.onThemeToggle?.());
 
       return;
     }
     if (btn.classList.contains("archive-option")) {
       const s = btn.getAttribute("data-scope") as "workspace" | "all" | null;
-      if (s && currentHandlers?.onArchiveScope) currentHandlers.onArchiveScope(s);
+      if (s && currentHandlers?.onArchiveScope) containViewCallback(() => currentHandlers?.onArchiveScope?.(s));
       return;
     }
     if (btn.classList.contains("archived-restore")) {
       const id = btn.getAttribute("data-arch-id");
-      if (id !== null && currentHandlers?.onRestore) currentHandlers.onRestore(id);
+      if (id !== null && currentHandlers?.onRestore) containViewCallback(() => currentHandlers?.onRestore?.(id));
       return;
     }
     if (btn.classList.contains("step-row")) {
@@ -340,7 +550,7 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
       const micro = btn.getAttribute("data-micro-id") || `${taskId}.M${String(idx + 1).padStart(2, "0")}`;
       announceLive(next ? `Expanded outcome for ${micro}` : `Collapsed outcome for ${micro}`);
       if (currentHandlers?.onToggleMicroDetail) {
-        try { currentHandlers.onToggleMicroDetail(taskId, idx); } catch { /* contained */ }
+        containViewCallback(() => currentHandlers?.onToggleMicroDetail?.(taskId, idx));
       }
       return;
     }
@@ -348,10 +558,11 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
       const pid = btn.getAttribute("data-phase-id");
       if (pid !== null) {
         selectedPhase = pid;
-        if (currentHandlers?.onSelectPhase) {
-          try { currentHandlers.onSelectPhase(pid); } catch { /* contained */ }
-        }
+        render(currentVm);
         announceLive(`Phase ${pid} selected`);
+        if (currentHandlers?.onSelectPhase) {
+          containViewCallback(() => currentHandlers?.onSelectPhase?.(pid));
+        }
       }
       return;
     }
@@ -362,9 +573,13 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
 
   function render(rawVm: WallVM): void {
     if (destroyed) return;
+    rawVm = expireVm(rawVm, Date.now());
+    currentVm = rawVm;
+    const focusDesc = captureFocus();
     // U51: keep the sheet-owned aria-expanded across re-renders of the model trigger.
     const prevExpanded = host.querySelector('button.status-line[aria-controls="model-sheet"]')?.getAttribute("aria-expanded") === "true";
-    host.replaceChildren();
+    for (const child of Array.from(app.children)) if (child !== rail) child.remove();
+    for (const child of Array.from(rail.children)) if (child !== announcer) child.remove();
     const input = (rawVm && typeof rawVm === "object" ? rawVm : {}) as Partial<WallVM>;
     const workspaces: WorkspaceVM[] = Array.isArray(input.workspaces) ? (input.workspaces as WorkspaceVM[]) : [];
     const tasks: TaskVM[] = Array.isArray(input.tasks) ? (input.tasks as TaskVM[]) : [];
@@ -388,8 +603,8 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
       : "Gemini Nano: checking…");
     const network = asStr(input.network);
 
-    // .app root
-    const app = el(doc, "div", "app");
+    // Root attributes are refreshed even when the next VM omits a workspace.
+    app.removeAttribute("data-lens");
     // root attributes
     app.setAttribute("data-view", view);
     if (workspaceId) app.setAttribute("data-workspace", workspaceId);
@@ -402,7 +617,6 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
     const highlightedWsId = effWs ? asStr((effWs as { id?: unknown }).id) : workspaceId;
 
     // ---- rail ----
-    const rail = el(doc, "aside", "rail");
     const brand = el(doc, "div", "brand");
     const brandMark = el(doc, "span", "brand-mark");
     brandMark.setAttribute("aria-hidden", "true");
@@ -471,6 +685,7 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
       const need = needsUserTasks(wsTasks).length;
       if (run > 0) {
         const r = el(doc, "span", "ws-running", String(run));
+        r.setAttribute("data-activity", wsTasks.some((t) => displayActivity(t.activity, input.syncStale === true) === "working") ? "working" : "unknown");
         r.setAttribute("aria-label", `${run} running`);
         r.setAttribute("title", `${run} running`);
         badges.appendChild(r);
@@ -553,8 +768,6 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
     railStatus.appendChild(theme);
     rail.appendChild(railStatus);
 
-    app.appendChild(rail);
-
     const main = el(doc, "main", "main");
     // topbar
     const topbar = el(doc, "header", "topbar");
@@ -621,14 +834,20 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
       focusSec.appendChild(ul);
     }
 
+    const syncStaleOf = (inp: Partial<WallVM>): boolean => (inp as { syncStale?: unknown }).syncStale === true;
     function renderStep(doc: Document, step: StepVM, taskId: string, idx: number): HTMLElement {
       const li = el(doc, "li", "step");
       setSafeData(li, "data-state", (step as { state?: unknown }).state);
+      li.setAttribute("data-activity", displayActivity((step as { activity?: unknown }).activity, syncStaleOf(input)));
       const st = (step as { state?: unknown }).state as StepStateVM;
       const detail = (step as { detail?: unknown }).detail as StepVM["detail"];
-      const hasDetail = st === "done" && detail != null && typeof detail === "object";
+      const acceptRaw = asStr((step as { accept?: unknown }).accept);
+      const hasDetail = detail != null && typeof detail === "object";
+      const hasPanel = hasDetail || acceptRaw.length > 0;
+      const syncStale = (input as { syncStale?: unknown }).syncStale === true;
+      const act = displayActivity((step as { activity?: unknown }).activity, syncStale);
       let row: HTMLElement;
-      if (hasDetail) {
+      if (hasPanel) {
         const btn = el(doc, "button", "step-row");
         btn.setAttribute("type", "button");
         const key = expKey(taskId, idx);
@@ -637,15 +856,16 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
         btn.setAttribute("aria-controls", `${instanceId}-${taskId}-s${idx}`);
         btn.setAttribute("data-task-id", taskId);
         btn.setAttribute("data-step-idx", String(idx));
+        const microId = asStr((step as { microId?: unknown }).microId) || `${taskId}.M${String(idx + 1).padStart(2, "0")}`;
+        btn.setAttribute("data-micro-id", microId);
         row = btn;
       } else {
         row = el(doc, "div", "step-row");
       }
-      const ind = el(doc, "span", "step-indicator");
-      ind.setAttribute("aria-hidden", "true");
-      row.appendChild(ind);
+      row.appendChild(activityIcon(doc, "step-indicator", act));
       const stxt = el(doc, "span", "step-text");
       stxt.appendChild(el(doc, "span", "step-label", asStr((step as { label?: unknown }).label)));
+      stxt.appendChild(el(doc, "span", "step-activity-label", ` · ${ACTIVITY_LABEL[act] ?? "Liveness unknown"}`));
       stxt.appendChild(el(doc, "span", "visually-hidden", ` — ${stepLabel(st as unknown)}`));
       row.appendChild(stxt);
       const atVal = (step as { at?: unknown }).at;
@@ -703,16 +923,16 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
       const planSec = el(doc, "section", "plan-wall");
       planSec.setAttribute("aria-label", "Plan");
       const planVm = planIn as unknown as Parameters<typeof renderPlanBand>[1];
-      planSec.appendChild(renderPlanBand(doc, planVm, { selectedPhase }).cloneNode(true) as HTMLElement);
+      planSec.appendChild(renderPlanBand(doc, planVm, { selectedPhase, syncStale: input.syncStale === true }).cloneNode(true) as HTMLElement);
       if (selectedPhase !== null) {
         const showAll = el(doc, "button", "phase-show-all", "Show all phases");
         showAll.setAttribute("type", "button");
         planSec.appendChild(showAll);
       }
       const phasesForGroup = (planVm && typeof planVm === "object" ? (planVm as unknown as Record<string, unknown>).phases : undefined) as unknown as Parameters<typeof groupTasksByPhase>[1];
-      let groupsForWall = groupTasksByPhase(tasks as unknown as Parameters<typeof groupTasksByPhase>[0], phasesForGroup);
+      let groupsForWall = groupTasksByPhase(wsTasksAll(workspaceId, false), phasesForGroup);
       if (selectedPhase !== null) groupsForWall = groupsForWall.filter((g) => g.phaseId === selectedPhase);
-      planSec.appendChild(renderPhaseTaskCards(doc, groupsForWall).cloneNode(true) as HTMLElement);
+      planSec.appendChild(renderPhaseTaskCards(doc, groupsForWall, { ...(currentHandlers?.onOpenTask ? { onOpenTask: currentHandlers.onOpenTask } : {}), ...(currentHandlers?.onToggleMicroDetail ? { onToggleMicroDetail: currentHandlers.onToggleMicroDetail } : {}) }, { syncStale: input.syncStale === true }).cloneNode(true) as HTMLElement);
       viewWrap.appendChild(planSec);
     } else if (view === "wall") {
       const board = el(doc, "section", "board");
@@ -796,10 +1016,50 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
       }
       viewWrap.appendChild(board);
     } else if (view === "agenda" && hasPlan) {
-      const supplied = agenda;
-      const groupsToRender = supplied.length > 0
-        ? supplied
-        : buildPlanAgenda(tasks as unknown as Parameters<typeof buildPlanAgenda>[0]);
+      const workspaceTasks = wsTasksAll(workspaceId, false);
+      function resolveAgendaTask(item: AgendaItemVM): TaskVM | undefined {
+        if (!item || typeof item !== "object" || !knownWorkspace) return undefined;
+        if (item.workspace !== undefined && item.workspace !== workspaceId) return undefined;
+        const id = asStr(item.taskVmId) || asStr(item.taskId) || asStr(item.task);
+        if (!id) return undefined;
+        // Unqualified local ids must be unique across rooms. Never attach
+        // foreign text to whichever colliding task happens to be first.
+        const candidates = tasks.filter((task) => task && typeof task === "object"
+          && (item.workspace === undefined || task.workspace === item.workspace)
+          && (item.taskVmId !== undefined ? task.id === id : task.id === id || task.taskId === id));
+        if (candidates.length !== 1) return undefined;
+        const task = candidates[0]!;
+        if (task.workspace !== workspaceId || task.archived) return undefined;
+        if (item.taskId && item.taskId !== task.id && item.taskId !== task.taskId) return undefined;
+        const microId = asStr(item.microId);
+        const steps = Array.isArray(task.steps) ? task.steps : [];
+        if (microId && !steps.some((step, idx) => step && typeof step === "object"
+          && (step.microId || `${task.taskId || task.id}.M${String(idx + 1).padStart(2, "0")}`) === microId)) return undefined;
+        return task;
+      }
+      function eligibleNext(task: TaskVM, item: AgendaItemVM): boolean {
+        // Use the same microtask admission rules for generated and supplied
+        // Next, including task-only entries and published stale outcomes.
+        const forAgenda: TaskVM = { ...task,
+          ...(task.activity !== undefined ? { activity: { state: displayActivity(task.activity, input.syncStale === true) as NonNullable<TaskVM["activity"]>["state"] } } : {}),
+          steps: (Array.isArray(task.steps) ? task.steps : []).filter((step) => step && typeof step === "object").map((step) => ({ ...step,
+            ...(step.activity !== undefined ? { activity: { state: displayActivity(step.activity, input.syncStale === true) as NonNullable<StepVM["activity"]>["state"] } } : {}),
+          })),
+        };
+        const eligible = buildPlanAgenda([forAgenda]).find((group) => group.group === "Next")?.items ?? [];
+        return eligible.some((candidate) => !item.microId || candidate.microId === item.microId);
+      }
+      const reconcileGroups = (groups: readonly AgendaGroupVM[]): AgendaGroupVM[] => groups
+        .filter((group) => group && typeof group === "object")
+        .map((group) => {
+          const name = asStr(group.group).trim().toLowerCase();
+          const items = Array.isArray(group.items) ? group.items : [];
+          return { ...group, items: items.filter((item) => {
+            const task = resolveAgendaTask(item);
+            return task !== undefined && (name !== "next" || eligibleNext(task, item));
+          }) };
+        });
+      const groupsToRender = reconcileGroups(agenda.length > 0 ? agenda : buildPlanAgenda(workspaceTasks));
       viewWrap.appendChild(renderPlanAgenda(doc, groupsToRender as unknown as Parameters<typeof renderPlanAgenda>[1]));
     } else if (view === "agenda") {
       const sec = el(doc, "section", "agenda");
@@ -994,17 +1254,43 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
       viewWrap.appendChild(sec);
     }
 
-    host.appendChild(app);
     // ensure focus hidden property reflects (section.focus.hidden already set)
     try {
       const viewLabel = VIEWS.find(([vid]) => vid === view)?.[1] ?? view;
-      const live = el(doc, "div", "announcer");
-      live.setAttribute("aria-live", "polite");
-      live.setAttribute("role", "status");
-      live.textContent = `${viewLabel} view`;
-      topbar.appendChild(live);
-      lastLive = `${viewLabel} view`;
+      if (lastView === undefined || lastView !== view) {
+        announcer.textContent = `${viewLabel} view`;
+        lastLive = `${viewLabel} view`;
+        lastView = view;
+      }
     } catch { /* contained */ }
+    try {
+      const nextActs = new Map<string, string>();
+      const transitions: string[] = [];
+      const record = (key: string, label: string, state: string): void => {
+        nextActs.set(key, state);
+        const previous = lastActivities.get(key);
+        if (previous !== undefined && previous !== state) transitions.push(`${label}: ${ACTIVITY_LABEL[state]}`);
+      };
+      for (const t of wsTasksAll(workspaceId, false)) {
+        const id = asStr(t.id) || asStr(t.taskId);
+        if (!id) continue;
+        const key = [workspaceId, id];
+        const label = asStr(t.taskId) || id;
+        record(JSON.stringify([...key, "task"]), `Task ${label}`,
+          t.operatorQuestion != null ? "needs_you" : displayActivity(t.activity, input.syncStale === true));
+        (Array.isArray(t.steps) ? t.steps : []).forEach((step, index) => {
+          if (!step || typeof step !== "object") return;
+          const microId = asStr(step.microId) || `${label}.M${String(index + 1).padStart(2, "0")}`;
+          record(JSON.stringify([...key, "micro", microId]), `Microtask ${microId}`,
+            displayActivity(step.activity, input.syncStale === true));
+        });
+      }
+      lastActivities = nextActs;
+      // One polite-region update batches every changed identity. Beat/deadline
+      // refreshes with unchanged semantic states remain silent.
+      if (transitions.length > 0) announceLive(transitions.join("; "));
+    } catch { /* contained */ }
+    restoreFocus(focusDesc);
     try {
       if (pendingFocusView !== null) {
         const target = host.querySelector(`[role="tab"][data-nav="${pendingFocusView}"]`) as HTMLElement | null;
@@ -1012,6 +1298,7 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
         pendingFocusView = null;
       }
     } catch { /* contained */ }
+    scheduleExpiry();
     try {
       for (const btn of host.querySelectorAll("button.step-row")) {
         const tid = btn.getAttribute("data-task-id");
@@ -1042,6 +1329,7 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
     destroy(): void {
       if (destroyed) return;
       destroyed = true;
+      clearExpiry();
       try {
         doc.removeEventListener("keydown", onKey);
       } catch {
@@ -1072,6 +1360,7 @@ export type {
   StepVM,
   TaskStatusVM,
   TaskVM,
+  PlanVM,
   ViewId,
   WallHandle,
   WallHandlers,

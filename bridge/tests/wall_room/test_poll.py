@@ -116,7 +116,7 @@ class PrimePoll(S.Base):
         self.post("demo", "will be residue")
         with S.patched_redact(S.residue_redact):
             self.assertEqual(r.poll(), 0)
-        self.assertEqual(self.send.frames, [])
+        self.assertEqual([f["t"] for f in self.send.frames], ["room_gap"])  # A-U85b: a dropped event is now announced as a content-free room_gap (U85)
         self.assertEqual(r.stats()["dropped_residue"], 1)
         self.assertEqual(r.poll(), 0, "dropped event is not retried")
         self.assertEqual(r.stats()["dropped_residue"], 1)
@@ -128,7 +128,7 @@ class PrimePoll(S.Base):
                       evidence=[{"path": "/tmp/" + "a" * 10000, "sha256": "0" * 64} for _ in range(8)])
         S.write_raw(self.home, "demo", [big])
         self.assertEqual(r.poll(), 0)
-        self.assertEqual(self.send.frames, [])
+        self.assertEqual([f["t"] for f in self.send.frames], ["room_gap"])  # A-U85b: a dropped event is now announced as a content-free room_gap (U85)
         self.assertEqual(r.stats()["dropped_oversize"], 1)
         self.post("demo", "normal after")
         self.assertEqual(r.poll(), 1)

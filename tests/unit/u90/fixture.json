@@ -1,0 +1,170 @@
+{
+  "seed": [
+    {
+      "id": "e-0000000000000001",
+      "room": "demo",
+      "agent": "alice",
+      "act": "op",
+      "text": "",
+      "ts": 100,
+      "lamport": 1,
+      "op": {
+        "kind": "plan.open",
+        "title": "Activity oracle",
+        "template_id": "neutral",
+        "template_hash": "bc21815d772de0d05df4b2e78c58438de8ede7f321daa5ecf8424d1e92f0a945",
+        "brief": {
+          "goal": "Verify activity"
+        },
+        "phase": "start"
+      }
+    },
+    {
+      "id": "e-0000000000000002",
+      "room": "demo",
+      "agent": "alice",
+      "act": "op",
+      "text": "",
+      "ts": 200,
+      "lamport": 2,
+      "op": {
+        "kind": "task.add",
+        "title": "Action",
+        "type": "action",
+        "phase": "start",
+        "accept": "Checked",
+        "assignee": "alice",
+        "microtasks": [
+          {
+            "text": "Step 1",
+            "accept": "Checked"
+          },
+          {
+            "text": "Step 2",
+            "accept": "Checked"
+          },
+          {
+            "text": "Step 3",
+            "accept": "Checked"
+          },
+          {
+            "text": "Step 4",
+            "accept": "Checked"
+          }
+        ]
+      }
+    },
+    {
+      "id": "e-0000000000000003",
+      "room": "demo",
+      "agent": "alice",
+      "act": "op",
+      "text": "",
+      "ts": 300,
+      "lamport": 3,
+      "op": {
+        "kind": "task.add",
+        "title": "Other task",
+        "type": "action",
+        "phase": "start",
+        "accept": "Checked",
+        "assignee": "alice",
+        "microtasks": [
+          {
+            "text": "Other step",
+            "accept": "Checked"
+          }
+        ]
+      }
+    },
+    {
+      "id": "e-0000000000000004",
+      "room": "demo",
+      "agent": "alice",
+      "act": "op",
+      "text": "",
+      "ts": 400,
+      "lamport": 4,
+      "op": {
+        "kind": "micro.set",
+        "micro_id": "T01.M01",
+        "state": "active",
+        "outcome": "In progress",
+        "took": "1m",
+        "evidence": [
+          {
+            "path": "proof.txt",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      }
+    },
+    {
+      "id": "e-0000000000000005",
+      "room": "demo",
+      "agent": "alice",
+      "act": "op",
+      "text": "",
+      "ts": 500,
+      "lamport": 5,
+      "op": {
+        "kind": "micro.set",
+        "micro_id": "T01.M04",
+        "state": "done",
+        "outcome": "Checked"
+      }
+    },
+    {
+      "id": "e-0000000000000006",
+      "room": "demo",
+      "agent": "alice",
+      "act": "heartbeat",
+      "text": "",
+      "ts": 600,
+      "lamport": 6
+    },
+    {
+      "id": "e-0000000000000007",
+      "room": "demo",
+      "agent": "alice",
+      "act": "heartbeat",
+      "text": "",
+      "ts": 700,
+      "lamport": 7
+    },
+    {
+      "id": "e-0000000000000008",
+      "room": "demo",
+      "agent": "alice",
+      "act": "heartbeat",
+      "text": "",
+      "ts": 800,
+      "lamport": 8
+    },
+    {
+      "id": "e-0000000000000009",
+      "room": "demo",
+      "agent": "alice",
+      "act": "heartbeat",
+      "text": "",
+      "ts": 900,
+      "lamport": 9
+    }
+  ],
+  "beat": {
+    "id": "e-000000000000000a",
+    "room": "demo",
+    "agent": "alice",
+    "act": "op",
+    "text": "",
+    "ts": 1000,
+    "lamport": 10,
+    "op": {
+      "kind": "activity.beat",
+      "task_id": "T01",
+      "micro_id": "T01.M01",
+      "run_id": "run_A",
+      "op_id": "beat0001"
+    }
+  }
+}

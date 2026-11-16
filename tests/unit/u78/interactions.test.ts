@@ -89,7 +89,8 @@ describe("A4 / M4 phase selection", () => {
     const sections = () => [...host.querySelectorAll<HTMLElement>(".phase-group")].filter(n => visible(n).trim());
     const before = sections().length;
     expect(before).toBeGreaterThan(1); button(host, /^Build$/).click();
-    expect(button(host, /^Build$/).getAttribute("aria-pressed")).toBe("true");
+    // A-U91b: distinguish the viewed phase in its accessible name, U91 M5.
+    expect(button(host, /^Build \(selected\)$/).getAttribute("aria-pressed")).toBe("true");
     expect(sections()).toHaveLength(1);
     expect(sections()[0]!.textContent).toContain("Build");
     wall.refresh(); expect(sections()).toHaveLength(1);

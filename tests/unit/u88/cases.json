@@ -1,0 +1,993 @@
+{
+  "cases": [
+    {
+      "name": "A1_pending",
+      "ops": [
+        {
+          "kind": "plan.open",
+          "title": "Dependency plan",
+          "template_id": "neutral",
+          "brief": {
+            "goal": "Verify dependencies"
+          },
+          "phase": "start"
+        },
+        {
+          "kind": "task.add",
+          "title": "Action",
+          "type": "action",
+          "phase": "start",
+          "accept": "Verified",
+          "deps": [],
+          "microtasks": [
+            {
+              "text": "Step",
+              "accept": "Verified"
+            }
+          ]
+        },
+        {
+          "kind": "task.add",
+          "title": "Action",
+          "type": "action",
+          "phase": "start",
+          "accept": "Verified",
+          "deps": [
+            "T01"
+          ],
+          "microtasks": [
+            {
+              "text": "Step",
+              "accept": "Verified"
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "tasks": [
+          {
+            "id": "T01",
+            "state": "pending",
+            "ready": true
+          },
+          {
+            "id": "T02",
+            "state": "pending",
+            "ready": false
+          }
+        ],
+        "rollup": {
+          "tasks_total": 2,
+          "tasks_done": 0,
+          "tasks_blocked": 0,
+          "tasks_ready": 1,
+          "micro_total": 2,
+          "micro_done": 0,
+          "progress": 0.0,
+          "progress_pct": 0
+        }
+      }
+    },
+    {
+      "name": "A1_active",
+      "ops": [
+        {
+          "kind": "plan.open",
+          "title": "Dependency plan",
+          "template_id": "neutral",
+          "brief": {
+            "goal": "Verify dependencies"
+          },
+          "phase": "start"
+        },
+        {
+          "kind": "task.add",
+          "title": "Action",
+          "type": "action",
+          "phase": "start",
+          "accept": "Verified",
+          "deps": [],
+          "microtasks": [
+            {
+              "text": "Step",
+              "accept": "Verified"
+            }
+          ]
+        },
+        {
+          "kind": "task.add",
+          "title": "Action",
+          "type": "action",
+          "phase": "start",
+          "accept": "Verified",
+          "deps": [
+            "T01"
+          ],
+          "microtasks": [
+            {
+              "text": "Step",
+              "accept": "Verified"
+            }
+          ]
+        },
+        {
+          "kind": "micro.set",
+          "micro_id": "T01.M01",
+          "state": "active"
+        }
+      ],
+      "expected": {
+        "tasks": [
+          {
+            "id": "T01",
+            "state": "active",
+            "ready": true
+          },
+          {
+            "id": "T02",
+            "state": "pending",
+            "ready": false
+          }
+        ],
+        "rollup": {
+          "tasks_total": 2,
+          "tasks_done": 0,
+          "tasks_blocked": 0,
+          "tasks_ready": 1,
+          "micro_total": 2,
+          "micro_done": 0,
+          "progress": 0.0,
+          "progress_pct": 0
+        }
+      }
+    },
+    {
+      "name": "A1_blocked",
+      "ops": [
+        {
+          "kind": "plan.open",
+          "title": "Dependency plan",
+          "template_id": "neutral",
+          "brief": {
+            "goal": "Verify dependencies"
+          },
+          "phase": "start"
+        },
+        {
+          "kind": "task.add",
+          "title": "Action",
+          "type": "action",
+          "phase": "start",
+          "accept": "Verified",
+          "deps": [],
+          "microtasks": [
+            {
+              "text": "Step",
+              "accept": "Verified"
+            }
+          ]
+        },
+        {
+          "kind": "task.add",
+          "title": "Action",
+          "type": "action",
+          "phase": "start",
+          "accept": "Verified",
+          "deps": [
+            "T01"
+          ],
+          "microtasks": [
+            {
+              "text": "Step",
+              "accept": "Verified"
+            }
+          ]
+        },
+        {
+          "kind": "task.set",
+          "task_id": "T01",
+          "base_rev": 2,
+          "state": "blocked"
+        }
+      ],
+      "expected": {
+        "tasks": [
+          {
+            "id": "T01",
+            "state": "blocked",
+            "ready": true
+          },
+          {
+            "id": "T02",
+            "state": "pending",
+            "ready": false
+          }
+        ],
+        "rollup": {
+          "tasks_total": 2,
+          "tasks_done": 0,
+          "tasks_blocked": 1,
+          "tasks_ready": 1,
+          "micro_total": 2,
+          "micro_done": 0,
+          "progress": 0.0,
+          "progress_pct": 0
+        }
+      }
+    },
+    {
+      "name": "A1_done",
+      "ops": [
+        {
+          "kind": "plan.open",
+          "title": "Dependency plan",
+          "template_id": "neutral",
+          "brief": {
+            "goal": "Verify dependencies"
+          },
+          "phase": "start"
+        },
+        {
+          "kind": "task.add",
+          "title": "Action",
+          "type": "action",
+          "phase": "start",
+          "accept": "Verified",
+          "deps": [],
+          "microtasks": [
+            {
+              "text": "Step",
+              "accept": "Verified"
+            }
+          ]
+        },
+        {
+          "kind": "task.add",
+          "title": "Action",
+          "type": "action",
+          "phase": "start",
+          "accept": "Verified",
+          "deps": [
+            "T01"
+          ],
+          "microtasks": [
+            {
+              "text": "Step",
+              "accept": "Verified"
+            }
+          ]
+        },
+        {
+          "kind": "micro.set",
+          "micro_id": "T01.M01",
+          "state": "done"
+        }
+      ],
+      "expected": {
+        "tasks": [
+          {
+            "id": "T01",
+            "state": "done",
+            "ready": false
+          },
+          {
+            "id": "T02",
+            "state": "pending",
+            "ready": true
+          }
+        ],
+        "rollup": {
+          "tasks_total": 2,
+          "tasks_done": 1,
+          "tasks_blocked": 0,
+          "tasks_ready": 1,
+          "micro_total": 2,
+          "micro_done": 1,
+          "progress": 0.5,
+          "progress_pct": 50
+        }
+      }
+    },
+    {
+      "name": "A1_cancelled",
+      "ops": [
+        {
+          "kind": "plan.open",
+          "title": "Dependency plan",
+          "template_id": "neutral",
+          "brief": {
+            "goal": "Verify dependencies"
+          },
+          "phase": "start"
+        },
+        {
+          "kind": "task.add",
+          "title": "Action",
+          "type": "action",
+          "phase": "start",
+          "accept": "Verified",
+          "deps": [],
+          "microtasks": [
+            {
+              "text": "Step",
+              "accept": "Verified"
+            }
+          ]
+        },
+        {
+          "kind": "task.add",
+          "title": "Action",
+          "type": "action",
+          "phase": "start",
+          "accept": "Verified",
+          "deps": [
+            "T01"
+          ],
+          "microtasks": [
+            {
+              "text": "Step",
+              "accept": "Verified"
+            }
+          ]
+        },
+        {
+          "kind": "task.set",
+          "task_id": "T01",
+          "base_rev": 2,
+          "state": "cancelled"
+        }
+      ],
+      "expected": {
+        "tasks": [
+          {
+            "id": "T01",
+            "state": "cancelled",
+            "ready": false
+          },
+          {
+            "id": "T02",
+            "state": "pending",
+            "ready": true
+          }
+        ],
+        "rollup": {
+          "tasks_total": 2,
+          "tasks_done": 0,
+          "tasks_blocked": 0,
+          "tasks_ready": 1,
+          "micro_total": 2,
+          "micro_done": 0,
+          "progress": 0.0,
+          "progress_pct": 0
+        }
+      }
+    },
+    {
+      "name": "A2_reversed",
+      "ops": [
+        {
+          "kind": "plan.open",
+          "title": "Dependency plan",
+          "template_id": "neutral",
+          "brief": {
+            "goal": "Verify dependencies"
+          },
+          "phase": "start"
+        },
+        {
+          "kind": "task.add",
+          "title": "Action",
+          "type": "action",
+          "phase": "start",
+          "accept": "Verified",
+          "deps": [],
+          "microtasks": [
+            {
+              "text": "Step",
+              "accept": "Verified"
+            }
+          ]
+        },
+        {
+          "kind": "task.add",
+          "title": "Action",
+          "type": "action",
+          "phase": "start",
+          "accept": "Verified",
+          "deps": [
+            "T01"
+          ],
+          "microtasks": [
+            {
+              "text": "Step",
+              "accept": "Verified"
+            }
+          ]
+        },
+        {
+          "kind": "task.set",
+          "task_id": "T01",
+          "base_rev": 2,
+          "state": "cancelled"
+        },
+        {
+          "kind": "task.set",
+          "task_id": "T01",
+          "base_rev": 4,
+          "state": null
+        }
+      ],
+      "expected": {
+        "tasks": [
+          {
+            "id": "T01",
+            "state": "pending",
+            "ready": true
+          },
+          {
+            "id": "T02",
+            "state": "pending",
+            "ready": false
+          }
+        ],
+        "rollup": {
+          "tasks_total": 2,
+          "tasks_done": 0,
+          "tasks_blocked": 0,
+          "tasks_ready": 1,
+          "micro_total": 2,
+          "micro_done": 0,
+          "progress": 0.0,
+          "progress_pct": 0
+        }
+      }
+    },
+    {
+      "name": "A3_conjunction_wait",
+      "ops": [
+        {
+          "kind": "plan.open",
+          "title": "Dependency plan",
+          "template_id": "neutral",
+          "brief": {
+            "goal": "Verify dependencies"
+          },
+          "phase": "start"
+        },
+        {
+          "kind": "task.add",
+          "title": "Action",
+          "type": "action",
+          "phase": "start",
+          "accept": "Verified",
+          "deps": [],
+          "microtasks": [
+            {
+              "text": "Step",
+              "accept": "Verified"
+            }
+          ]
+        },
+        {
+          "kind": "task.add",
+          "title": "Action",
+          "type": "action",
+          "phase": "start",
+          "accept": "Verified",
+          "deps": [],
+          "microtasks": [
+            {
+              "text": "Step",
+              "accept": "Verified"
+            }
+          ]
+        },
+        {
+          "kind": "task.add",
+          "title": "Action",
+          "type": "action",
+          "phase": "start",
+          "accept": "Verified",
+          "deps": [
+            "T01",
+            "T02"
+          ],
+          "microtasks": [
+            {
+              "text": "Step",
+              "accept": "Verified"
+            }
+          ]
+        },
+        {
+          "kind": "task.set",
+          "task_id": "T01",
+          "base_rev": 2,
+          "state": "cancelled"
+        }
+      ],
+      "expected": {
+        "tasks": [
+          {
+            "id": "T01",
+            "state": "cancelled",
+            "ready": false
+          },
+          {
+            "id": "T02",
+            "state": "pending",
+            "ready": true
+          },
+          {
+            "id": "T03",
+            "state": "pending",
+            "ready": false
+          }
+        ],
+        "rollup": {
+          "tasks_total": 3,
+          "tasks_done": 0,
+          "tasks_blocked": 0,
+          "tasks_ready": 1,
+          "micro_total": 3,
+          "micro_done": 0,
+          "progress": 0.0,
+          "progress_pct": 0
+        }
+      }
+    },
+    {
+      "name": "A3_conjunction_done",
+      "ops": [
+        {
+          "kind": "plan.open",
+          "title": "Dependency plan",
+          "template_id": "neutral",
+          "brief": {
+            "goal": "Verify dependencies"
+          },
+          "phase": "start"
+        },
+        {
+          "kind": "task.add",
+          "title": "Action",
+          "type": "action",
+          "phase": "start",
+          "accept": "Verified",
+          "deps": [],
+          "microtasks": [
+            {
+              "text": "Step",
+              "accept": "Verified"
+            }
+          ]
+        },
+        {
+          "kind": "task.add",
+          "title": "Action",
+          "type": "action",
+          "phase": "start",
+          "accept": "Verified",
+          "deps": [],
+          "microtasks": [
+            {
+              "text": "Step",
+              "accept": "Verified"
+            }
+          ]
+        },
+        {
+          "kind": "task.add",
+          "title": "Action",
+          "type": "action",
+          "phase": "start",
+          "accept": "Verified",
+          "deps": [
+            "T01",
+            "T02"
+          ],
+          "microtasks": [
+            {
+              "text": "Step",
+              "accept": "Verified"
+            }
+          ]
+        },
+        {
+          "kind": "task.set",
+          "task_id": "T01",
+          "base_rev": 2,
+          "state": "cancelled"
+        },
+        {
+          "kind": "micro.set",
+          "micro_id": "T02.M01",
+          "state": "done"
+        }
+      ],
+      "expected": {
+        "tasks": [
+          {
+            "id": "T01",
+            "state": "cancelled",
+            "ready": false
+          },
+          {
+            "id": "T02",
+            "state": "done",
+            "ready": false
+          },
+          {
+            "id": "T03",
+            "state": "pending",
+            "ready": true
+          }
+        ],
+        "rollup": {
+          "tasks_total": 3,
+          "tasks_done": 1,
+          "tasks_blocked": 0,
+          "tasks_ready": 1,
+          "micro_total": 3,
+          "micro_done": 1,
+          "progress": 0.3333333333333333,
+          "progress_pct": 33
+        }
+      }
+    },
+    {
+      "name": "A3_conjunction_cancelled",
+      "ops": [
+        {
+          "kind": "plan.open",
+          "title": "Dependency plan",
+          "template_id": "neutral",
+          "brief": {
+            "goal": "Verify dependencies"
+          },
+          "phase": "start"
+        },
+        {
+          "kind": "task.add",
+          "title": "Action",
+          "type": "action",
+          "phase": "start",
+          "accept": "Verified",
+          "deps": [],
+          "microtasks": [
+            {
+              "text": "Step",
+              "accept": "Verified"
+            }
+          ]
+        },
+        {
+          "kind": "task.add",
+          "title": "Action",
+          "type": "action",
+          "phase": "start",
+          "accept": "Verified",
+          "deps": [],
+          "microtasks": [
+            {
+              "text": "Step",
+              "accept": "Verified"
+            }
+          ]
+        },
+        {
+          "kind": "task.add",
+          "title": "Action",
+          "type": "action",
+          "phase": "start",
+          "accept": "Verified",
+          "deps": [
+            "T01",
+            "T02"
+          ],
+          "microtasks": [
+            {
+              "text": "Step",
+              "accept": "Verified"
+            }
+          ]
+        },
+        {
+          "kind": "task.set",
+          "task_id": "T01",
+          "base_rev": 2,
+          "state": "cancelled"
+        },
+        {
+          "kind": "task.set",
+          "task_id": "T02",
+          "base_rev": 3,
+          "state": "cancelled"
+        }
+      ],
+      "expected": {
+        "tasks": [
+          {
+            "id": "T01",
+            "state": "cancelled",
+            "ready": false
+          },
+          {
+            "id": "T02",
+            "state": "cancelled",
+            "ready": false
+          },
+          {
+            "id": "T03",
+            "state": "pending",
+            "ready": true
+          }
+        ],
+        "rollup": {
+          "tasks_total": 3,
+          "tasks_done": 0,
+          "tasks_blocked": 0,
+          "tasks_ready": 1,
+          "micro_total": 3,
+          "micro_done": 0,
+          "progress": 0.0,
+          "progress_pct": 0
+        }
+      }
+    },
+    {
+      "name": "A3_chain",
+      "ops": [
+        {
+          "kind": "plan.open",
+          "title": "Dependency plan",
+          "template_id": "neutral",
+          "brief": {
+            "goal": "Verify dependencies"
+          },
+          "phase": "start"
+        },
+        {
+          "kind": "task.add",
+          "title": "Action",
+          "type": "action",
+          "phase": "start",
+          "accept": "Verified",
+          "deps": [],
+          "microtasks": [
+            {
+              "text": "Step",
+              "accept": "Verified"
+            }
+          ]
+        },
+        {
+          "kind": "task.add",
+          "title": "Action",
+          "type": "action",
+          "phase": "start",
+          "accept": "Verified",
+          "deps": [
+            "T01"
+          ],
+          "microtasks": [
+            {
+              "text": "Step",
+              "accept": "Verified"
+            }
+          ]
+        },
+        {
+          "kind": "task.add",
+          "title": "Action",
+          "type": "action",
+          "phase": "start",
+          "accept": "Verified",
+          "deps": [
+            "T02"
+          ],
+          "microtasks": [
+            {
+              "text": "Step",
+              "accept": "Verified"
+            }
+          ]
+        },
+        {
+          "kind": "task.set",
+          "task_id": "T01",
+          "base_rev": 2,
+          "state": "cancelled"
+        }
+      ],
+      "expected": {
+        "tasks": [
+          {
+            "id": "T01",
+            "state": "cancelled",
+            "ready": false
+          },
+          {
+            "id": "T02",
+            "state": "pending",
+            "ready": true
+          },
+          {
+            "id": "T03",
+            "state": "pending",
+            "ready": false
+          }
+        ],
+        "rollup": {
+          "tasks_total": 3,
+          "tasks_done": 0,
+          "tasks_blocked": 0,
+          "tasks_ready": 1,
+          "micro_total": 3,
+          "micro_done": 0,
+          "progress": 0.0,
+          "progress_pct": 0
+        }
+      }
+    },
+    {
+      "name": "A4_terminal_done",
+      "ops": [
+        {
+          "kind": "plan.open",
+          "title": "Dependency plan",
+          "template_id": "neutral",
+          "brief": {
+            "goal": "Verify dependencies"
+          },
+          "phase": "start"
+        },
+        {
+          "kind": "task.add",
+          "title": "Action",
+          "type": "action",
+          "phase": "start",
+          "accept": "Verified",
+          "deps": [],
+          "microtasks": [
+            {
+              "text": "Step",
+              "accept": "Verified"
+            }
+          ]
+        },
+        {
+          "kind": "task.add",
+          "title": "Action",
+          "type": "action",
+          "phase": "start",
+          "accept": "Verified",
+          "deps": [
+            "T01"
+          ],
+          "microtasks": [
+            {
+              "text": "Step",
+              "accept": "Verified"
+            }
+          ]
+        },
+        {
+          "kind": "task.set",
+          "task_id": "T01",
+          "base_rev": 2,
+          "state": "cancelled"
+        },
+        {
+          "kind": "micro.set",
+          "micro_id": "T02.M01",
+          "state": "done"
+        }
+      ],
+      "expected": {
+        "tasks": [
+          {
+            "id": "T01",
+            "state": "cancelled",
+            "ready": false
+          },
+          {
+            "id": "T02",
+            "state": "done",
+            "ready": false
+          }
+        ],
+        "rollup": {
+          "tasks_total": 2,
+          "tasks_done": 1,
+          "tasks_blocked": 0,
+          "tasks_ready": 0,
+          "micro_total": 2,
+          "micro_done": 1,
+          "progress": 0.5,
+          "progress_pct": 50
+        }
+      }
+    },
+    {
+      "name": "A4_terminal_cancelled",
+      "ops": [
+        {
+          "kind": "plan.open",
+          "title": "Dependency plan",
+          "template_id": "neutral",
+          "brief": {
+            "goal": "Verify dependencies"
+          },
+          "phase": "start"
+        },
+        {
+          "kind": "task.add",
+          "title": "Action",
+          "type": "action",
+          "phase": "start",
+          "accept": "Verified",
+          "deps": [],
+          "microtasks": [
+            {
+              "text": "Step",
+              "accept": "Verified"
+            }
+          ]
+        },
+        {
+          "kind": "task.add",
+          "title": "Action",
+          "type": "action",
+          "phase": "start",
+          "accept": "Verified",
+          "deps": [
+            "T01"
+          ],
+          "microtasks": [
+            {
+              "text": "Step",
+              "accept": "Verified"
+            }
+          ]
+        },
+        {
+          "kind": "task.set",
+          "task_id": "T01",
+          "base_rev": 2,
+          "state": "cancelled"
+        },
+        {
+          "kind": "task.set",
+          "task_id": "T02",
+          "base_rev": 3,
+          "state": "cancelled"
+        }
+      ],
+      "expected": {
+        "tasks": [
+          {
+            "id": "T01",
+            "state": "cancelled",
+            "ready": false
+          },
+          {
+            "id": "T02",
+            "state": "cancelled",
+            "ready": false
+          }
+        ],
+        "rollup": {
+          "tasks_total": 2,
+          "tasks_done": 0,
+          "tasks_blocked": 0,
+          "tasks_ready": 0,
+          "micro_total": 2,
+          "micro_done": 0,
+          "progress": 0.0,
+          "progress_pct": 0
+        }
+      }
+    }
+  ]
+}

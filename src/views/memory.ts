@@ -68,10 +68,11 @@ export function renderMemoryView(
         panel.appendChild(el(doc, "p", "memory-flag", "Required — empty"));
       }
       const metaParts: string[] = [];
-      if (rev.length > 0) metaParts.push(`rev ${rev}`);
+      if (rev.length > 0) metaParts.push(`Revision ${rev}`);
       if (by.length > 0) metaParts.push(`by ${by}`);
       if (changedAt.length > 0) metaParts.push(changedAt);
       if (metaParts.length > 0) panel.appendChild(el(doc, "p", "memory-meta", metaParts.join(", ")));
+      if (rev.length > 0) panel.appendChild(el(doc, "p", "memory-note", "Room log position of this section's last accepted update"));
       panel.appendChild(el(doc, "p", "memory-text", text));
       list.appendChild(panel);
     }

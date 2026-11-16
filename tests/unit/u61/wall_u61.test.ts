@@ -37,7 +37,9 @@ describe("O11 wall integration with fake renderer and clock ports", () => {
     const h = setup(); legacyEvents().forEach(e => h.store.ingest(e));
     wall = startAgentWall(h.deps); await settle();
     expect(h.getPlans).toHaveBeenCalled(); expect(latest().plan?.title).toBe("Plan");
-    expect(latest().tasks.map(t => t.title)).toEqual(expect.arrayContaining(["Action", "Legacy twelve"]));
+    // A-U91c: U91 M7 workspace isolation — the wall shows the displayed workspace ("oracle"); the "legacy" room's tasks stay in their own workspace.
+    expect(latest().tasks.map(t => t.title)).toEqual(expect.arrayContaining(["Action"]));
+    expect(latest().tasks.map(t => t.title)).not.toContain("Legacy twelve");
     expect(h.post).not.toHaveBeenCalled();
   });
   it("O11 refresh projects newly ingested op room state", async () => {

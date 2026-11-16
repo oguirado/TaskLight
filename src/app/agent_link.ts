@@ -7,6 +7,11 @@ export interface RoomEventFrame { t: "room_event"; v: 1; room: string; floor: "O
 export interface RoomHelloFrame { t: "room_hello"; v: 1; rooms: Array<{ room: string; floor: "ONLY_ON_DEVICE" | "PREFER_ON_DEVICE" }>; agent: string; orchestrator?: string }
 export interface PostRequest { room: string; text: string; to?: string; re?: string }
 export type PostResult = { ok: true; id: string; lamport: number } | { ok: false; code: string };
+export interface RoomGapFrame {
+  t: "room_gap"; v: 1; room: string; from_lamport: number; to_lamport: number;
+  reason: "sanitize_failed" | "oversize"; rid?: string;
+}
+export interface RoomSyncedFrame { t: "room_synced"; v: 1; rid: string; room: string; upto: number; more: boolean }
 export interface AgentLinkDeps {
   extId: string;
   connect: (id: string) => RuntimePort;
@@ -15,6 +20,8 @@ export interface AgentLinkDeps {
   since: () => Record<string, number>;
   onRoomEvent: (frame: RoomEventFrame) => void;
   onRoomHello: (frame: RoomHelloFrame) => void;
+  onRoomGap?: (frame: RoomGapFrame) => void;
+  onRoomSynced?: (frame: RoomSyncedFrame) => void;
   onWallEvent?: (raw: string) => void;
 }
 export interface AgentLink {
@@ -34,6 +41,9 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
 
 export function createAgentLink(deps: AgentLinkDeps): AgentLink {
   const { clock, since, onRoomEvent, onRoomHello, onWallEvent } = deps;
+  const onRoomGap = deps.onRoomGap;
+  const onRoomSynced = deps.onRoomSynced;
+  let helloRooms: Set<string> | null = null;
   let latestPort: RuntimePort | null = null;
   let started = false;
   let stopped = false;
@@ -96,6 +106,7 @@ export function createAgentLink(deps: AgentLinkDeps): AgentLink {
         if (!isRecord(entry)) continue;
         const room = entry["room"];
         if (typeof room !== "string" || !ROOM_RE.test(room)) continue;
+        if (typeof entry["floor"] !== "string" || !FLOORS.has(entry["floor"])) continue; // O-U85b: same rule as membership
         out[room] = cur[room] ?? 0;
       }
     }
@@ -125,6 +136,17 @@ export function createAgentLink(deps: AgentLinkDeps): AgentLink {
       return;
     }
     if (t === "room_hello") {
+      const roomsRaw = msg["rooms"];
+      if (msg["v"] !== 1 || !Array.isArray(roomsRaw) || typeof msg["agent"] !== "string") return;
+      // O-U85b: malformed entries are skipped (U38 G1); only valid room+floor entries become members.
+      const validEntry = (entry: unknown): entry is Record<string, unknown> => isRecord(entry)
+        && typeof entry["room"] === "string" && ROOM_RE.test(entry["room"])
+        && typeof entry["floor"] === "string" && FLOORS.has(entry["floor"]);
+      const members = new Set<string>();
+      for (const entry of roomsRaw) {
+        if (validEntry(entry)) members.add(entry["room"] as string);
+      }
+      helloRooms = members;
       outstanding.clear();
       pendingSyncs.clear();
       continuations.clear();
@@ -143,25 +165,61 @@ export function createAgentLink(deps: AgentLinkDeps): AgentLink {
       const more = msg["more"];
       if (msg["v"] !== 1 || typeof rid !== "string"
         || typeof room !== "string" || !ROOM_RE.test(room)
-        || typeof upto !== "number" || !Number.isInteger(upto) || upto < 0
+        || typeof upto !== "number" || !Number.isSafeInteger(upto) || upto < 0
         || typeof more !== "boolean") {
         return;
       }
-      if (outstanding.get(room) !== rid) return;
-      outstanding.delete(room);
-      if (!more) {
-        if (pendingSyncs.delete(room)) {
-          sendSync(port, { [room]: since()[room] ?? 0 });
+      if (helloRooms === null || !helloRooms.has(room as string)) return;
+      if (outstanding.get(room as string) !== rid) return;
+      outstanding.delete(room as string);
+      const deliver = (): void => {
+        try {
+          onRoomSynced?.(msg as unknown as RoomSyncedFrame);
+        } catch {
+          /* callback errors must not break the link */
         }
+      };
+      if (!more) {
+        if (pendingSyncs.delete(room as string)) {
+          sendSync(port, { [room as string]: since()[room as string] ?? 0 });
+        }
+        deliver();
         return;
       }
-      const used = continuations.get(room) ?? 0;
+      const used = continuations.get(room as string) ?? 0;
       if (used >= LINK_LIMITS.SYNC_CONTINUATIONS_MAX) {
-        pendingSyncs.delete(room);
+        pendingSyncs.delete(room as string);
+        deliver();
         return;
       }
-      continuations.set(room, used + 1);
-      sendSync(port, { [room]: upto });
+      continuations.set(room as string, used + 1);
+      sendSync(port, { [room as string]: upto as number });
+      deliver();
+      return;
+    }
+    if (t === "room_gap") {
+      const room = msg["room"];
+      const from = msg["from_lamport"];
+      const to = msg["to_lamport"];
+      const reason = msg["reason"];
+      if (msg["v"] !== 1
+        || typeof room !== "string" || !ROOM_RE.test(room)
+        || typeof from !== "number" || !Number.isSafeInteger(from) || from < 1
+        || typeof to !== "number" || !Number.isSafeInteger(to) || to < 1
+        || from > to
+        || (reason !== "sanitize_failed" && reason !== "oversize")) {
+        return;
+      }
+      if (helloRooms === null || !helloRooms.has(room as string)) return;
+      if ("rid" in msg) {
+        const rid = msg["rid"];
+        if (typeof rid !== "string" || outstanding.get(room as string) !== rid) return;
+      }
+      try {
+        onRoomGap?.(msg as unknown as RoomGapFrame);
+      } catch {
+        /* callback errors must not break the link */
+      }
       return;
     }
     if (t === "room_event") {
@@ -171,6 +229,13 @@ export function createAgentLink(deps: AgentLinkDeps): AgentLink {
         || typeof floor !== "string" || !FLOORS.has(floor) || !isRecord(msg["event"])) {
         return;
       }
+      if (helloRooms === null || !helloRooms.has(room as string)) return;
+      if ("rid" in msg) {
+        const rid = msg["rid"];
+        if (typeof rid !== "string" || outstanding.get(room as string) !== rid) return;
+      }
+      const innerRoom = (msg["event"] as Record<string, unknown>)["room"];
+      if (innerRoom !== room) return;
       try {
         onRoomEvent(msg as unknown as RoomEventFrame);
       } catch {
@@ -196,6 +261,7 @@ export function createAgentLink(deps: AgentLinkDeps): AgentLink {
   };
 
   const connectWrapped = (id: string): RuntimePort => {
+    helloRooms = null;
     const port = deps.connect(id);
     latestPort = port;
     port.onMessage.addListener((msg: unknown) => {
@@ -204,6 +270,7 @@ export function createAgentLink(deps: AgentLinkDeps): AgentLink {
     });
     port.onDisconnect.addListener(() => {
       if (latestPort === port) {
+        helloRooms = null;
         latestPort = null;
         outstanding.clear();
         pendingSyncs.clear();

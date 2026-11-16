@@ -107,15 +107,16 @@ describe("U35 C3 send enablement", () => {
 });
 
 describe("U35 C3 submit", () => {
-  it("button click calls onSend once with the trimmed text, then clears the textarea", () => {
+  it("button click calls onSend once with the trimmed text and retains the raw draft", () => {
     const { host, spies } = mountSpied();
     type(host, "  hello world \n");
     click(sendBtn(host));
     expect(spies.onSend).toHaveBeenCalledTimes(1);
     expect(spies.onSend).toHaveBeenCalledWith("hello world");
-    expect(input(host).value).toBe("");
+    // A-U92b: retain the raw draft and byte count until acknowledgement, U92 M5.
+    expect(input(host).value).toBe("  hello world \n");
     expect(sendBtn(host).disabled).toBe(true);
-    expect(txt(counter(host))).toBe("0 / 4096");
+    expect(txt(counter(host))).toBe("11 / 4096");
   });
 
   it("inner newlines and multi-byte text are preserved verbatim", () => {
@@ -140,7 +141,8 @@ describe("U35 C3 submit", () => {
     expect(spies.onSend).toHaveBeenCalledTimes(1);
     expect(spies.onSend).toHaveBeenCalledWith("via submit");
     expect(ev.defaultPrevented).toBe(true);
-    expect(input(host).value).toBe("");
+    // A-U92b: form submission retains the draft until acknowledgement, U92 M5.
+    expect(input(host).value).toBe("via submit");
   });
 
   it("submit with empty/whitespace text never calls onSend (and is default-prevented)", () => {
@@ -169,11 +171,12 @@ describe("U35 C3 submit", () => {
     expect(input(host).value).toBe("wait");
   });
 
-  it("send without handlers does not throw and still clears the textarea", () => {
+  it("send without handlers does not throw and retains the textarea", () => {
     const { host } = mount();
     type(host, "no handlers");
     expect(() => click(sendBtn(host))).not.toThrow();
-    expect(input(host).value).toBe("");
+    // A-U92b: no acknowledgement exists to clear this draft, U92 M5.
+    expect(input(host).value).toBe("no handlers");
   });
 
   it("onSend that throws does not leave the component broken for the next send", () => {
@@ -188,13 +191,14 @@ describe("U35 C3 submit", () => {
 });
 
 describe("U35 C3 keyboard submit", () => {
-  it.each([["ctrlKey"], ["metaKey"]] as const)("%s+Enter submits exactly once with trimmed text and clears", (mod) => {
+  it.each([["ctrlKey"], ["metaKey"]] as const)("%s+Enter submits exactly once with trimmed text and retains the draft", (mod) => {
     const { host, spies } = mountSpied();
     type(host, "  keyboard send ");
     key(input(host), "Enter", { [mod]: true });
     expect(spies.onSend).toHaveBeenCalledTimes(1);
     expect(spies.onSend).toHaveBeenCalledWith("keyboard send");
-    expect(input(host).value).toBe("");
+    // A-U92b: keyboard submission retains the raw draft until acknowledgement, U92 M5.
+    expect(input(host).value).toBe("  keyboard send ");
   });
 
   it("Ctrl+Enter is default-prevented (no stray newline is inserted)", () => {

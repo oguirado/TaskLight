@@ -2,6 +2,8 @@
 
 This guide covers running the TaskLight wall and MCP planning server on your own desktop before or without a Firebase project.
 
+For browser-free plans and memory, use [HEADLESS.md](HEADLESS.md).
+
 ## 1. Requirements
 
 - `git`
@@ -40,7 +42,9 @@ Run a dry run first (the default, writes nothing) to inspect the target paths an
 python3 bridge/install.py --browser chrome --extension-id <extension-id> --room demo:private
 ```
 
-Supported `--browser` values are `chrome` (default), `chromium`, `edge`, and `brave`. You can pass `--key-file <der-spki-base64>` instead of `--extension-id`, add `--config <path>` (default `<cw-home>/wall.config.json`), and repeat `--room NAME[:tier]` (tier defaults to `private`). `<cw-home>` is `$CW_HOME` when set, otherwise `~/.context-wall`; the native host, the MCP server and the wall must all use the same one. Apply the installation:
+Supported `--browser` values are `chrome` (default), `chromium`, `edge`, and `brave`. You can pass `--key-file <der-spki-base64>` instead of `--extension-id`, add `--config <path>` (default `<cw-home>/wall.config.json`), and repeat `--room NAME[:tier]` (tier defaults to `private`). `<cw-home>` is `$CW_HOME` when set, otherwise `~/.context-wall`; the native host, the MCP server and the wall must all use the same one. The config path is `$CW_HOME/wall.config.json` when `CW_HOME` is set,
+otherwise `~/.context-wall/wall.config.json`; the historical
+`.contextwall/wall.config.json` path is not a supported default. Apply the installation:
 
 ```sh
 python3 bridge/install.py --browser chrome --extension-id <extension-id> --room demo:private --apply
@@ -161,6 +165,16 @@ VITE_EXTENSION_ORIGINS=chrome-extension://<extension-id> npx vite --config tools
 ```
 
 Then browse `http://localhost:5173/` (use `localhost`, not `127.0.0.1`: the development manifest only allows `http://localhost/*`). The page connects to the extension, the extension starts the native host, and the rooms in your `wall.config.json` appear as workspaces.
+
+### Model routing and liaison
+
+`firebase-hybrid` remains the factory default for every task group,
+including `liaison`. App Check remains mandatory for Firebase. Local and
+network model servers are optional user-configured endpoints managed
+through the native host; no network endpoint or credential ships with
+TaskLight. See [MODELS.md](MODELS.md) for configuration and privacy rules.
+The liaison drafts messages and summaries; only a human sends them to
+executors. An unavailable liaison leaves direct messaging and planning usable.
 
 ## 6. Try it without installing anything
 

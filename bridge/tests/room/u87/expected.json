@@ -1,0 +1,1287 @@
+{
+  "_tools": [
+    {
+      "description": "Post a status event to a room.",
+      "inputSchema": {
+        "properties": {
+          "agent": {
+            "type": "string"
+          },
+          "re": {
+            "type": "string"
+          },
+          "room": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "room",
+          "agent",
+          "text"
+        ],
+        "type": "object"
+      },
+      "name": "post_status"
+    },
+    {
+      "description": "Post a plan with steps to a room.",
+      "inputSchema": {
+        "properties": {
+          "agent": {
+            "type": "string"
+          },
+          "room": {
+            "type": "string"
+          },
+          "steps": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "room",
+          "agent",
+          "title",
+          "steps"
+        ],
+        "type": "object"
+      },
+      "name": "post_plan"
+    },
+    {
+      "description": "Post a step update to a room.",
+      "inputSchema": {
+        "properties": {
+          "agent": {
+            "type": "string"
+          },
+          "index": {
+            "type": "integer"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "room": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "took": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "room",
+          "agent",
+          "index",
+          "state"
+        ],
+        "type": "object"
+      },
+      "name": "post_step"
+    },
+    {
+      "description": "Close your task in a room with a one-line outcome (at most 240 characters).",
+      "inputSchema": {
+        "properties": {
+          "agent": {
+            "type": "string"
+          },
+          "outcome": {
+            "maxLength": 240,
+            "type": "string"
+          },
+          "room": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "room",
+          "agent",
+          "outcome"
+        ],
+        "type": "object"
+      },
+      "name": "close_task"
+    },
+    {
+      "description": "Read inbox events for an agent.",
+      "inputSchema": {
+        "properties": {
+          "agent": {
+            "type": "string"
+          },
+          "room": {
+            "type": "string"
+          },
+          "since": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "room",
+          "agent"
+        ],
+        "type": "object"
+      },
+      "name": "read_inbox"
+    },
+    {
+      "description": "Wait for an inbox event for an agent.",
+      "inputSchema": {
+        "properties": {
+          "agent": {
+            "type": "string"
+          },
+          "room": {
+            "type": "string"
+          },
+          "since": {
+            "type": "integer"
+          },
+          "timeout_s": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "room",
+          "agent"
+        ],
+        "type": "object"
+      },
+      "name": "wait_inbox"
+    },
+    {
+      "description": "List planning templates.",
+      "inputSchema": {
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "name": "list_templates"
+    },
+    {
+      "description": "Fetch one planning template.",
+      "inputSchema": {
+        "properties": {
+          "template_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "template_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_template"
+    },
+    {
+      "description": "Create a plan from a template.",
+      "inputSchema": {
+        "properties": {
+          "agent": {
+            "type": "string"
+          },
+          "brief": {
+            "type": "object"
+          },
+          "op_id": {
+            "type": "string"
+          },
+          "room": {
+            "type": "string"
+          },
+          "strict": {
+            "type": "boolean"
+          },
+          "tasks": {
+            "type": "array"
+          },
+          "template_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "room",
+          "agent",
+          "template_id",
+          "title",
+          "brief",
+          "tasks"
+        ],
+        "type": "object"
+      },
+      "name": "plan_create"
+    },
+    {
+      "description": "Read the active plan projection.",
+      "inputSchema": {
+        "properties": {
+          "agent": {
+            "type": "string"
+          },
+          "room": {
+            "type": "string"
+          },
+          "since_rev": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "room"
+        ],
+        "type": "object"
+      },
+      "name": "plan_get"
+    },
+    {
+      "description": "Check plan conformance.",
+      "inputSchema": {
+        "properties": {
+          "agent": {
+            "type": "string"
+          },
+          "room": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "room"
+        ],
+        "type": "object"
+      },
+      "name": "plan_check"
+    },
+    {
+      "description": "Add a task to the active plan.",
+      "inputSchema": {
+        "properties": {
+          "accept": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "assignee": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "base_rev": {
+            "type": "integer"
+          },
+          "deps": {
+            "type": "array"
+          },
+          "estimate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "microtasks": {
+            "type": "array"
+          },
+          "op_id": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "room": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "room",
+          "agent",
+          "title",
+          "type",
+          "phase",
+          "accept"
+        ],
+        "type": "object"
+      },
+      "name": "task_add"
+    },
+    {
+      "description": "Update a task.",
+      "inputSchema": {
+        "properties": {
+          "accept": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "base_rev": {
+            "type": "integer"
+          },
+          "deps": {
+            "type": "array"
+          },
+          "estimate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "op_id": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "room": {
+            "type": "string"
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "room",
+          "agent",
+          "task_id",
+          "base_rev"
+        ],
+        "type": "object"
+      },
+      "name": "task_update"
+    },
+    {
+      "description": "Claim a task.",
+      "inputSchema": {
+        "properties": {
+          "agent": {
+            "type": "string"
+          },
+          "base_rev": {
+            "type": "integer"
+          },
+          "op_id": {
+            "type": "string"
+          },
+          "room": {
+            "type": "string"
+          },
+          "takeover": {
+            "type": "boolean"
+          },
+          "task_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "room",
+          "agent",
+          "task_id"
+        ],
+        "type": "object"
+      },
+      "name": "task_claim"
+    },
+    {
+      "description": "Release a claimed task.",
+      "inputSchema": {
+        "properties": {
+          "agent": {
+            "type": "string"
+          },
+          "base_rev": {
+            "type": "integer"
+          },
+          "op_id": {
+            "type": "string"
+          },
+          "room": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "room",
+          "agent",
+          "task_id"
+        ],
+        "type": "object"
+      },
+      "name": "task_release"
+    },
+    {
+      "description": "Add a microtask to a task.",
+      "inputSchema": {
+        "properties": {
+          "accept": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "base_rev": {
+            "type": "integer"
+          },
+          "op_id": {
+            "type": "string"
+          },
+          "room": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "room",
+          "agent",
+          "task_id",
+          "text",
+          "base_rev"
+        ],
+        "type": "object"
+      },
+      "name": "microtask_add"
+    },
+    {
+      "description": "Set microtask state.",
+      "inputSchema": {
+        "properties": {
+          "agent": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "array"
+          },
+          "id": {
+            "type": "string"
+          },
+          "op_id": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "room": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "took": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "room",
+          "agent",
+          "id",
+          "state"
+        ],
+        "type": "object"
+      },
+      "name": "microtask_set"
+    },
+    {
+      "description": "List ready microtasks.",
+      "inputSchema": {
+        "properties": {
+          "agent": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "room": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "room",
+          "agent"
+        ],
+        "type": "object"
+      },
+      "name": "next_work"
+    },
+    {
+      "description": "Write a memory section.",
+      "inputSchema": {
+        "properties": {
+          "agent": {
+            "type": "string"
+          },
+          "base_rev": {
+            "type": "integer"
+          },
+          "op_id": {
+            "type": "string"
+          },
+          "room": {
+            "type": "string"
+          },
+          "section": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "room",
+          "agent",
+          "section",
+          "text",
+          "base_rev"
+        ],
+        "type": "object"
+      },
+      "name": "memory_set"
+    },
+    {
+      "description": "Read memory sections.",
+      "inputSchema": {
+        "properties": {
+          "agent": {
+            "type": "string"
+          },
+          "room": {
+            "type": "string"
+          },
+          "section": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "room"
+        ],
+        "type": "object"
+      },
+      "name": "memory_get"
+    },
+    {
+      "description": "Advance the active plan phase.",
+      "inputSchema": {
+        "properties": {
+          "agent": {
+            "type": "string"
+          },
+          "base_rev": {
+            "type": "integer"
+          },
+          "op_id": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "room": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "room",
+          "agent",
+          "phase",
+          "base_rev"
+        ],
+        "type": "object"
+      },
+      "name": "plan_phase"
+    },
+    {
+      "description": "Close the active plan.",
+      "inputSchema": {
+        "properties": {
+          "agent": {
+            "type": "string"
+          },
+          "base_rev": {
+            "type": "integer"
+          },
+          "op_id": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "room": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "room",
+          "agent",
+          "base_rev"
+        ],
+        "type": "object"
+      },
+      "name": "plan_close"
+    }
+  ],
+  "close_task": {
+    "journals": {
+      "rooms/demo/events.jsonl": "{\"act\":\"plan\",\"agent\":\"worker\",\"id\":\"e-0000000000000001\",\"lamport\":1,\"plan\":{\"steps\":[{\"text\":\"Step\"}],\"title\":\"Legacy\"},\"room\":\"demo\",\"text\":\"Legacy\",\"ts\":1700000000000}\n{\"act\":\"heartbeat\",\"agent\":\"peer\",\"id\":\"e-0000000000000002\",\"lamport\":2,\"room\":\"demo\",\"text\":\"Inbox\",\"to\":\"worker\",\"ts\":1700000000000}\n{\"act\":\"close\",\"agent\":\"worker\",\"id\":\"e-0000000000000003\",\"lamport\":3,\"room\":\"demo\",\"text\":\"Verified\",\"ts\":1700000000000}\n"
+    },
+    "payload": {
+      "event": {
+        "act": "close",
+        "agent": "worker",
+        "id": "e-0000000000000003",
+        "lamport": 3,
+        "room": "demo",
+        "ts": 1700000000000,
+        "untrusted_text": "Verified"
+      }
+    }
+  },
+  "get_template": {
+    "journals": {},
+    "payload": {
+      "untrusted": {
+        "template": {
+          "brief_fields": [
+            {
+              "id": "goal",
+              "label": "Goal",
+              "required": true
+            }
+          ],
+          "granularity": {
+            "micro_max": 12,
+            "micro_min": 1,
+            "rule": "Small steps",
+            "tasks_max": 40
+          },
+          "hash": "bc21815d772de0d05df4b2e78c58438de8ede7f321daa5ecf8424d1e92f0a945",
+          "id": "neutral",
+          "lens_id": "neutral",
+          "memory_sections": [
+            {
+              "hint": "Keep decisions",
+              "id": "notes",
+              "label": "Notes",
+              "max_chars": 100,
+              "required": true
+            }
+          ],
+          "name": "Neutral",
+          "phases": [
+            {
+              "exit": "Ready",
+              "id": "start",
+              "label": "Start"
+            },
+            {
+              "exit": "Complete",
+              "id": "finish",
+              "label": "Finish"
+            }
+          ],
+          "summary": "A neutral workflow",
+          "task_types": [
+            {
+              "accept_required": true,
+              "evidence_required": true,
+              "id": "action",
+              "label": "Action",
+              "micro_hints": [
+                "Take a step"
+              ]
+            }
+          ],
+          "v": 1
+        }
+      }
+    }
+  },
+  "list_templates": {
+    "journals": {},
+    "payload": {
+      "untrusted": {
+        "templates": [
+          {
+            "hash": "650c2f67eca2779aab71c17ea26b171e09de94234a04654d52b6277b78ba7e90",
+            "id": "autonomous-software",
+            "name": "Autonomous Software",
+            "v": 1
+          },
+          {
+            "hash": "71ed1d88afdb9c4f86dd25ecf536ed32d45600e1e23df1fef9aa02ccecfd01ba",
+            "id": "blank",
+            "name": "Blank Project",
+            "v": 1
+          },
+          {
+            "hash": "12dbdd9b1028f72049d506391fc041a1205e6712db7aa2c4efed2acd88ea0830",
+            "id": "cli-library",
+            "name": "CLI Tool or Library",
+            "v": 1
+          },
+          {
+            "hash": "8506b1fc47b0733f1a4c6a5b8719d9073654e9730c3eeae370d23c8734d3f5e7",
+            "id": "data-ml",
+            "name": "Data and ML",
+            "v": 1
+          },
+          {
+            "hash": "a0e9f67d09b28484ada65166bb4d739329b49174b5c43acb70b59911a3e6c21b",
+            "id": "mobile-app",
+            "name": "Mobile App",
+            "v": 1
+          },
+          {
+            "hash": "bc21815d772de0d05df4b2e78c58438de8ede7f321daa5ecf8424d1e92f0a945",
+            "id": "neutral",
+            "name": "Neutral",
+            "v": 1
+          },
+          {
+            "hash": "c8e82748fa55ad692c7e6a3471eaaeca2426d4dc469275c2466f3f743e0bbec5",
+            "id": "web-app",
+            "name": "Web Application",
+            "v": 1
+          }
+        ]
+      }
+    }
+  },
+  "memory_get": {
+    "journals": {
+      "rooms/demo/events.jsonl": "{\"act\":\"op\",\"agent\":\"worker\",\"batch\":{\"conformance\":{\"findings\":[{\"code\":\"missing_memory\",\"message\":\"Missing required memory section notes\",\"path\":\"memory.notes\",\"severity\":\"error\"}],\"ok\":false},\"count\":2,\"key_map\":{},\"member_ids\":[\"e-0000000000000001\",\"e-0000000000000002\"],\"op_id\":null,\"rev\":1,\"seq\":0},\"id\":\"e-0000000000000001\",\"lamport\":1,\"op\":{\"brief\":{\"goal\":\"Deliver\"},\"kind\":\"plan.open\",\"phase\":\"start\",\"template_hash\":\"bc21815d772de0d05df4b2e78c58438de8ede7f321daa5ecf8424d1e92f0a945\",\"template_id\":\"neutral\",\"title\":\"Plan\"},\"room\":\"demo\",\"text\":\"\",\"ts\":1700000000000}\n{\"act\":\"op\",\"agent\":\"worker\",\"batch\":{\"conformance\":{\"findings\":[{\"code\":\"missing_memory\",\"message\":\"Missing required memory section notes\",\"path\":\"memory.notes\",\"severity\":\"error\"}],\"ok\":false},\"count\":2,\"key_map\":{},\"member_ids\":[\"e-0000000000000001\",\"e-0000000000000002\"],\"op_id\":null,\"rev\":1,\"seq\":1},\"id\":\"e-0000000000000002\",\"lamport\":2,\"op\":{\"accept\":\"Pass\",\"assignee\":\"worker\",\"kind\":\"task.add\",\"microtasks\":[{\"accept\":\"Pass\",\"text\":\"Check\"}],\"phase\":\"start\",\"title\":\"Action\",\"type\":\"action\"},\"room\":\"demo\",\"text\":\"\",\"ts\":1700000000000}\n"
+    },
+    "payload": {
+      "untrusted": {
+        "sections": {}
+      }
+    }
+  },
+  "memory_set": {
+    "journals": {
+      "rooms/demo/events.jsonl": "{\"act\":\"op\",\"agent\":\"worker\",\"batch\":{\"conformance\":{\"findings\":[{\"code\":\"missing_memory\",\"message\":\"Missing required memory section notes\",\"path\":\"memory.notes\",\"severity\":\"error\"}],\"ok\":false},\"count\":2,\"key_map\":{},\"member_ids\":[\"e-0000000000000001\",\"e-0000000000000002\"],\"op_id\":null,\"rev\":1,\"seq\":0},\"id\":\"e-0000000000000001\",\"lamport\":1,\"op\":{\"brief\":{\"goal\":\"Deliver\"},\"kind\":\"plan.open\",\"phase\":\"start\",\"template_hash\":\"bc21815d772de0d05df4b2e78c58438de8ede7f321daa5ecf8424d1e92f0a945\",\"template_id\":\"neutral\",\"title\":\"Plan\"},\"room\":\"demo\",\"text\":\"\",\"ts\":1700000000000}\n{\"act\":\"op\",\"agent\":\"worker\",\"batch\":{\"conformance\":{\"findings\":[{\"code\":\"missing_memory\",\"message\":\"Missing required memory section notes\",\"path\":\"memory.notes\",\"severity\":\"error\"}],\"ok\":false},\"count\":2,\"key_map\":{},\"member_ids\":[\"e-0000000000000001\",\"e-0000000000000002\"],\"op_id\":null,\"rev\":1,\"seq\":1},\"id\":\"e-0000000000000002\",\"lamport\":2,\"op\":{\"accept\":\"Pass\",\"assignee\":\"worker\",\"kind\":\"task.add\",\"microtasks\":[{\"accept\":\"Pass\",\"text\":\"Check\"}],\"phase\":\"start\",\"title\":\"Action\",\"type\":\"action\"},\"room\":\"demo\",\"text\":\"\",\"ts\":1700000000000}\n{\"act\":\"op\",\"agent\":\"worker\",\"id\":\"e-0000000000000003\",\"lamport\":3,\"op\":{\"base_rev\":0,\"kind\":\"memory.set\",\"section\":\"notes\",\"text\":\"Decision\"},\"room\":\"demo\",\"text\":\"\",\"ts\":1700000000000}\n"
+    },
+    "payload": {
+      "untrusted": {
+        "rev": 3,
+        "section": "notes"
+      }
+    }
+  },
+  "microtask_add": {
+    "journals": {
+      "rooms/demo/events.jsonl": "{\"act\":\"op\",\"agent\":\"worker\",\"batch\":{\"conformance\":{\"findings\":[{\"code\":\"missing_memory\",\"message\":\"Missing required memory section notes\",\"path\":\"memory.notes\",\"severity\":\"error\"}],\"ok\":false},\"count\":2,\"key_map\":{},\"member_ids\":[\"e-0000000000000001\",\"e-0000000000000002\"],\"op_id\":null,\"rev\":1,\"seq\":0},\"id\":\"e-0000000000000001\",\"lamport\":1,\"op\":{\"brief\":{\"goal\":\"Deliver\"},\"kind\":\"plan.open\",\"phase\":\"start\",\"template_hash\":\"bc21815d772de0d05df4b2e78c58438de8ede7f321daa5ecf8424d1e92f0a945\",\"template_id\":\"neutral\",\"title\":\"Plan\"},\"room\":\"demo\",\"text\":\"\",\"ts\":1700000000000}\n{\"act\":\"op\",\"agent\":\"worker\",\"batch\":{\"conformance\":{\"findings\":[{\"code\":\"missing_memory\",\"message\":\"Missing required memory section notes\",\"path\":\"memory.notes\",\"severity\":\"error\"}],\"ok\":false},\"count\":2,\"key_map\":{},\"member_ids\":[\"e-0000000000000001\",\"e-0000000000000002\"],\"op_id\":null,\"rev\":1,\"seq\":1},\"id\":\"e-0000000000000002\",\"lamport\":2,\"op\":{\"accept\":\"Pass\",\"assignee\":\"worker\",\"kind\":\"task.add\",\"microtasks\":[{\"accept\":\"Pass\",\"text\":\"Check\"}],\"phase\":\"start\",\"title\":\"Action\",\"type\":\"action\"},\"room\":\"demo\",\"text\":\"\",\"ts\":1700000000000}\n{\"act\":\"op\",\"agent\":\"worker\",\"id\":\"e-0000000000000003\",\"lamport\":3,\"op\":{\"accept\":\"Pass\",\"base_rev\":2,\"kind\":\"micro.add\",\"task_id\":\"T01\",\"text\":\"Second\"},\"room\":\"demo\",\"text\":\"\",\"ts\":1700000000000}\n"
+    },
+    "payload": {
+      "untrusted": {
+        "id": "T01.M02",
+        "rev": 3
+      }
+    }
+  },
+  "microtask_set": {
+    "journals": {
+      "rooms/demo/events.jsonl": "{\"act\":\"op\",\"agent\":\"worker\",\"batch\":{\"conformance\":{\"findings\":[{\"code\":\"missing_memory\",\"message\":\"Missing required memory section notes\",\"path\":\"memory.notes\",\"severity\":\"error\"}],\"ok\":false},\"count\":2,\"key_map\":{},\"member_ids\":[\"e-0000000000000001\",\"e-0000000000000002\"],\"op_id\":null,\"rev\":1,\"seq\":0},\"id\":\"e-0000000000000001\",\"lamport\":1,\"op\":{\"brief\":{\"goal\":\"Deliver\"},\"kind\":\"plan.open\",\"phase\":\"start\",\"template_hash\":\"bc21815d772de0d05df4b2e78c58438de8ede7f321daa5ecf8424d1e92f0a945\",\"template_id\":\"neutral\",\"title\":\"Plan\"},\"room\":\"demo\",\"text\":\"\",\"ts\":1700000000000}\n{\"act\":\"op\",\"agent\":\"worker\",\"batch\":{\"conformance\":{\"findings\":[{\"code\":\"missing_memory\",\"message\":\"Missing required memory section notes\",\"path\":\"memory.notes\",\"severity\":\"error\"}],\"ok\":false},\"count\":2,\"key_map\":{},\"member_ids\":[\"e-0000000000000001\",\"e-0000000000000002\"],\"op_id\":null,\"rev\":1,\"seq\":1},\"id\":\"e-0000000000000002\",\"lamport\":2,\"op\":{\"accept\":\"Pass\",\"assignee\":\"worker\",\"kind\":\"task.add\",\"microtasks\":[{\"accept\":\"Pass\",\"text\":\"Check\"}],\"phase\":\"start\",\"title\":\"Action\",\"type\":\"action\"},\"room\":\"demo\",\"text\":\"\",\"ts\":1700000000000}\n{\"act\":\"op\",\"agent\":\"worker\",\"id\":\"e-0000000000000003\",\"lamport\":3,\"op\":{\"kind\":\"micro.set\",\"micro_id\":\"T01.M01\",\"state\":\"active\"},\"room\":\"demo\",\"text\":\"\",\"ts\":1700000000000}\n"
+    },
+    "payload": {
+      "untrusted": {
+        "microtask": {
+          "accept": "Pass",
+          "evidence": [],
+          "id": "T01.M01",
+          "outcome": null,
+          "rev": 3,
+          "state": "active",
+          "text": "Check",
+          "took": null
+        },
+        "rev": 3,
+        "task": {
+          "accept": "Pass",
+          "assignee": "worker",
+          "blocked_reason": null,
+          "claim_lamport": null,
+          "claim_ts": null,
+          "deps": [],
+          "estimate": null,
+          "explicit_state": null,
+          "id": "T01",
+          "microtasks": [
+            {
+              "accept": "Pass",
+              "evidence": [],
+              "id": "T01.M01",
+              "outcome": null,
+              "rev": 3,
+              "state": "active",
+              "text": "Check",
+              "took": null
+            }
+          ],
+          "phase": "start",
+          "ready": true,
+          "rev": 3,
+          "state": "active",
+          "title": "Action",
+          "type": "action"
+        }
+      }
+    }
+  },
+  "next_work": {
+    "journals": {
+      "rooms/demo/events.jsonl": "{\"act\":\"op\",\"agent\":\"worker\",\"batch\":{\"conformance\":{\"findings\":[{\"code\":\"missing_memory\",\"message\":\"Missing required memory section notes\",\"path\":\"memory.notes\",\"severity\":\"error\"}],\"ok\":false},\"count\":2,\"key_map\":{},\"member_ids\":[\"e-0000000000000001\",\"e-0000000000000002\"],\"op_id\":null,\"rev\":1,\"seq\":0},\"id\":\"e-0000000000000001\",\"lamport\":1,\"op\":{\"brief\":{\"goal\":\"Deliver\"},\"kind\":\"plan.open\",\"phase\":\"start\",\"template_hash\":\"bc21815d772de0d05df4b2e78c58438de8ede7f321daa5ecf8424d1e92f0a945\",\"template_id\":\"neutral\",\"title\":\"Plan\"},\"room\":\"demo\",\"text\":\"\",\"ts\":1700000000000}\n{\"act\":\"op\",\"agent\":\"worker\",\"batch\":{\"conformance\":{\"findings\":[{\"code\":\"missing_memory\",\"message\":\"Missing required memory section notes\",\"path\":\"memory.notes\",\"severity\":\"error\"}],\"ok\":false},\"count\":2,\"key_map\":{},\"member_ids\":[\"e-0000000000000001\",\"e-0000000000000002\"],\"op_id\":null,\"rev\":1,\"seq\":1},\"id\":\"e-0000000000000002\",\"lamport\":2,\"op\":{\"accept\":\"Pass\",\"assignee\":\"worker\",\"kind\":\"task.add\",\"microtasks\":[{\"accept\":\"Pass\",\"text\":\"Check\"}],\"phase\":\"start\",\"title\":\"Action\",\"type\":\"action\"},\"room\":\"demo\",\"text\":\"\",\"ts\":1700000000000}\n"
+    },
+    "payload": {
+      "untrusted": {
+        "items": [
+          {
+            "accept": "Pass",
+            "evidence": [],
+            "id": "T01.M01",
+            "outcome": null,
+            "rev": 2,
+            "state": "pending",
+            "text": "Check",
+            "took": null
+          }
+        ]
+      }
+    }
+  },
+  "plan_check": {
+    "journals": {
+      "rooms/demo/events.jsonl": "{\"act\":\"op\",\"agent\":\"worker\",\"batch\":{\"conformance\":{\"findings\":[{\"code\":\"missing_memory\",\"message\":\"Missing required memory section notes\",\"path\":\"memory.notes\",\"severity\":\"error\"}],\"ok\":false},\"count\":2,\"key_map\":{},\"member_ids\":[\"e-0000000000000001\",\"e-0000000000000002\"],\"op_id\":null,\"rev\":1,\"seq\":0},\"id\":\"e-0000000000000001\",\"lamport\":1,\"op\":{\"brief\":{\"goal\":\"Deliver\"},\"kind\":\"plan.open\",\"phase\":\"start\",\"template_hash\":\"bc21815d772de0d05df4b2e78c58438de8ede7f321daa5ecf8424d1e92f0a945\",\"template_id\":\"neutral\",\"title\":\"Plan\"},\"room\":\"demo\",\"text\":\"\",\"ts\":1700000000000}\n{\"act\":\"op\",\"agent\":\"worker\",\"batch\":{\"conformance\":{\"findings\":[{\"code\":\"missing_memory\",\"message\":\"Missing required memory section notes\",\"path\":\"memory.notes\",\"severity\":\"error\"}],\"ok\":false},\"count\":2,\"key_map\":{},\"member_ids\":[\"e-0000000000000001\",\"e-0000000000000002\"],\"op_id\":null,\"rev\":1,\"seq\":1},\"id\":\"e-0000000000000002\",\"lamport\":2,\"op\":{\"accept\":\"Pass\",\"assignee\":\"worker\",\"kind\":\"task.add\",\"microtasks\":[{\"accept\":\"Pass\",\"text\":\"Check\"}],\"phase\":\"start\",\"title\":\"Action\",\"type\":\"action\"},\"room\":\"demo\",\"text\":\"\",\"ts\":1700000000000}\n"
+    },
+    "payload": {
+      "untrusted": {
+        "conformance": {
+          "findings": [
+            {
+              "code": "missing_memory",
+              "message": "Missing required memory section notes",
+              "path": "memory.notes",
+              "severity": "error"
+            }
+          ],
+          "ok": false
+        }
+      }
+    }
+  },
+  "plan_close": {
+    "journals": {
+      "rooms/demo/events.jsonl": "{\"act\":\"op\",\"agent\":\"worker\",\"batch\":{\"conformance\":{\"findings\":[{\"code\":\"missing_memory\",\"message\":\"Missing required memory section notes\",\"path\":\"memory.notes\",\"severity\":\"error\"}],\"ok\":false},\"count\":2,\"key_map\":{},\"member_ids\":[\"e-0000000000000001\",\"e-0000000000000002\"],\"op_id\":null,\"rev\":1,\"seq\":0},\"id\":\"e-0000000000000001\",\"lamport\":1,\"op\":{\"brief\":{\"goal\":\"Deliver\"},\"kind\":\"plan.open\",\"phase\":\"start\",\"template_hash\":\"bc21815d772de0d05df4b2e78c58438de8ede7f321daa5ecf8424d1e92f0a945\",\"template_id\":\"neutral\",\"title\":\"Plan\"},\"room\":\"demo\",\"text\":\"\",\"ts\":1700000000000}\n{\"act\":\"op\",\"agent\":\"worker\",\"batch\":{\"conformance\":{\"findings\":[{\"code\":\"missing_memory\",\"message\":\"Missing required memory section notes\",\"path\":\"memory.notes\",\"severity\":\"error\"}],\"ok\":false},\"count\":2,\"key_map\":{},\"member_ids\":[\"e-0000000000000001\",\"e-0000000000000002\"],\"op_id\":null,\"rev\":1,\"seq\":1},\"id\":\"e-0000000000000002\",\"lamport\":2,\"op\":{\"accept\":\"Pass\",\"assignee\":\"worker\",\"kind\":\"task.add\",\"microtasks\":[{\"accept\":\"Pass\",\"text\":\"Check\"}],\"phase\":\"start\",\"title\":\"Action\",\"type\":\"action\"},\"room\":\"demo\",\"text\":\"\",\"ts\":1700000000000}\n{\"act\":\"op\",\"agent\":\"worker\",\"id\":\"e-0000000000000003\",\"lamport\":3,\"op\":{\"base_rev\":1,\"kind\":\"plan.close\",\"outcome\":\"Complete\"},\"room\":\"demo\",\"text\":\"\",\"ts\":1700000000000}\n"
+    },
+    "payload": {
+      "untrusted": {
+        "rev": 3
+      }
+    }
+  },
+  "plan_create": {
+    "journals": {
+      "rooms/demo/events.jsonl": "{\"act\":\"op\",\"agent\":\"worker\",\"batch\":{\"conformance\":{\"findings\":[{\"code\":\"missing_memory\",\"message\":\"Missing required memory section notes\",\"path\":\"memory.notes\",\"severity\":\"error\"}],\"ok\":false},\"count\":2,\"key_map\":{\"first\":\"T01\"},\"member_ids\":[\"e-0000000000000001\",\"e-0000000000000002\"],\"op_id\":null,\"rev\":1,\"seq\":0},\"id\":\"e-0000000000000001\",\"lamport\":1,\"op\":{\"brief\":{\"goal\":\"Deliver\"},\"kind\":\"plan.open\",\"phase\":\"start\",\"template_hash\":\"bc21815d772de0d05df4b2e78c58438de8ede7f321daa5ecf8424d1e92f0a945\",\"template_id\":\"neutral\",\"title\":\"Plan\"},\"room\":\"demo\",\"text\":\"\",\"ts\":1700000000000}\n{\"act\":\"op\",\"agent\":\"worker\",\"batch\":{\"conformance\":{\"findings\":[{\"code\":\"missing_memory\",\"message\":\"Missing required memory section notes\",\"path\":\"memory.notes\",\"severity\":\"error\"}],\"ok\":false},\"count\":2,\"key_map\":{\"first\":\"T01\"},\"member_ids\":[\"e-0000000000000001\",\"e-0000000000000002\"],\"op_id\":null,\"rev\":1,\"seq\":1},\"id\":\"e-0000000000000002\",\"lamport\":2,\"op\":{\"accept\":\"Pass\",\"kind\":\"task.add\",\"microtasks\":[{\"accept\":\"Pass\",\"text\":\"Check\"}],\"phase\":\"start\",\"title\":\"Action\",\"type\":\"action\"},\"room\":\"demo\",\"text\":\"\",\"ts\":1700000000000}\n"
+    },
+    "payload": {
+      "untrusted": {
+        "conformance": {
+          "findings": [
+            {
+              "code": "missing_memory",
+              "message": "Missing required memory section notes",
+              "path": "memory.notes",
+              "severity": "error"
+            }
+          ],
+          "ok": false
+        },
+        "ids": {
+          "first": "T01"
+        },
+        "plan_id": "p1",
+        "rev": 1
+      }
+    }
+  },
+  "plan_get": {
+    "journals": {
+      "rooms/demo/events.jsonl": "{\"act\":\"op\",\"agent\":\"worker\",\"batch\":{\"conformance\":{\"findings\":[{\"code\":\"missing_memory\",\"message\":\"Missing required memory section notes\",\"path\":\"memory.notes\",\"severity\":\"error\"}],\"ok\":false},\"count\":2,\"key_map\":{},\"member_ids\":[\"e-0000000000000001\",\"e-0000000000000002\"],\"op_id\":null,\"rev\":1,\"seq\":0},\"id\":\"e-0000000000000001\",\"lamport\":1,\"op\":{\"brief\":{\"goal\":\"Deliver\"},\"kind\":\"plan.open\",\"phase\":\"start\",\"template_hash\":\"bc21815d772de0d05df4b2e78c58438de8ede7f321daa5ecf8424d1e92f0a945\",\"template_id\":\"neutral\",\"title\":\"Plan\"},\"room\":\"demo\",\"text\":\"\",\"ts\":1700000000000}\n{\"act\":\"op\",\"agent\":\"worker\",\"batch\":{\"conformance\":{\"findings\":[{\"code\":\"missing_memory\",\"message\":\"Missing required memory section notes\",\"path\":\"memory.notes\",\"severity\":\"error\"}],\"ok\":false},\"count\":2,\"key_map\":{},\"member_ids\":[\"e-0000000000000001\",\"e-0000000000000002\"],\"op_id\":null,\"rev\":1,\"seq\":1},\"id\":\"e-0000000000000002\",\"lamport\":2,\"op\":{\"accept\":\"Pass\",\"assignee\":\"worker\",\"kind\":\"task.add\",\"microtasks\":[{\"accept\":\"Pass\",\"text\":\"Check\"}],\"phase\":\"start\",\"title\":\"Action\",\"type\":\"action\"},\"room\":\"demo\",\"text\":\"\",\"ts\":1700000000000}\n"
+    },
+    "payload": {
+      "untrusted": {
+        "archived_plans": [],
+        "last_lamport": 2,
+        "memory": {},
+        "plan": {
+          "brief": {
+            "goal": "Deliver"
+          },
+          "closed_outcome": null,
+          "id": "p1",
+          "opened_lamport": 1,
+          "opened_ts": 1700000000000,
+          "phase": "start",
+          "rev": 1,
+          "state": "active",
+          "template_hash": "bc21815d772de0d05df4b2e78c58438de8ede7f321daa5ecf8424d1e92f0a945",
+          "template_id": "neutral",
+          "title": "Plan"
+        },
+        "rejected": [],
+        "replayed_ops": {},
+        "rollup": {
+          "micro_done": 0,
+          "micro_total": 1,
+          "progress": 0.0,
+          "progress_pct": 0,
+          "tasks_blocked": 0,
+          "tasks_done": 0,
+          "tasks_ready": 1,
+          "tasks_total": 1
+        },
+        "tasks": [
+          {
+            "accept": "Pass",
+            "assignee": "worker",
+            "blocked_reason": null,
+            "claim_lamport": null,
+            "claim_ts": null,
+            "deps": [],
+            "estimate": null,
+            "explicit_state": null,
+            "id": "T01",
+            "microtasks": [
+              {
+                "accept": "Pass",
+                "evidence": [],
+                "id": "T01.M01",
+                "outcome": null,
+                "rev": 2,
+                "state": "pending",
+                "text": "Check",
+                "took": null
+              }
+            ],
+            "phase": "start",
+            "ready": true,
+            "rev": 2,
+            "state": "pending",
+            "title": "Action",
+            "type": "action"
+          }
+        ]
+      }
+    }
+  },
+  "plan_phase": {
+    "journals": {
+      "rooms/demo/events.jsonl": "{\"act\":\"op\",\"agent\":\"worker\",\"batch\":{\"conformance\":{\"findings\":[{\"code\":\"missing_memory\",\"message\":\"Missing required memory section notes\",\"path\":\"memory.notes\",\"severity\":\"error\"}],\"ok\":false},\"count\":2,\"key_map\":{},\"member_ids\":[\"e-0000000000000001\",\"e-0000000000000002\"],\"op_id\":null,\"rev\":1,\"seq\":0},\"id\":\"e-0000000000000001\",\"lamport\":1,\"op\":{\"brief\":{\"goal\":\"Deliver\"},\"kind\":\"plan.open\",\"phase\":\"start\",\"template_hash\":\"bc21815d772de0d05df4b2e78c58438de8ede7f321daa5ecf8424d1e92f0a945\",\"template_id\":\"neutral\",\"title\":\"Plan\"},\"room\":\"demo\",\"text\":\"\",\"ts\":1700000000000}\n{\"act\":\"op\",\"agent\":\"worker\",\"batch\":{\"conformance\":{\"findings\":[{\"code\":\"missing_memory\",\"message\":\"Missing required memory section notes\",\"path\":\"memory.notes\",\"severity\":\"error\"}],\"ok\":false},\"count\":2,\"key_map\":{},\"member_ids\":[\"e-0000000000000001\",\"e-0000000000000002\"],\"op_id\":null,\"rev\":1,\"seq\":1},\"id\":\"e-0000000000000002\",\"lamport\":2,\"op\":{\"accept\":\"Pass\",\"assignee\":\"worker\",\"kind\":\"task.add\",\"microtasks\":[{\"accept\":\"Pass\",\"text\":\"Check\"}],\"phase\":\"start\",\"title\":\"Action\",\"type\":\"action\"},\"room\":\"demo\",\"text\":\"\",\"ts\":1700000000000}\n{\"act\":\"op\",\"agent\":\"worker\",\"id\":\"e-0000000000000003\",\"lamport\":3,\"op\":{\"base_rev\":1,\"kind\":\"plan.phase\",\"phase\":\"finish\"},\"room\":\"demo\",\"text\":\"\",\"ts\":1700000000000}\n"
+    },
+    "payload": {
+      "untrusted": {
+        "rev": 3
+      }
+    }
+  },
+  "post_plan": {
+    "journals": {
+      "rooms/demo/events.jsonl": "{\"act\":\"plan\",\"agent\":\"worker\",\"id\":\"e-0000000000000001\",\"lamport\":1,\"plan\":{\"steps\":[{\"text\":\"Step\"}],\"title\":\"Legacy\"},\"room\":\"demo\",\"text\":\"Legacy\",\"ts\":1700000000000}\n{\"act\":\"heartbeat\",\"agent\":\"peer\",\"id\":\"e-0000000000000002\",\"lamport\":2,\"room\":\"demo\",\"text\":\"Inbox\",\"to\":\"worker\",\"ts\":1700000000000}\n{\"act\":\"plan\",\"agent\":\"worker\",\"id\":\"e-0000000000000003\",\"lamport\":3,\"plan\":{\"steps\":[{\"accept\":\"Pass\",\"text\":\"Step\"}],\"title\":\"Legacy\"},\"room\":\"demo\",\"text\":\"Legacy\",\"ts\":1700000000000}\n"
+    },
+    "payload": {
+      "event": {
+        "act": "plan",
+        "agent": "worker",
+        "id": "e-0000000000000003",
+        "lamport": 3,
+        "plan": {
+          "steps": [
+            {
+              "accept": "Pass",
+              "text": "Step"
+            }
+          ],
+          "title": "Legacy"
+        },
+        "room": "demo",
+        "ts": 1700000000000,
+        "untrusted_text": "Legacy"
+      }
+    }
+  },
+  "post_status": {
+    "journals": {
+      "rooms/demo/events.jsonl": "{\"act\":\"plan\",\"agent\":\"worker\",\"id\":\"e-0000000000000001\",\"lamport\":1,\"plan\":{\"steps\":[{\"text\":\"Step\"}],\"title\":\"Legacy\"},\"room\":\"demo\",\"text\":\"Legacy\",\"ts\":1700000000000}\n{\"act\":\"heartbeat\",\"agent\":\"peer\",\"id\":\"e-0000000000000002\",\"lamport\":2,\"room\":\"demo\",\"text\":\"Inbox\",\"to\":\"worker\",\"ts\":1700000000000}\n{\"act\":\"heartbeat\",\"agent\":\"worker\",\"id\":\"e-0000000000000003\",\"lamport\":3,\"room\":\"demo\",\"text\":\"Ready\",\"ts\":1700000000000}\n"
+    },
+    "payload": {
+      "event": {
+        "act": "heartbeat",
+        "agent": "worker",
+        "id": "e-0000000000000003",
+        "lamport": 3,
+        "room": "demo",
+        "ts": 1700000000000,
+        "untrusted_text": "Ready"
+      }
+    }
+  },
+  "post_step": {
+    "journals": {
+      "rooms/demo/events.jsonl": "{\"act\":\"plan\",\"agent\":\"worker\",\"id\":\"e-0000000000000001\",\"lamport\":1,\"plan\":{\"steps\":[{\"text\":\"Step\"}],\"title\":\"Legacy\"},\"room\":\"demo\",\"text\":\"Legacy\",\"ts\":1700000000000}\n{\"act\":\"heartbeat\",\"agent\":\"peer\",\"id\":\"e-0000000000000002\",\"lamport\":2,\"room\":\"demo\",\"text\":\"Inbox\",\"to\":\"worker\",\"ts\":1700000000000}\n{\"act\":\"step\",\"agent\":\"worker\",\"id\":\"e-0000000000000003\",\"lamport\":3,\"room\":\"demo\",\"step\":{\"index\":1,\"outcome\":\"Pass\",\"state\":\"done\",\"took\":\"1m\"},\"text\":\"Pass\",\"ts\":1700000000000}\n"
+    },
+    "payload": {
+      "event": {
+        "act": "step",
+        "agent": "worker",
+        "id": "e-0000000000000003",
+        "lamport": 3,
+        "room": "demo",
+        "step": {
+          "index": 1,
+          "outcome": "Pass",
+          "state": "done",
+          "took": "1m"
+        },
+        "ts": 1700000000000,
+        "untrusted_text": "Pass"
+      }
+    }
+  },
+  "read_inbox": {
+    "journals": {
+      "rooms/demo/events.jsonl": "{\"act\":\"plan\",\"agent\":\"worker\",\"id\":\"e-0000000000000001\",\"lamport\":1,\"plan\":{\"steps\":[{\"text\":\"Step\"}],\"title\":\"Legacy\"},\"room\":\"demo\",\"text\":\"Legacy\",\"ts\":1700000000000}\n{\"act\":\"heartbeat\",\"agent\":\"peer\",\"id\":\"e-0000000000000002\",\"lamport\":2,\"room\":\"demo\",\"text\":\"Inbox\",\"to\":\"worker\",\"ts\":1700000000000}\n"
+    },
+    "payload": {
+      "events": [
+        {
+          "act": "heartbeat",
+          "agent": "peer",
+          "id": "e-0000000000000002",
+          "lamport": 2,
+          "room": "demo",
+          "to": "worker",
+          "ts": 1700000000000,
+          "untrusted_text": "Inbox"
+        }
+      ]
+    }
+  },
+  "task_add": {
+    "journals": {
+      "rooms/demo/events.jsonl": "{\"act\":\"op\",\"agent\":\"worker\",\"batch\":{\"conformance\":{\"findings\":[{\"code\":\"missing_memory\",\"message\":\"Missing required memory section notes\",\"path\":\"memory.notes\",\"severity\":\"error\"}],\"ok\":false},\"count\":2,\"key_map\":{},\"member_ids\":[\"e-0000000000000001\",\"e-0000000000000002\"],\"op_id\":null,\"rev\":1,\"seq\":0},\"id\":\"e-0000000000000001\",\"lamport\":1,\"op\":{\"brief\":{\"goal\":\"Deliver\"},\"kind\":\"plan.open\",\"phase\":\"start\",\"template_hash\":\"bc21815d772de0d05df4b2e78c58438de8ede7f321daa5ecf8424d1e92f0a945\",\"template_id\":\"neutral\",\"title\":\"Plan\"},\"room\":\"demo\",\"text\":\"\",\"ts\":1700000000000}\n{\"act\":\"op\",\"agent\":\"worker\",\"batch\":{\"conformance\":{\"findings\":[{\"code\":\"missing_memory\",\"message\":\"Missing required memory section notes\",\"path\":\"memory.notes\",\"severity\":\"error\"}],\"ok\":false},\"count\":2,\"key_map\":{},\"member_ids\":[\"e-0000000000000001\",\"e-0000000000000002\"],\"op_id\":null,\"rev\":1,\"seq\":1},\"id\":\"e-0000000000000002\",\"lamport\":2,\"op\":{\"accept\":\"Pass\",\"assignee\":\"worker\",\"kind\":\"task.add\",\"microtasks\":[{\"accept\":\"Pass\",\"text\":\"Check\"}],\"phase\":\"start\",\"title\":\"Action\",\"type\":\"action\"},\"room\":\"demo\",\"text\":\"\",\"ts\":1700000000000}\n{\"act\":\"op\",\"agent\":\"worker\",\"id\":\"e-0000000000000003\",\"lamport\":3,\"op\":{\"accept\":\"Pass\",\"kind\":\"task.add\",\"microtasks\":[{\"accept\":\"Pass\",\"text\":\"Check\"}],\"phase\":\"start\",\"title\":\"Action\",\"type\":\"action\"},\"room\":\"demo\",\"text\":\"\",\"ts\":1700000000000}\n"
+    },
+    "payload": {
+      "untrusted": {
+        "rev": 3,
+        "task": {
+          "accept": "Pass",
+          "assignee": null,
+          "blocked_reason": null,
+          "claim_lamport": null,
+          "claim_ts": null,
+          "deps": [],
+          "estimate": null,
+          "explicit_state": null,
+          "id": "T02",
+          "microtasks": [
+            {
+              "accept": "Pass",
+              "evidence": [],
+              "id": "T02.M01",
+              "outcome": null,
+              "rev": 3,
+              "state": "pending",
+              "text": "Check",
+              "took": null
+            }
+          ],
+          "phase": "start",
+          "ready": true,
+          "rev": 3,
+          "state": "pending",
+          "title": "Action",
+          "type": "action"
+        }
+      }
+    }
+  },
+  "task_claim": {
+    "journals": {
+      "rooms/demo/events.jsonl": "{\"act\":\"op\",\"agent\":\"worker\",\"batch\":{\"conformance\":{\"findings\":[{\"code\":\"missing_memory\",\"message\":\"Missing required memory section notes\",\"path\":\"memory.notes\",\"severity\":\"error\"}],\"ok\":false},\"count\":2,\"key_map\":{},\"member_ids\":[\"e-0000000000000001\",\"e-0000000000000002\"],\"op_id\":null,\"rev\":1,\"seq\":0},\"id\":\"e-0000000000000001\",\"lamport\":1,\"op\":{\"brief\":{\"goal\":\"Deliver\"},\"kind\":\"plan.open\",\"phase\":\"start\",\"template_hash\":\"bc21815d772de0d05df4b2e78c58438de8ede7f321daa5ecf8424d1e92f0a945\",\"template_id\":\"neutral\",\"title\":\"Plan\"},\"room\":\"demo\",\"text\":\"\",\"ts\":1700000000000}\n{\"act\":\"op\",\"agent\":\"worker\",\"batch\":{\"conformance\":{\"findings\":[{\"code\":\"missing_memory\",\"message\":\"Missing required memory section notes\",\"path\":\"memory.notes\",\"severity\":\"error\"}],\"ok\":false},\"count\":2,\"key_map\":{},\"member_ids\":[\"e-0000000000000001\",\"e-0000000000000002\"],\"op_id\":null,\"rev\":1,\"seq\":1},\"id\":\"e-0000000000000002\",\"lamport\":2,\"op\":{\"accept\":\"Pass\",\"assignee\":null,\"kind\":\"task.add\",\"microtasks\":[{\"accept\":\"Pass\",\"text\":\"Check\"}],\"phase\":\"start\",\"title\":\"Action\",\"type\":\"action\"},\"room\":\"demo\",\"text\":\"\",\"ts\":1700000000000}\n{\"act\":\"op\",\"agent\":\"worker\",\"id\":\"e-0000000000000003\",\"lamport\":3,\"op\":{\"kind\":\"task.claim\",\"task_id\":\"T01\"},\"room\":\"demo\",\"text\":\"\",\"ts\":1700000000000}\n"
+    },
+    "payload": {
+      "untrusted": {
+        "rev": 3,
+        "task": {
+          "accept": "Pass",
+          "assignee": "worker",
+          "blocked_reason": null,
+          "claim_lamport": 3,
+          "claim_ts": 1700000000000,
+          "deps": [],
+          "estimate": null,
+          "explicit_state": null,
+          "id": "T01",
+          "microtasks": [
+            {
+              "accept": "Pass",
+              "evidence": [],
+              "id": "T01.M01",
+              "outcome": null,
+              "rev": 2,
+              "state": "pending",
+              "text": "Check",
+              "took": null
+            }
+          ],
+          "phase": "start",
+          "ready": true,
+          "rev": 3,
+          "state": "pending",
+          "title": "Action",
+          "type": "action"
+        }
+      }
+    }
+  },
+  "task_release": {
+    "journals": {
+      "rooms/demo/events.jsonl": "{\"act\":\"op\",\"agent\":\"worker\",\"batch\":{\"conformance\":{\"findings\":[{\"code\":\"missing_memory\",\"message\":\"Missing required memory section notes\",\"path\":\"memory.notes\",\"severity\":\"error\"}],\"ok\":false},\"count\":2,\"key_map\":{},\"member_ids\":[\"e-0000000000000001\",\"e-0000000000000002\"],\"op_id\":null,\"rev\":1,\"seq\":0},\"id\":\"e-0000000000000001\",\"lamport\":1,\"op\":{\"brief\":{\"goal\":\"Deliver\"},\"kind\":\"plan.open\",\"phase\":\"start\",\"template_hash\":\"bc21815d772de0d05df4b2e78c58438de8ede7f321daa5ecf8424d1e92f0a945\",\"template_id\":\"neutral\",\"title\":\"Plan\"},\"room\":\"demo\",\"text\":\"\",\"ts\":1700000000000}\n{\"act\":\"op\",\"agent\":\"worker\",\"batch\":{\"conformance\":{\"findings\":[{\"code\":\"missing_memory\",\"message\":\"Missing required memory section notes\",\"path\":\"memory.notes\",\"severity\":\"error\"}],\"ok\":false},\"count\":2,\"key_map\":{},\"member_ids\":[\"e-0000000000000001\",\"e-0000000000000002\"],\"op_id\":null,\"rev\":1,\"seq\":1},\"id\":\"e-0000000000000002\",\"lamport\":2,\"op\":{\"accept\":\"Pass\",\"assignee\":\"worker\",\"kind\":\"task.add\",\"microtasks\":[{\"accept\":\"Pass\",\"text\":\"Check\"}],\"phase\":\"start\",\"title\":\"Action\",\"type\":\"action\"},\"room\":\"demo\",\"text\":\"\",\"ts\":1700000000000}\n{\"act\":\"op\",\"agent\":\"worker\",\"id\":\"e-0000000000000003\",\"lamport\":3,\"op\":{\"kind\":\"task.release\",\"task_id\":\"T01\"},\"room\":\"demo\",\"text\":\"\",\"ts\":1700000000000}\n"
+    },
+    "payload": {
+      "untrusted": {
+        "rev": 3,
+        "task": {
+          "accept": "Pass",
+          "assignee": null,
+          "blocked_reason": null,
+          "claim_lamport": null,
+          "claim_ts": null,
+          "deps": [],
+          "estimate": null,
+          "explicit_state": null,
+          "id": "T01",
+          "microtasks": [
+            {
+              "accept": "Pass",
+              "evidence": [],
+              "id": "T01.M01",
+              "outcome": null,
+              "rev": 2,
+              "state": "pending",
+              "text": "Check",
+              "took": null
+            }
+          ],
+          "phase": "start",
+          "ready": true,
+          "rev": 3,
+          "state": "pending",
+          "title": "Action",
+          "type": "action"
+        }
+      }
+    }
+  },
+  "task_update": {
+    "journals": {
+      "rooms/demo/events.jsonl": "{\"act\":\"op\",\"agent\":\"worker\",\"batch\":{\"conformance\":{\"findings\":[{\"code\":\"missing_memory\",\"message\":\"Missing required memory section notes\",\"path\":\"memory.notes\",\"severity\":\"error\"}],\"ok\":false},\"count\":2,\"key_map\":{},\"member_ids\":[\"e-0000000000000001\",\"e-0000000000000002\"],\"op_id\":null,\"rev\":1,\"seq\":0},\"id\":\"e-0000000000000001\",\"lamport\":1,\"op\":{\"brief\":{\"goal\":\"Deliver\"},\"kind\":\"plan.open\",\"phase\":\"start\",\"template_hash\":\"bc21815d772de0d05df4b2e78c58438de8ede7f321daa5ecf8424d1e92f0a945\",\"template_id\":\"neutral\",\"title\":\"Plan\"},\"room\":\"demo\",\"text\":\"\",\"ts\":1700000000000}\n{\"act\":\"op\",\"agent\":\"worker\",\"batch\":{\"conformance\":{\"findings\":[{\"code\":\"missing_memory\",\"message\":\"Missing required memory section notes\",\"path\":\"memory.notes\",\"severity\":\"error\"}],\"ok\":false},\"count\":2,\"key_map\":{},\"member_ids\":[\"e-0000000000000001\",\"e-0000000000000002\"],\"op_id\":null,\"rev\":1,\"seq\":1},\"id\":\"e-0000000000000002\",\"lamport\":2,\"op\":{\"accept\":\"Pass\",\"assignee\":\"worker\",\"kind\":\"task.add\",\"microtasks\":[{\"accept\":\"Pass\",\"text\":\"Check\"}],\"phase\":\"start\",\"title\":\"Action\",\"type\":\"action\"},\"room\":\"demo\",\"text\":\"\",\"ts\":1700000000000}\n{\"act\":\"op\",\"agent\":\"worker\",\"id\":\"e-0000000000000003\",\"lamport\":3,\"op\":{\"base_rev\":2,\"kind\":\"task.set\",\"task_id\":\"T01\",\"title\":\"Changed\"},\"room\":\"demo\",\"text\":\"\",\"ts\":1700000000000}\n"
+    },
+    "payload": {
+      "untrusted": {
+        "rev": 3,
+        "task": {
+          "accept": "Pass",
+          "assignee": "worker",
+          "blocked_reason": null,
+          "claim_lamport": null,
+          "claim_ts": null,
+          "deps": [],
+          "estimate": null,
+          "explicit_state": null,
+          "id": "T01",
+          "microtasks": [
+            {
+              "accept": "Pass",
+              "evidence": [],
+              "id": "T01.M01",
+              "outcome": null,
+              "rev": 2,
+              "state": "pending",
+              "text": "Check",
+              "took": null
+            }
+          ],
+          "phase": "start",
+          "ready": true,
+          "rev": 3,
+          "state": "pending",
+          "title": "Changed",
+          "type": "action"
+        }
+      }
+    }
+  },
+  "wait_inbox": {
+    "journals": {
+      "rooms/demo/events.jsonl": "{\"act\":\"plan\",\"agent\":\"worker\",\"id\":\"e-0000000000000001\",\"lamport\":1,\"plan\":{\"steps\":[{\"text\":\"Step\"}],\"title\":\"Legacy\"},\"room\":\"demo\",\"text\":\"Legacy\",\"ts\":1700000000000}\n{\"act\":\"heartbeat\",\"agent\":\"peer\",\"id\":\"e-0000000000000002\",\"lamport\":2,\"room\":\"demo\",\"text\":\"Inbox\",\"to\":\"worker\",\"ts\":1700000000000}\n"
+    },
+    "payload": {
+      "events": [
+        {
+          "act": "heartbeat",
+          "agent": "peer",
+          "id": "e-0000000000000002",
+          "lamport": 2,
+          "room": "demo",
+          "to": "worker",
+          "ts": 1700000000000,
+          "untrusted_text": "Inbox"
+        }
+      ]
+    }
+  }
+}

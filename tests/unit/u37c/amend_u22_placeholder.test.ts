@@ -6,7 +6,7 @@ import { EXT_ID, PagePort } from "./harness";
 
 const H = vi.hoisted(() => ({
   link: { start: vi.fn(), stop: vi.fn(), state: vi.fn(), post: vi.fn() },
-  store: { ingest: vi.fn(), ingestJsonl: vi.fn(), since: vi.fn(), states: vi.fn(), events: vi.fn() },
+  store: { ingest: vi.fn(), ingestChecked: vi.fn(), ingestJsonl: vi.fn(), since: vi.fn(), states: vi.fn(), events: vi.fn() },
   reviewer: { review: vi.fn() },
   wall: { refresh: vi.fn(), destroy: vi.fn() },
   createAgentLink: vi.fn(), createAgentStore: vi.fn(), createDriftReviewer: vi.fn(), startAgentWall: vi.fn(),
@@ -23,9 +23,11 @@ vi.mock("../../../src/app/boot", async (orig) => {
 
 let chromePort: PagePort; let chromeConnect: ReturnType<typeof vi.fn>;
 beforeEach(() => {
-  for (const f of [H.createAgentLink, H.createAgentStore, H.createDriftReviewer, H.startAgentWall, H.driftPortFromFactory, H.boot, H.link.start, H.store.ingest, H.store.since, H.wall.refresh]) f.mockReset();
+  for (const f of [H.createAgentLink, H.createAgentStore, H.createDriftReviewer, H.startAgentWall, H.driftPortFromFactory, H.boot, H.link.start, H.store.ingest, H.store.ingestChecked, H.store.since, H.wall.refresh]) f.mockReset();
   H.createAgentLink.mockReturnValue(H.link); H.createAgentStore.mockReturnValue(H.store); H.createDriftReviewer.mockReturnValue(H.reviewer);
   H.startAgentWall.mockReturnValue(H.wall); H.store.since.mockReturnValue({ demo: 3 }); H.store.ingest.mockReturnValue(true);
+  // A-U85c: hosting consumes explicit ingestion outcomes, M2/M5.
+  H.store.ingestChecked.mockReturnValue("accepted");
   chromePort = new PagePort(); chromeConnect = vi.fn(() => chromePort);
   (globalThis as Record<string, unknown>)["chrome"] = { runtime: { connect: chromeConnect } };
 });
@@ -70,7 +72,7 @@ describe("extension id configured (VITE_EXTENSION_ORIGINS) + placeholder Firebas
     expect(opts?.port).toBeUndefined();
     expect(H.driftPortFromFactory).not.toHaveBeenCalled();
   });
-  it("createAgentLink is wired to the configured id and the real chrome.runtime.connect, the store's since(), store.ingest + wall refresh on room events", async () => {
+  it("createAgentLink is wired to the configured id and the real chrome.runtime.connect, the store's since(), store.ingestChecked + wall refresh on room events", async () => {
     await loadMain(`chrome-extension://${EXT_ID}`);
     await vi.waitFor(() => { expect(H.createAgentLink).toHaveBeenCalledTimes(1); });
     const o = H.createAgentLink.mock.calls[0]![0] as Record<string, (...a: unknown[]) => unknown> & { extId: string };
@@ -79,9 +81,12 @@ describe("extension id configured (VITE_EXTENSION_ORIGINS) + placeholder Firebas
     expect(chromeConnect.mock.calls[0]![0]).toBe(EXT_ID);
     expect(o["since"]!()).toEqual({ demo: 3 });
     const ev = { id: "e-0000000000000001", lamport: 1, room: "demo" };
+    // A-U85c: the hosted callback accepts events only for hello rooms, M5.
+    o["onRoomHello"]!({ t: "room_hello", v: 1, rooms: [{ room: "demo", floor: "ONLY_ON_DEVICE" }], agent: "alice" });
+    const before = H.wall.refresh.mock.calls.length;
     o["onRoomEvent"]!({ t: "room_event", v: 1, room: "demo", floor: "ONLY_ON_DEVICE", event: ev });
-    expect(H.store.ingest).toHaveBeenCalledWith(ev);
-    expect(H.wall.refresh).toHaveBeenCalled();
+    expect(H.store.ingestChecked).toHaveBeenCalledWith(ev);
+    expect(H.wall.refresh).toHaveBeenCalledTimes(before + 1);
     expect(typeof o["onRoomHello"]).toBe("function");
   });
   it("first chrome-extension:// origin of a comma list is the id; non-extension origins are ignored", async () => {

@@ -1,0 +1,781 @@
+[
+ {
+  "description": "Post a status event to a room.",
+  "inputSchema": {
+   "properties": {
+    "agent": {
+     "type": "string"
+    },
+    "re": {
+     "type": "string"
+    },
+    "room": {
+     "type": "string"
+    },
+    "text": {
+     "type": "string"
+    },
+    "to": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "room",
+    "agent",
+    "text"
+   ],
+   "type": "object"
+  },
+  "name": "post_status"
+ },
+ {
+  "description": "Post a plan with steps to a room.",
+  "inputSchema": {
+   "properties": {
+    "agent": {
+     "type": "string"
+    },
+    "room": {
+     "type": "string"
+    },
+    "steps": {
+     "items": {
+      "type": "object"
+     },
+     "type": "array"
+    },
+    "title": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "room",
+    "agent",
+    "title",
+    "steps"
+   ],
+   "type": "object"
+  },
+  "name": "post_plan"
+ },
+ {
+  "description": "Post a step update to a room.",
+  "inputSchema": {
+   "properties": {
+    "agent": {
+     "type": "string"
+    },
+    "index": {
+     "type": "integer"
+    },
+    "outcome": {
+     "type": "string"
+    },
+    "room": {
+     "type": "string"
+    },
+    "state": {
+     "type": "string"
+    },
+    "took": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "room",
+    "agent",
+    "index",
+    "state"
+   ],
+   "type": "object"
+  },
+  "name": "post_step"
+ },
+ {
+  "description": "Close your task in a room with a one-line outcome (at most 240 characters).",
+  "inputSchema": {
+   "properties": {
+    "agent": {
+     "type": "string"
+    },
+    "outcome": {
+     "maxLength": 240,
+     "type": "string"
+    },
+    "room": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "room",
+    "agent",
+    "outcome"
+   ],
+   "type": "object"
+  },
+  "name": "close_task"
+ },
+ {
+  "description": "Read inbox events for an agent.",
+  "inputSchema": {
+   "properties": {
+    "agent": {
+     "type": "string"
+    },
+    "room": {
+     "type": "string"
+    },
+    "since": {
+     "type": "integer"
+    }
+   },
+   "required": [
+    "room",
+    "agent"
+   ],
+   "type": "object"
+  },
+  "name": "read_inbox"
+ },
+ {
+  "description": "Wait for an inbox event for an agent.",
+  "inputSchema": {
+   "properties": {
+    "agent": {
+     "type": "string"
+    },
+    "room": {
+     "type": "string"
+    },
+    "since": {
+     "type": "integer"
+    },
+    "timeout_s": {
+     "type": "number"
+    }
+   },
+   "required": [
+    "room",
+    "agent"
+   ],
+   "type": "object"
+  },
+  "name": "wait_inbox"
+ },
+ {
+  "description": "List planning templates.",
+  "inputSchema": {
+   "properties": {},
+   "required": [],
+   "type": "object"
+  },
+  "name": "list_templates"
+ },
+ {
+  "description": "Fetch one planning template.",
+  "inputSchema": {
+   "properties": {
+    "template_id": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "template_id"
+   ],
+   "type": "object"
+  },
+  "name": "get_template"
+ },
+ {
+  "description": "Create a plan from a template.",
+  "inputSchema": {
+   "additionalProperties": false,
+   "properties": {
+    "agent": {
+     "type": "string"
+    },
+    "brief": {
+     "type": "object"
+    },
+    "op_id": {
+     "type": "string"
+    },
+    "room": {
+     "type": "string"
+    },
+    "strict": {
+     "type": "boolean"
+    },
+    "tasks": {
+     "items": {
+      "additionalProperties": false,
+      "properties": {
+       "accept": {
+        "maxLength": 160,
+        "type": "string"
+       },
+       "assignee": {
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "deps": {
+        "items": {
+         "type": "string"
+        },
+        "maxItems": 8,
+        "type": "array",
+        "uniqueItems": true
+       },
+       "estimate": {
+        "maxLength": 32,
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "key": {
+        "type": "string"
+       },
+       "microtasks": {
+        "items": {
+         "additionalProperties": false,
+         "properties": {
+          "accept": {
+           "maxLength": 160,
+           "type": "string"
+          },
+          "text": {
+           "maxLength": 80,
+           "minLength": 1,
+           "type": "string"
+          }
+         },
+         "required": [
+          "text"
+         ],
+         "type": "object"
+        },
+        "maxItems": 12,
+        "type": [
+         "array",
+         "null"
+        ]
+       },
+       "phase": {
+        "type": "string"
+       },
+       "title": {
+        "maxLength": 120,
+        "minLength": 1,
+        "type": "string"
+       },
+       "type": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "key",
+       "title",
+       "type",
+       "phase"
+      ],
+      "type": "object"
+     },
+     "maxItems": 40,
+     "minItems": 1,
+     "type": "array"
+    },
+    "template_id": {
+     "type": "string"
+    },
+    "title": {
+     "maxLength": 120,
+     "minLength": 1,
+     "type": "string"
+    }
+   },
+   "required": [
+    "room",
+    "agent",
+    "template_id",
+    "title",
+    "brief",
+    "tasks"
+   ],
+   "type": "object"
+  },
+  "name": "plan_create"
+ },
+ {
+  "description": "Read the active plan projection.",
+  "inputSchema": {
+   "properties": {
+    "agent": {
+     "type": "string"
+    },
+    "room": {
+     "type": "string"
+    },
+    "since_rev": {
+     "type": "integer"
+    }
+   },
+   "required": [
+    "room"
+   ],
+   "type": "object"
+  },
+  "name": "plan_get"
+ },
+ {
+  "description": "Check plan conformance.",
+  "inputSchema": {
+   "properties": {
+    "agent": {
+     "type": "string"
+    },
+    "room": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "room"
+   ],
+   "type": "object"
+  },
+  "name": "plan_check"
+ },
+ {
+  "description": "Add a task to the active plan.",
+  "inputSchema": {
+   "additionalProperties": false,
+   "properties": {
+    "accept": {
+     "maxLength": 160,
+     "type": "string"
+    },
+    "agent": {
+     "type": "string"
+    },
+    "assignee": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "base_rev": {
+     "type": "integer"
+    },
+    "deps": {
+     "items": {
+      "type": "string"
+     },
+     "maxItems": 8,
+     "type": "array",
+     "uniqueItems": true
+    },
+    "estimate": {
+     "maxLength": 32,
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "microtasks": {
+     "items": {
+      "additionalProperties": false,
+      "properties": {
+       "accept": {
+        "maxLength": 160,
+        "type": "string"
+       },
+       "text": {
+        "maxLength": 80,
+        "minLength": 1,
+        "type": "string"
+       }
+      },
+      "required": [
+       "text"
+      ],
+      "type": "object"
+     },
+     "maxItems": 12,
+     "type": [
+      "array",
+      "null"
+     ]
+    },
+    "op_id": {
+     "type": "string"
+    },
+    "phase": {
+     "type": "string"
+    },
+    "room": {
+     "type": "string"
+    },
+    "title": {
+     "maxLength": 120,
+     "minLength": 1,
+     "type": "string"
+    },
+    "type": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "room",
+    "agent",
+    "title",
+    "type",
+    "phase",
+    "accept"
+   ],
+   "type": "object"
+  },
+  "name": "task_add"
+ },
+ {
+  "description": "Update a task.",
+  "inputSchema": {
+   "properties": {
+    "accept": {
+     "type": "string"
+    },
+    "agent": {
+     "type": "string"
+    },
+    "base_rev": {
+     "type": "integer"
+    },
+    "deps": {
+     "type": "array"
+    },
+    "estimate": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "op_id": {
+     "type": "string"
+    },
+    "phase": {
+     "type": "string"
+    },
+    "reason": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "room": {
+     "type": "string"
+    },
+    "state": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "task_id": {
+     "type": "string"
+    },
+    "title": {
+     "type": "string"
+    },
+    "type": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "room",
+    "agent",
+    "task_id",
+    "base_rev"
+   ],
+   "type": "object"
+  },
+  "name": "task_update"
+ },
+ {
+  "description": "Claim a task.",
+  "inputSchema": {
+   "properties": {
+    "agent": {
+     "type": "string"
+    },
+    "base_rev": {
+     "type": "integer"
+    },
+    "op_id": {
+     "type": "string"
+    },
+    "room": {
+     "type": "string"
+    },
+    "takeover": {
+     "type": "boolean"
+    },
+    "task_id": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "room",
+    "agent",
+    "task_id"
+   ],
+   "type": "object"
+  },
+  "name": "task_claim"
+ },
+ {
+  "description": "Release a claimed task.",
+  "inputSchema": {
+   "properties": {
+    "agent": {
+     "type": "string"
+    },
+    "base_rev": {
+     "type": "integer"
+    },
+    "op_id": {
+     "type": "string"
+    },
+    "room": {
+     "type": "string"
+    },
+    "task_id": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "room",
+    "agent",
+    "task_id"
+   ],
+   "type": "object"
+  },
+  "name": "task_release"
+ },
+ {
+  "description": "Add a microtask to a task.",
+  "inputSchema": {
+   "additionalProperties": false,
+   "properties": {
+    "accept": {
+     "maxLength": 160,
+     "type": "string"
+    },
+    "agent": {
+     "type": "string"
+    },
+    "base_rev": {
+     "type": "integer"
+    },
+    "op_id": {
+     "type": "string"
+    },
+    "room": {
+     "type": "string"
+    },
+    "task_id": {
+     "type": "string"
+    },
+    "text": {
+     "maxLength": 80,
+     "minLength": 1,
+     "type": "string"
+    }
+   },
+   "required": [
+    "room",
+    "agent",
+    "task_id",
+    "text",
+    "base_rev"
+   ],
+   "type": "object"
+  },
+  "name": "microtask_add"
+ },
+ {
+  "description": "Set microtask state.",
+  "inputSchema": {
+   "properties": {
+    "agent": {
+     "type": "string"
+    },
+    "evidence": {
+     "type": "array"
+    },
+    "id": {
+     "type": "string"
+    },
+    "op_id": {
+     "type": "string"
+    },
+    "outcome": {
+     "type": "string"
+    },
+    "room": {
+     "type": "string"
+    },
+    "state": {
+     "type": "string"
+    },
+    "took": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "room",
+    "agent",
+    "id",
+    "state"
+   ],
+   "type": "object"
+  },
+  "name": "microtask_set"
+ },
+ {
+  "description": "List ready microtasks.",
+  "inputSchema": {
+   "properties": {
+    "agent": {
+     "type": "string"
+    },
+    "limit": {
+     "type": "integer"
+    },
+    "room": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "room",
+    "agent"
+   ],
+   "type": "object"
+  },
+  "name": "next_work"
+ },
+ {
+  "description": "Write a memory section.",
+  "inputSchema": {
+   "properties": {
+    "agent": {
+     "type": "string"
+    },
+    "base_rev": {
+     "type": "integer"
+    },
+    "op_id": {
+     "type": "string"
+    },
+    "room": {
+     "type": "string"
+    },
+    "section": {
+     "type": "string"
+    },
+    "text": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "room",
+    "agent",
+    "section",
+    "text",
+    "base_rev"
+   ],
+   "type": "object"
+  },
+  "name": "memory_set"
+ },
+ {
+  "description": "Read memory sections.",
+  "inputSchema": {
+   "properties": {
+    "agent": {
+     "type": "string"
+    },
+    "room": {
+     "type": "string"
+    },
+    "section": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "room"
+   ],
+   "type": "object"
+  },
+  "name": "memory_get"
+ },
+ {
+  "description": "Advance the active plan phase.",
+  "inputSchema": {
+   "properties": {
+    "agent": {
+     "type": "string"
+    },
+    "base_rev": {
+     "type": "integer"
+    },
+    "op_id": {
+     "type": "string"
+    },
+    "phase": {
+     "type": "string"
+    },
+    "room": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "room",
+    "agent",
+    "phase",
+    "base_rev"
+   ],
+   "type": "object"
+  },
+  "name": "plan_phase"
+ },
+ {
+  "description": "Close the active plan.",
+  "inputSchema": {
+   "properties": {
+    "agent": {
+     "type": "string"
+    },
+    "base_rev": {
+     "type": "integer"
+    },
+    "op_id": {
+     "type": "string"
+    },
+    "outcome": {
+     "type": "string"
+    },
+    "room": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "room",
+    "agent",
+    "base_rev"
+   ],
+   "type": "object"
+  },
+  "name": "plan_close"
+ }
+]

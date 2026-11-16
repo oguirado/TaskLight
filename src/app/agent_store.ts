@@ -2,7 +2,7 @@
 import { diffPlans, foldRoomWithStats, formatUserTime, toTaskVM } from "../agents";
 import type { AgentState, DriftVerdict, RoomEvent, TemplateMemorySectionMeta } from "../agents/types";
 import type { AgentChatVM, ChatMessageVM } from "../agentsui/types";
-import type { AccentVM, WallVM, ViewId, TaskVM, StepVM, AgendaGroupVM, AgendaItemVM, ArchivedVM, PlanVM, DiaryEntryVM, MemoryVM, MemorySectionVM, PlanPhaseVM, PlanAgentDotVM, SourceVM } from "../views/types";
+import type { AccentVM, ActivityVM, WallVM, ViewId, TaskVM, StepVM, AgendaGroupVM, AgendaItemVM, ArchivedVM, PlanVM, DiaryEntryVM, MemoryVM, MemorySectionVM, PlanPhaseVM, PlanAgentDotVM, SourceVM } from "../views/types";
 import * as Plan from "../plan";
 import type { PlanProjection, PlanTask, PlanMicrotask, PlanState, PlanningTemplate } from "../plan";
 
@@ -14,10 +14,13 @@ export interface PlanProjectionResult {
   source: "v2" | "legacy";
   projection: PlanProjection;
   invalidOps: number;
+  rejectedOps?: number;
+  errors?: readonly { id?: string; lamport?: number; code: string }[];
   template?: PlanningTemplate;
 }
 export interface AgentStore {
   ingest(ev: unknown): boolean;
+  ingestChecked(ev: unknown): "accepted" | "duplicate" | "invalid";
   ingestJsonl(text: string): IngestSummary;
   since(): Record<string, number>;
   states(): AgentState[];
@@ -29,6 +32,7 @@ export interface ChatOpts { userAgent: string; nowMs: number; drift?: DriftVerdi
 export interface WallOpts { nowMs: number; model: WallVM["model"]; network: WallVM["network"]; userAgent?: string }
 export interface PlanWallOpts extends WallOpts {
   theme?: WallVM["theme"];
+  syncStale?: boolean;
   view?: ViewId;
   workspace?: string;
   archiveScope?: "workspace" | "all";
@@ -52,11 +56,7 @@ const SILENT_AFTER_MS = 600_000;
 const ACCENTS: readonly AccentVM[] = ["rose", "iris", "sky", "slate", "lagoon", "saffron"];
 const encoder = new TextEncoder();
 const DANGEROUS = new Set(["__proto__", "constructor", "prototype"]);
-const PLAN_KINDS = new Set([
-  "plan.open", "plan.close", "plan.phase",
-  "task.add", "task.set", "task.claim", "task.release",
-  "micro.add", "micro.set", "memory.set",
-]);
+
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
@@ -155,7 +155,7 @@ function validEvent(v: unknown): v is RoomEvent {
       if (!isJsonSafeDeep(op)) return false;
       // Dangerous keys inside op already covered by isJsonSafeDeep, but check again
       if (hasDangerousOwnKey(op)) return false;
-      if (op["kind"] === undefined || typeof op["kind"] !== "string" || !PLAN_KINDS.has(op["kind"] as string)) return false;
+      if (op["kind"] === undefined || typeof op["kind"] !== "string" || (op["kind"] as string).length === 0) return false;
       if (Object.prototype.hasOwnProperty.call(op, "op_id")) {
         const vOp = op["op_id"];
         if (typeof vOp !== "string" || !OP_ID_RE.test(vOp)) return false;
@@ -245,10 +245,10 @@ export function createAgentStore(opts?: AgentStoreOptions): AgentStore {
   const rooms = new Map<string, RoomEvent[]>();
   const maxLamport = new Map<string, number>();
 
-  const ingest = (ev: unknown): boolean => {
+  const ingestChecked = (ev: unknown): "accepted" | "duplicate" | "invalid" => {
     try {
-      if (!validEvent(ev)) return false;
-      if (seen.has(ev.id)) return false;
+      if (!validEvent(ev)) return "invalid";
+      if (seen.has(ev.id)) return "duplicate";
       seen.add(ev.id);
       let list = rooms.get(ev.room);
       if (list === undefined) {
@@ -256,18 +256,17 @@ export function createAgentStore(opts?: AgentStoreOptions): AgentStore {
         rooms.set(ev.room, list);
       }
       list.push(cloneEvent(ev));
-      if (list.length > maxPerRoom) {
-        list.sort(compareEvents);
-        list.splice(0, list.length - maxPerRoom);
-      }
       const cur = maxLamport.get(ev.room);
       if (cur === undefined || ev.lamport > cur) maxLamport.set(ev.room, ev.lamport);
-      return true;
-    } catch { return false; }
+      return "accepted";
+    } catch { return "invalid"; }
   };
+
+  const ingest = (ev: unknown): boolean => ingestChecked(ev) === "accepted";
 
   const store: AgentStore = {
     ingest,
+    ingestChecked,
     ingestJsonl(text: string): IngestSummary {
       const summary: IngestSummary = { accepted: 0, duplicate: 0, malformed: 0, torn: false };
       if (typeof text !== "string" || text.length === 0) return summary;
@@ -314,7 +313,12 @@ export function createAgentStore(opts?: AgentStoreOptions): AgentStore {
     events(room: string): RoomEvent[] {
       const list = rooms.get(room);
       if (list === undefined) return [];
-      return list.map(cloneEvent).sort(compareEvents);
+      const ops: RoomEvent[] = [];
+      const others: RoomEvent[] = [];
+      for (const e of list) (e.act === "op" ? ops : others).push(e);
+      others.sort(compareEvents);
+      const kept = others.length > maxPerRoom ? others.slice(others.length - maxPerRoom) : others;
+      return [...ops, ...kept].map(cloneEvent).sort(compareEvents);
     },
     plan(room: string): PlanProjectionResult | undefined {
       try {
@@ -349,9 +353,12 @@ export function createAgentStore(opts?: AgentStoreOptions): AgentStore {
         }
         const result = template !== undefined ? Plan.foldPlan(sorted as unknown, template) : Plan.foldPlan(sorted as unknown);
         const proj = (result as { projection?: PlanProjection })?.projection;
-        const stats = (result as { stats?: { invalid?: number } })?.stats;
+        const stats = (result as { stats?: { invalid?: number; rejected?: number; errors?: readonly { id?: string; lamport?: number; code: string }[] } })?.stats;
         if (proj === undefined) return undefined;
-        return { room, source: "v2", projection: proj, invalidOps: typeof stats?.invalid === "number" ? stats.invalid : 0, ...(template !== undefined ? { template } : {}) };
+        return { room, source: "v2", projection: proj, invalidOps: typeof stats?.invalid === "number" ? stats.invalid : 0,
+          ...(typeof stats?.rejected === "number" ? { rejectedOps: stats.rejected } : {}),
+          ...(Array.isArray(stats?.errors) ? { errors: stats.errors } : {}),
+          ...(template !== undefined ? { template } : {}) };
       } catch { return undefined; }
     },
     plans(): PlanProjectionResult[] {
@@ -587,6 +594,47 @@ function formatArchiveTook(opened: unknown, closed: unknown): string {
   return `${(durMs / 3600000).toFixed(1)}h`;
 }
 
+const ACTIVITY_FRESH_MS = 90000;
+
+/** Frozen S2 seam: pure activity derivation consumed by the view mapping. Run ordering is not reinterpreted here. */
+function microActivity(pt: PlanTask, micro: PlanMicrotask, hasWaits: boolean, nowMs: number, syncStale: boolean): ActivityVM {
+  if (pt.state === "cancelled") return { state: "cancelled" };
+  if (micro.state === "done") return { state: "done" };
+  if (micro.state === "blocked" || pt.explicit_state === "blocked") return { state: "blocked" };
+  if (micro.state === "pending") return hasWaits ? { state: "waiting" } : { state: "idle" };
+  if (syncStale) return { state: "unknown" };
+  const live = micro.live;
+  if (!live || typeof live !== "object") return { state: "unknown" };
+  const beat: unknown = (live as { beat_ts?: unknown }).beat_ts;
+  if (typeof beat !== "number" || !Number.isFinite(beat) || beat > nowMs || nowMs - beat > ACTIVITY_FRESH_MS) return { state: "unknown" };
+  if ((live as { agent?: unknown }).agent !== pt.assignee) return { state: "unknown" };
+  return { state: "working", expiresAt: beat + ACTIVITY_FRESH_MS };
+}
+
+function taskActivity(pt: PlanTask, microActs: readonly ActivityVM[], hasWaits: boolean, nowMs: number, syncStale: boolean): ActivityVM {
+  void nowMs; void syncStale;
+  if (pt.state === "cancelled") return { state: "cancelled" };
+  if (pt.state === "blocked" || pt.explicit_state === "blocked") return { state: "blocked" };
+  if (hasWaits) return { state: "waiting" };
+  let best: number | undefined;
+  for (const a of microActs) {
+    if (a.state === "working") best = best === undefined ? (a.expiresAt ?? Number.POSITIVE_INFINITY) : Math.min(best, a.expiresAt ?? Number.POSITIVE_INFINITY);
+  }
+  if (best !== undefined) return best === Number.POSITIVE_INFINITY ? { state: "working" } : { state: "working", expiresAt: best };
+  for (const a of microActs) {
+    if (a.state === "unknown") return { state: "unknown" };
+  }
+  if (pt.state === "done") {
+    if (microActs.length > 0 && microActs.every((a) => a.state === "done")) return { state: "done" };
+    return { state: "unknown" };
+  }
+  return { state: "idle" };
+}
+
+function depSatisfied(dep: PlanTask | undefined): boolean {
+  return dep !== undefined && (dep.state === "done" || dep.state === "cancelled");
+}
+
 export function toWallVM(
   states: readonly AgentState[],
   verdicts: ReadonlyMap<string, DriftVerdict> | undefined,
@@ -604,6 +652,7 @@ export function toWallVM(
     const view = (safeOpts as PlanWallOpts).view ?? "wall";
     const archiveScopeOpt = (safeOpts as PlanWallOpts).archiveScope ?? "workspace";
     const planVerdicts = safeOpts.planVerdicts;
+    const syncStale = (safeOpts as PlanWallOpts).syncStale === true;
     const safePlans = Array.isArray(plans) ? plans.filter((p): p is PlanProjectionResult => isRecord(p as unknown) && typeof (p as PlanProjectionResult).room === "string" && isRecord((p as PlanProjectionResult).projection as unknown)) : [];
 
     const visible: AgentState[] = [];
@@ -659,8 +708,16 @@ export function toWallVM(
             const pt = t as PlanTask;
             if (pt.assignee !== null && pt.assignee !== undefined && typeof pt.assignee === "string" && userAgent !== undefined && pt.assignee === userAgent) continue;
             const accent = accentOf.get(room) ?? ("rose" as AccentVM);
+            const stateMap: Record<string, TaskVM["status"]> = { blocked: "blocked", done: "done", active: "running", pending: "idle", cancelled: "failed" };
+            let status: TaskVM["status"] = stateMap[pt.state] ?? "idle";
+            const depArr = Array.isArray(pt.deps) ? [...pt.deps] : [];
+            const notDone = depArr.filter((d) => !depSatisfied(byId.get(d)));
+            const hasWaits = notDone.length > 0;
+            let waitsFor: string[] | undefined;
+            if (hasWaits) { waitsFor = notDone; if (status === "idle") status = "waiting"; }
             const micros = Array.isArray(pt.microtasks) ? pt.microtasks : [];
-            const steps: StepVM[] = micros.map((m) => {
+            const microActs: ActivityVM[] = micros.map((m) => microActivity(pt, m as PlanMicrotask, hasWaits, nowMs, syncStale));
+            const steps: StepVM[] = micros.map((m, mi) => {
               const micro = m as PlanMicrotask;
               const step: StepVM = { label: typeof micro.text === "string" ? micro.text : "", state: micro.state, microId: micro.id, accept: typeof (micro as { accept?: unknown }).accept === "string" ? ((micro as { accept?: unknown }).accept as string) : "" };
               if (micro.took !== null && micro.took !== undefined && typeof micro.took === "string") (step as StepVM).took = micro.took;
@@ -670,14 +727,11 @@ export function toWallVM(
                   step.detail = { outcome: micro.outcome ?? "", evidence: ev, source: { kind: "rules", ms: 0 } };
                 }
               }
+              const act = microActs[mi];
+              if (act !== undefined) step.activity = act;
               return step;
             });
-            const stateMap: Record<string, TaskVM["status"]> = { blocked: "blocked", done: "done", active: "running", pending: "idle", cancelled: "failed" };
-            let status: TaskVM["status"] = stateMap[pt.state] ?? "idle";
-            const depArr = Array.isArray(pt.deps) ? [...pt.deps] : [];
-            const notDone = depArr.filter((d) => { const dep = byId.get(d); return !dep || dep.state !== "done"; });
-            let waitsFor: string[] | undefined;
-            if (notDone.length > 0) { waitsFor = notDone; if (status === "idle") status = "waiting"; }
+            const taskAct = taskActivity(pt, microActs, hasWaits, nowMs, syncStale);
             let attention: TaskVM["attention"] = "none";
             if (status === "blocked") attention = "high";
             else if (status === "running" || status === "waiting") attention = "now";
@@ -696,6 +750,7 @@ export function toWallVM(
               steps,
             };
             const rec = vm as unknown as Record<string, unknown>;
+            rec["activity"] = taskAct;
             rec["taskId"] = pt.id;
             rec["phaseId"] = pt.phase;
             rec["phaseLabel"] = pt.phase;
@@ -763,7 +818,14 @@ export function toWallVM(
           const phases: PlanPhaseVM[] = phaseDefs.map((d) => ({ id: d.id, label: d.label, exit: d.exit ?? "", active: d.id === psPhase }));
           const agentsSet = new Set<string>();
           for (const t of tasksArr) { const a = (t as PlanTask).assignee; if (typeof a === "string" && a.length > 0) agentsSet.add(a); }
-          const agents: PlanAgentDotVM[] = [...agentsSet].sort().map((a) => ({ agent: a, active: true }));
+          const workingAgents = new Set<string>();
+          for (const t of v2Tasks) {
+            if (t.workspace !== workspace) continue;
+            if ((t as TaskVM).activity?.state !== "working") continue;
+            const a = (t as TaskVM).assignee;
+            if (typeof a === "string" && a.length > 0) workingAgents.add(a);
+          }
+          const agents: PlanAgentDotVM[] = [...agentsSet].sort().map((a) => ({ agent: a, active: workingAgents.has(a) }));
           const rollup = primary.projection.rollup;
           // The plan band computes its percentage from these microtask counts.
           const micros = tasksArr.flatMap((t) => Array.isArray(t.microtasks) ? t.microtasks : []);
@@ -809,15 +871,16 @@ export function toWallVM(
             const pt = t as PlanTask;
             if (pt.assignee !== null && pt.assignee !== undefined && typeof pt.assignee === "string" && userAgent !== undefined && pt.assignee === userAgent) continue;
             const tid = pt.id;
+            const identity = { workspace: pr.room, taskVmId: `plan:${pr.room}:${tid}` };
             const title = pt.title;
             const agent = pt.assignee ?? undefined;
             const depArr = Array.isArray(pt.deps) ? [...pt.deps] : [];
-            const notDone = depArr.filter((d) => { const dep = byId.get(d); return !dep || dep.state !== "done"; });
+            const notDone = depArr.filter((d) => !depSatisfied(byId.get(d)));
             const hasWaits = notDone.length > 0;
             const isBlockedTask = pt.state === "blocked";
             if (isBlockedTask || hasWaits) {
               const reason = (pt.blocked_reason ?? (hasWaits ? `Waits for ${notDone.join(", ")}` : "")) as string;
-              const item: AgendaItemVM = { when: "Blocked", task: tid, taskId: tid, what: reason ? `${title} — ${reason}` : title };
+              const item: AgendaItemVM = { ...identity, when: "Blocked", task: tid, taskId: tid, what: reason ? `${title} — ${reason}` : title };
               if (agent !== undefined) item.agent = agent;
               if (reason.length > 0) item.reason = reason;
               blocked.push(item);
@@ -830,15 +893,15 @@ export function toWallVM(
               const label = micro.text;
               const microId = micro.id;
               if (micro.state === "active" && parentEligible) {
-                const item: AgendaItemVM = { when: "Now", task: tid, taskId: tid, microId, what: label };
+                const item: AgendaItemVM = { ...identity, when: "Now", task: tid, taskId: tid, microId, what: label };
                 if (agent !== undefined) item.agent = agent;
                 now.push(item);
               } else if (micro.state === "pending" && ready) {
-                const item: AgendaItemVM = { when: "Next", task: tid, taskId: tid, microId, what: label };
+                const item: AgendaItemVM = { ...identity, when: "Next", task: tid, taskId: tid, microId, what: label };
                 if (agent !== undefined) item.agent = agent;
                 next.push(item);
               } else if (micro.state === "blocked") {
-                const item: AgendaItemVM = { when: "Blocked", task: tid, taskId: tid, microId, what: label };
+                const item: AgendaItemVM = { ...identity, when: "Blocked", task: tid, taskId: tid, microId, what: label };
                 if (agent !== undefined) item.agent = agent;
                 const r = (pt.blocked_reason ?? undefined) as string | undefined;
                 if (r !== undefined && r.length > 0) item.reason = r;
@@ -847,8 +910,8 @@ export function toWallVM(
             }
             // If task has no microtasks but is active/blocked, still ensure task-level items
             if (micros.length === 0) {
-              if (pt.state === "active" && parentEligible) { const item: AgendaItemVM = { when: "Now", task: tid, taskId: tid, what: title }; if (agent !== undefined) item.agent = agent; now.push(item); }
-              else if (ready) { const item: AgendaItemVM = { when: "Next", task: tid, taskId: tid, what: title }; if (agent !== undefined) item.agent = agent; next.push(item); }
+              if (pt.state === "active" && parentEligible) { const item: AgendaItemVM = { ...identity, when: "Now", task: tid, taskId: tid, what: title }; if (agent !== undefined) item.agent = agent; now.push(item); }
+              else if (ready) { const item: AgendaItemVM = { ...identity, when: "Next", task: tid, taskId: tid, what: title }; if (agent !== undefined) item.agent = agent; next.push(item); }
             }
           }
         }
@@ -1076,6 +1139,7 @@ export function toWallVM(
       archive,
     };
     const ext = vm as unknown as Record<string, unknown>;
+    if (syncStale) ext["syncStale"] = true;
     if (safeOpts.theme === "light" || safeOpts.theme === "dark") ext["theme"] = safeOpts.theme;
     if (plan !== undefined) ext["plan"] = plan;
     if (diary !== undefined) ext["diary"] = diary as unknown;

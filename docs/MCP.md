@@ -22,10 +22,13 @@ registers the server like this:
 
 `CW_HOME` points at the local data directory. Rooms, plans and memory
 are stored underneath it; the server never writes outside it.
+Desktop configuration uses `$CW_HOME/wall.config.json`, otherwise
+`~/.context-wall/wall.config.json`; `.contextwall/wall.config.json` is
+historical wording, not a supported default.
 
 ## Tools
 
-Twenty-two tools are exposed. One-line purposes:
+26 tools are exposed (verified with `tools/list`). One-line purposes:
 
 Legacy six (`TOOLS[0:6]`):
 
@@ -42,7 +45,8 @@ v2 sixteen (`TOOLS[6:22]`):
 - `get_template`: fetch one planning template by id.
 - `plan_create`: atomically open a plan and add its tasks (up to 40 tasks).
 - `plan_get`: return the folded projection, with nested
-  `tasks[].microtasks` entries inside the task list.
+  `tasks[].microtasks` entries inside the task list. Optional `since_rev`
+  folds events through that revision; it is a historical projection, not a delta.
 - `plan_check`: check plan conformance against its base template.
 - `plan_phase`: advance the active plan phase (`{room, agent, phase, base_rev, op_id?}`, posting `plan.phase`; unknown `phase` returns `bad_op`, and a stale `base_rev` returns `stale_rev`).
 - `plan_close`: close the active plan with an optional outcome (`{room, agent, outcome?, base_rev, op_id?}`, posting `plan.close`; requires `base_rev`).
@@ -62,12 +66,50 @@ v2 sixteen (`TOOLS[6:22]`):
   up to 8 absolute paths to existing files, excluding credential files;
   a plain string returns `bad_evidence`); the op must not carry `base_rev`
   or any revision field.
-- `next_work`: return the next ready task for the calling agent: tasks
-  already assigned to the caller first, then unassigned ready tasks;
-  never returns tasks assigned to another agent.
+- `next_work`: return `{"items":[microtask,...]}` listing ready
+  microtasks for the calling agent: tasks already assigned to the caller
+  first, then unassigned ready tasks; never returns tasks assigned to
+  another agent.
 - `memory_set`: write one memory section text (`base_rev: 0` for the
   first write of a section).
 - `memory_get`: read one memory section text.
+
+Extensions:
+
+- `room_events`: read room journal events strictly after a Lamport cursor.
+  - Arguments: `{room, agent, after_lamport, limit?, acts?, ops?, wait_ms?}` (`room`, `agent`, and integer `after_lamport >= 0` required; `limit` `1..500`, default `100`; `wait_ms` `0..30000`, default `0`; `acts` and `ops` are optional string arrays matching `event.act` and `event.op.kind` respectively, where omitted arrays impose no filter, empty arrays match nothing, items within an array combine with OR, and `acts` + `ops` combine with AND; unknown keys rejected). `agent` identifies the caller and is not an author filter.
+  - Result (wrapped in `{"untrusted": ...}`): `{"events": [{"id", "room", "agent", "act", "text", "ts", "lamport", "op"?}], "next_after": int, "head": int, "has_more": bool, "resync": bool}` in ascending Lamport order. When `after_lamport > head`, returns immediately (even with `wait_ms > 0`) with `events: []`, `next_after: head`, `has_more: false`, and `resync: true`. Otherwise `next_after` is the last returned Lamport when `has_more` is `true`, or `head` when `false`.
+  - Error codes: `bad_room`, `bad_agent`, `bad_args`.
+- `activity_beat`: record an execution activity beat for assigned active work.
+  - Arguments: `{room, agent, task_id, micro_id?, run_id, note?, op_id?}` (`room`, `agent`, `task_id`, and `run_id` matching `^[A-Za-z0-9_-]{1,64}$` required; optional `micro_id` targets one microtask, or all active microtasks of `task_id` when omitted; optional `note` up to 240 Unicode code points; optional `op_id` generated when omitted; `base_rev` and unknown keys rejected).
+  - Result (wrapped in `{"untrusted": ...}`): `{"ok": true, "lamport": int, "beat_ts": int}` (plus `"replayed": true` when replayed under `(agent, op_id)`).
+  - Error codes: `bad_room`, `bad_agent`, `bad_args`, `bad_op`, `limit_exceeded`, `no_plan`, `not_found`, `claimed_by_other`.
+
+- `room_export`: export a folded projection as Markdown.
+  - Arguments: `{room, agent, what}` with `what: "plan" | "memory"`; all required, unknown keys rejected.
+  - Result (wrapped in `{"untrusted": ...}`): `{format:"markdown", text, rev}`. Works after plan closure; does not write files.
+- `memory_history`: read accepted updates to one memory section, newest first.
+  - Arguments: `{room, agent, section, limit?}`; `section` matches `^[a-z0-9][a-z0-9-]{0,47}$`, `limit` is `1..500` (default `100`); unknown keys rejected.
+  - Result (wrapped in `{"untrusted": ...}`): `{section, versions:[{rev,by,ts,text},...]}`; rejected operations and deduplicated replays are excluded.
+
+## Parity CLI
+
+TaskLight exposes the same validated tool registry and handlers over the
+command line without starting an MCP session:
+
+- `python3 -m bridge.room tools` prints `{"tools": [...]}` matching
+  MCP `tools/list` and exits `0`.
+- `python3 -m bridge.room call <tool> --json '<object>'` executes any
+  tool through the shared dispatcher and prints its decoded JSON result
+  (including `{"untrusted": ...}` for v2/extension tools) or error
+  payload (`{"ok": false, "code": ..., "detail"?: ...}`), exiting `0` on
+  success, `2` on CLI syntax, JSON, or unknown-tool errors (`bad_args`),
+  and `3` on dispatched tool errors.
+
+`python3 -m bridge.room export --room R --out DIR` writes `PLAN.md` and
+`MEMORY.md` under `$CW_HOME/DIR` (relative paths only; traversal, symlinks
+and paths outside `$CW_HOME` are refused with `bad_args`, exit `2`; write
+failures return `export_failed`, exit `3`). See [HEADLESS.md](HEADLESS.md) for headless workflows and full CLI usage.
 
 ## Copy-paste: your first plan
 
@@ -170,7 +212,8 @@ Claim `T01` before editing its files:
 }
 ```
 
-Mark microtask `T01.M01` done with `evidence` paths (never pass `base_rev` to `microtask_set`):
+Mark microtask `T01.M01` done with `evidence` paths (replace the placeholders
+with real existing absolute file paths; never pass `base_rev` to `microtask_set`):
 
 ```json
 {
@@ -187,8 +230,8 @@ Mark microtask `T01.M01` done with `evidence` paths (never pass `base_rev` to `m
       "outcome": "Added request schema validation and 400 error responses",
       "took": "15m",
       "evidence": [
-        "/workspace/app/src/session.py",
-        "/workspace/app/tests/test_session.py"
+        "<absolute-path-to-session.py>",
+        "<absolute-path-to-test_session.py>"
       ],
       "op_id": "micro-t01m01-0001"
     }
@@ -243,6 +286,13 @@ Resources are read-only and never create directories:
 
 - `resources/list`, `resources/templates/list`, `resources/read`.
 - `tasklight://contract` (`text/markdown`) for the planning contract.
+- `tasklight://guide/headless` (name `headless guide`, MIME `text/markdown`),
+  listed immediately after the contract when both files are available;
+  reads return the exact UTF-8 contents of [HEADLESS.md](HEADLESS.md).
+  Both Markdown resources accept at most 65,536 bytes, are omitted from
+  discovery when unavailable, oversized, or invalid UTF-8, and return
+  `-32002` (`resource not found`) on an unavailable read. Unknown URIs
+  remain `-32602`.
 - `tasklight://templates/{id}` for one planning template.
 - `tasklight://rooms/{room}/plan` for the folded plan projection.
 - `tasklight://rooms/{room}/memory` for all memory sections.
@@ -253,6 +303,7 @@ Prompts used to build and govern plans from a template:
 - `plan_from_template` with `template_id` and `brief` arguments.
 - `resume_from_memory` with a `room` argument and optional `agent`.
 - `planning_contract` with optional `room` and `agent` arguments; returns the contract's agent system prompt.
+- `executor_loop` with required `room` and `agent` arguments and optional `task_id` argument (invalid arguments return `-32602`); returns executor steering text covering task claiming, active microtask transitions, periodic `activity_beat` heartbeats, evidence recording, and task release.
 
 ## Errors
 
@@ -260,6 +311,12 @@ JSON-RPC level errors: `-32700` (parse error), `-32600` (bad
 request), `-32601` (method not found), `-32602` (bad params, including
 malformed URIs), `-32002` (missing valid resource) and `-32603`
 (internal error).
+
+Dispatched tool errors return `isError: true` with a JSON object
+`{"ok": false, "code": "<error_code>", "detail"?: "<string>"}` outside
+the untrusted envelope. When a tool error carries a nonempty message,
+`detail` is populated with that string; unexpected exceptions return
+`code: "internal"` with `detail` omitted.
 
 Legacy tool errors use short codes: `bad_args`, `bad_room`,
 `bad_agent`, `bad_act`, `text_too_long`, `bad_plan`, `bad_step`,
@@ -285,7 +342,8 @@ State changes are serialized under `events.lock`. Revision rules via
   `memory.set` (`memory_set`, `0` for the first write of a section);
 - optional on `task.add` (`task_add`), `task.claim` (`task_claim`) and
   `task.release` (`task_release`);
-- forbidden on `micro.set` (`microtask_set`, `bad_op` is returned).
+- forbidden on `micro.set` (`microtask_set`) and `activity.beat`
+  (`activity_beat`), where passing `base_rev` returns `bad_op`.
 
 A missing required `base_rev` is `bad_op`; a mismatch is `stale_rev`.
 

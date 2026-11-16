@@ -53,7 +53,7 @@ export const PROVIDER_KINDS: readonly ProviderKind[] = Object.freeze([
 ] as const);
 
 const PROVIDER_KIND_SET: ReadonlySet<string> = new Set<string>(PROVIDER_KINDS);
-const NON_SCREENSHOT_TASKS: ReadonlySet<string> = new Set<string>(["status", "summary", "next_action", "digest", "plan"]);
+const NON_SCREENSHOT_TASKS: ReadonlySet<string> = new Set<string>(["status", "summary", "next_action", "digest", "plan", "liaison"]);
 
 export function isProviderKind(v: unknown): v is ProviderKind {
   return typeof v === "string" && PROVIDER_KIND_SET.has(v);
@@ -73,8 +73,10 @@ function flag(opts: unknown, key: keyof ProviderGateOpts): boolean {
 }
 
 // Fail-closed, pure, total provider gate (SPEC_U46 section 3; first match returns).
+export type ProviderPolicyTask = TaskId | "liaison";
+
 export function assertProviderAllowed(
-  task: TaskId, tier: PrivacyTier, kind: ProviderKind, opts: ProviderGateOpts,
+  task: ProviderPolicyTask, tier: PrivacyTier, kind: ProviderKind, opts: ProviderGateOpts,
 ): ProviderPolicyResult {
   if (!isProviderKind(kind)) return deny("PROVIDER_KIND_UNKNOWN");
   const t: unknown = tier;

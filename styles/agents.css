@@ -183,6 +183,32 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.chat-delivery {
+  display: block;
+  font-size: var(--fs-0);
+  color: var(--c-text-3);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.chat-retry {
+  min-height: var(--touch);
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--r-pill);
+  background: var(--c-surface-1);
+  color: var(--c-text-1);
+  font-size: var(--fs-1);
+  font-weight: var(--fw-semibold);
+  align-self: flex-start;
+}
+.chat-retry:disabled {
+  opacity: 0.55;
+}
+.chat-retry:focus,
+.chat-retry:focus-visible {
+  outline: 2px solid var(--c-focus);
+  outline-offset: 2px;
+}
 .chat-at {
   font-size: var(--fs-0);
   color: var(--c-text-3);

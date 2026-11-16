@@ -373,7 +373,7 @@ export function validateTemplate(raw: unknown):
 const OP_KINDS: ReadonlySet<string> = new Set([
   "plan.open", "plan.close", "plan.phase",
   "task.add", "task.set", "task.claim", "task.release",
-  "micro.add", "micro.set", "memory.set",
+  "micro.add", "micro.set", "memory.set", "activity.beat",
 ]);
 
 function strLenCheck(v: unknown, lo: number, hi: number): PlanOpErrorCode | null {
@@ -393,6 +393,10 @@ function baseRevCheck(v: unknown, lo: number): PlanOpErrorCode | null {
 }
 function hasOwn(rec: Record<string, unknown>, k: string): boolean {
   try { return Object.prototype.hasOwnProperty.call(rec, k); } catch { return false; }
+}
+
+function fullMatch(pattern: RegExp, value: unknown): boolean {
+  return typeof value === "string" && pattern.exec(value)?.[0] === value;
 }
 
 export function validateOpShapeCode(op: Record<string, unknown>): PlanOpErrorCode | null {
@@ -415,6 +419,18 @@ export function validateOpShapeCode(op: Record<string, unknown>): PlanOpErrorCod
       return null;
     };
 
+    if (kind === "activity.beat") {
+      const e = unknown(new Set(["kind", "task_id", "micro_id", "run_id", "note", "op_id"]));
+      if (e) return e;
+      if (!fullMatch(TASK_ID_RE, op["task_id"]) || !fullMatch(OP_ID_RE, op["op_id"])) return "bad_op";
+      if (!fullMatch(/^[A-Za-z0-9_-]{1,64}$/, op["run_id"])) return "bad_op";
+      if (hasOwn(op, "micro_id") && !fullMatch(MICRO_ID_RE, op["micro_id"])) return "bad_op";
+      if (hasOwn(op, "note")) {
+        const c = strLenCheck(op["note"], 0, 240); if (c) return c;
+        if (/[\x00-\x1f\x7f-\x9f]/.test(op["note"] as string)) return "bad_op";
+      }
+      return null;
+    }
     if (kind === "plan.open") {
       const e = unknown(new Set(["kind", "op_id", "title", "template_id", "template_hash", "brief", "phase"]));
       if (e) return e;

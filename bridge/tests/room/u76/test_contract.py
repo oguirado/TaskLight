@@ -187,7 +187,9 @@ class ContractOracle(unittest.TestCase):
 
     def test_a4_prompt_list_exact_order_and_schema(self):
         reply, = self.rpc(call("prompts/list"))
-        self.assertEqual(self.result(reply), {"prompts": LEGACY_PROMPTS + [CONTRACT_PROMPT]})
+        prompts = self.result(reply)["prompts"]  # A-U87b: executor_loop is appended last (U87)
+        self.assertEqual(prompts[:3], LEGACY_PROMPTS + [CONTRACT_PROMPT])
+        self.assertEqual([p["name"] for p in prompts[3:]], ["executor_loop"])
 
     def test_m4_legacy_prompt_descriptors_unchanged(self):
         reply, = self.rpc(call("prompts/list"))

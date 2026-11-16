@@ -1,5 +1,7 @@
 import type {
   AccentVM,
+  ActivityStateVM,
+  ActivityVM,
   AgendaGroupVM,
   AgendaItemVM,
   ArchivedVM,
@@ -24,6 +26,8 @@ import type {
 
 export type {
   AccentVM,
+  ActivityStateVM,
+  ActivityVM,
   AgendaGroupVM,
   AgendaItemVM,
   ArchivedVM,
@@ -44,6 +48,17 @@ export type {
   TaskVM,
   ViewId,
 };
+
+/** Contain failures at injected view callback boundaries, including async results. */
+export function containViewCallback(action: () => unknown): void {
+  try {
+    const result = action();
+    if (result !== null && (typeof result === "object" || typeof result === "function")
+      && typeof (result as { then?: unknown }).then === "function") {
+      (result as PromiseLike<unknown>).then(undefined, () => { /* contained */ });
+    }
+  } catch { /* contained */ }
+}
 
 export const PLAN_VIEW_LIMITS = Object.freeze({
   TASKS_MAX: 40,
@@ -83,9 +98,41 @@ export interface DiaryDayGroupVM {
 export type AnnounceFn = (msg: string) => void;
 
 export interface PlanCardHandlers {
-  onOpenTask?: (id: string) => void;
+  onOpenTask?: (id: string, triggerSelector?: string, trigger?: { triggerId?: string; taskId?: string; microId?: string; ref?: string }) => void;
   onToggleMicroDetail?: (taskId: string, microIndex: number) => void;
   announce?: AnnounceFn;
+}
+
+const ACTIVITY_LABEL: Readonly<Record<ActivityStateVM, string>> = {
+  idle: "Idle", working: "Working", done: "Done", blocked: "Blocked",
+  waiting: "Waiting", needs_you: "Needs you", unknown: "Liveness unknown", cancelled: "Cancelled",
+};
+const ACTIVITY_GLYPH: Readonly<Record<ActivityStateVM, string>> = {
+  idle: "○", working: "◐", done: "✓", blocked: "■",
+  waiting: "◇", needs_you: "!", unknown: "?", cancelled: "✕",
+};
+const ACTIVITY_STATES: ReadonlySet<string> = new Set(["idle", "working", "done", "blocked", "waiting", "needs_you", "unknown", "cancelled"]);
+
+/** Resolve an untrusted activity field to the inert fallback. Never throws. */
+function resolveActivity(raw: unknown): ActivityStateVM {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return "unknown";
+  const state = (raw as { state?: unknown }).state;
+  if (typeof state !== "string" || !ACTIVITY_STATES.has(state)) return "unknown";
+  return state as ActivityStateVM;
+}
+
+function displayActivity(raw: unknown, stale: boolean): ActivityStateVM {
+  const state = resolveActivity(raw);
+  if (stale && state === "working") return "unknown";
+  return state;
+}
+
+function activityIcon(doc: Document, cls: string, state: ActivityStateVM): HTMLElement {
+  const icon = el(doc, "span", cls);
+  icon.setAttribute("aria-hidden", "true");
+  icon.setAttribute("data-activity", state);
+  icon.textContent = ACTIVITY_GLYPH[state];
+  return icon;
 }
 
 function asStr(v: unknown): string {
@@ -299,38 +346,44 @@ export function buildPlanAgenda(tasks: readonly TaskVM[]): readonly AgendaGroupV
     const blocked: AgendaItemVM[] = [];
     for (const t of safe) {
       const tid = taskIdOf(t) || asStr((t as { id?: unknown }).id);
+      const identity = { workspace: t.workspace, taskVmId: t.id };
       const assignee = asStr((t as { assignee?: unknown }).assignee);
       const agent = asStr((t as { agent?: unknown }).agent) || assignee;
       const status = asStr((t as { status?: unknown }).status);
       const archived = (t as { archived?: unknown }).archived === true;
+      const rawTaskAct = (t as { activity?: unknown }).activity;
+      const taskAct: ActivityStateVM | undefined = rawTaskAct === undefined ? undefined : resolveActivity(rawTaskAct);
       const waits = taskWaitsFor(t);
       const hasWaits = waits.length > 0;
       const waitsText = formatWaitsFor(waits);
-      if (status === "blocked") {
+      if (status === "blocked" || taskAct === "blocked") {
         const reason = asStr((t as { blockedReason?: unknown }).blockedReason) || waitsText;
         const title = asStr((t as { title?: unknown }).title);
         const what = reason ? `${title ? `${title} — ` : ""}${reason}` : title;
-        blocked.push({ when: "Blocked", task: tid, taskId: tid, what: what || tid, ...(agent ? { agent } : {}), ...(reason ? { reason } : {}) });
+        blocked.push({ ...identity, when: "Blocked", task: tid, taskId: tid, what: what || tid, ...(agent ? { agent } : {}), ...(reason ? { reason } : {}) });
       } else if (hasWaits) {
         const title = asStr((t as { title?: unknown }).title);
         const what = `${title ? `${title} — ` : ""}${waitsText}`;
-        blocked.push({ when: "Blocked", task: tid, taskId: tid, what, ...(agent ? { agent } : {}), reason: waitsText });
+        blocked.push({ ...identity, when: "Blocked", task: tid, taskId: tid, what, ...(agent ? { agent } : {}), reason: waitsText });
       }
-      const ready = !hasWaits && status !== "blocked" && !archived;
-      for (const s of taskSteps(t)) {
+      const terminal = archived || status === "done" || status === "failed" || taskAct === "done" || taskAct === "cancelled" || taskAct === "unknown" || taskAct === "blocked" || (rawTaskAct !== undefined && rawTaskAct !== null && resolveActivity(rawTaskAct) === "unknown");
+      const ready = !hasWaits && status !== "blocked" && !terminal;
+      const steps = taskSteps(t);
+      steps.forEach((s, idx) => {
         const state = asStr((s as { state?: unknown }).state);
         const label = asStr((s as { label?: unknown }).label);
-        const microId = microIdOf(tid, taskSteps(t).indexOf(s), s);
+        const microId = microIdOf(tid, idx, s);
+        const microAct = (s as { activity?: unknown }).activity !== undefined ? resolveActivity((s as { activity?: unknown }).activity) : taskAct;
         if (state === "active") {
-          now.push({ when: "Now", task: tid, taskId: tid, microId, what: label, ...(agent ? { agent } : {}) });
-        } else if (state === "pending" && ready) {
-          next.push({ when: "Next", task: tid, taskId: tid, microId, what: label, ...(agent ? { agent } : {}) });
+          now.push({ ...identity, when: "Now", task: tid, taskId: tid, microId, what: label, ...(agent ? { agent } : {}) });
+        } else if (state === "pending" && ready && microAct !== "unknown" && microAct !== "done" && microAct !== "cancelled" && microAct !== "blocked") {
+          next.push({ ...identity, when: "Next", task: tid, taskId: tid, microId, what: label, ...(agent ? { agent } : {}) });
         } else if (state === "blocked") {
           const title = asStr((t as { title?: unknown }).title);
           const reason = asStr((s as { note?: unknown }).note) || asStr((t as { blockedReason?: unknown }).blockedReason);
-          blocked.push({ when: "Blocked", task: tid, taskId: tid, microId, what: label || title, ...(agent ? { agent } : {}), ...(reason ? { reason } : {}) });
+          blocked.push({ ...identity, when: "Blocked", task: tid, taskId: tid, microId, what: label || title, ...(agent ? { agent } : {}), ...(reason ? { reason } : {}) });
         }
-      }
+      });
     }
     return [{ group: "Now", items: now }, { group: "Next", items: next }, { group: "Blocked", items: blocked }];
   } catch {
@@ -412,7 +465,7 @@ function safePlan(plan: unknown): PlanVM {
   return { id: "p1", title: "", templateId: "", templateHash: "", phaseId: "", phases: [], doneCount: 0, totalCount: 0, progressPct: 0, agents: [] } as PlanVM;
 }
 
-export function renderPlanBand(doc: Document, plan: PlanVM, opts?: { onSelectPhase?: (id: string) => void; announce?: AnnounceFn; selectedPhase?: string | null }): HTMLElement {
+export function renderPlanBand(doc: Document, plan: PlanVM, opts?: { onSelectPhase?: (id: string) => void; announce?: AnnounceFn; selectedPhase?: string | null; syncStale?: boolean }): HTMLElement {
   const sec = el(doc, "section", "plan-band");
   try {
     const p = safePlan(plan);
@@ -451,17 +504,27 @@ export function renderPlanBand(doc: Document, plan: PlanVM, opts?: { onSelectPha
       const chip = el(doc, "button", "phase-chip", label);
       chip.setAttribute("type", "button");
       chip.setAttribute("data-phase-id", pid);
-      chip.setAttribute("aria-pressed", opts && opts.selectedPhase === pid ? "true" : "false");
+      const selected = opts !== undefined && opts.selectedPhase === pid;
+      chip.setAttribute("aria-pressed", selected ? "true" : "false");
       chip.setAttribute("data-active", active ? "true" : "false");
-      if (active) chip.setAttribute("aria-current", "step");
-      else chip.setAttribute("aria-current", "false");
+      if (active) {
+        chip.setAttribute("aria-current", "step");
+        chip.setAttribute("aria-label", `${label} (current phase)`);
+        chip.setAttribute("title", `${label} (current phase)`);
+      } else {
+        chip.setAttribute("aria-current", "false");
+        if (selected) {
+          chip.setAttribute("aria-label", `${label} (selected)`);
+          chip.setAttribute("title", `${label} (selected)`);
+        }
+      }
       if (opts && typeof opts.onSelectPhase === "function") {
         const cb = opts.onSelectPhase;
         const ann = opts ? opts.announce : undefined;
         chip.addEventListener("click", () => {
-          try { cb(pid); } catch { /* contained */ }
+          containViewCallback(() => cb(pid));
           if (typeof ann === "function") {
-            try { ann(`Phase ${pid} selected`); } catch { /* contained */ }
+            containViewCallback(() => ann(`Phase ${pid} selected`));
           }
         });
       }
@@ -474,7 +537,7 @@ export function renderPlanBand(doc: Document, plan: PlanVM, opts?: { onSelectPha
       if (!a || typeof a !== "object") continue;
       const rec = a as Record<string, unknown>;
       const name = asStr(rec.agent);
-      const active = rec.active === true;
+      const active = rec.active === true && opts?.syncStale !== true;
       const accent = rec.accent;
       const dot = el(doc, "span", "agent-dot", name);
       dot.setAttribute("data-agent", name);
@@ -503,30 +566,35 @@ export function renderPlanBand(doc: Document, plan: PlanVM, opts?: { onSelectPha
   return sec;
 }
 
-function renderStepRow(doc: Document, step: StepVM, taskId: string, idx: number, handlers: PlanCardHandlers | undefined): HTMLElement {
+function renderStepRow(doc: Document, step: StepVM, taskId: string, idx: number, handlers: PlanCardHandlers | undefined, stale: boolean): HTMLElement {
   const s = (step as unknown) as Record<string, unknown>;
   const state = asStr(s.state);
   const detailRaw = s.detail;
   const detail = detailRaw && typeof detailRaw === "object" ? (detailRaw as StepDetailVM) : undefined;
-  const hasDetail = state === "done" && detail != null;
+  const acceptRaw = trunc(asStr((step as { accept?: unknown }).accept), PLAN_VIEW_LIMITS.ACCEPT_MAX);
+  const hasPanel = detail != null || acceptRaw.length > 0;
+  const act = displayActivity((step as { activity?: unknown }).activity, stale);
   const li = el(doc, "li", "step");
   if (isSafe(state)) li.setAttribute("data-state", state);
+  li.setAttribute("data-activity", act);
   const label = trunc(asStr(s.label), PLAN_VIEW_LIMITS.STEP_TEXT_MAX);
   const microId = microIdOf(taskId, idx, step as StepVM);
   const drec = detail ? (detail as unknown as Record<string, unknown>) : undefined;
   let row: HTMLElement;
-  if (hasDetail) {
+  if (hasPanel) {
     const btn = el(doc, "button", "step-row");
     btn.setAttribute("type", "button");
     btn.setAttribute("aria-expanded", "false");
     btn.setAttribute("data-task-id", taskId);
     btn.setAttribute("data-step-idx", String(idx));
     btn.setAttribute("data-micro-id", microId);
-    const ind = el(doc, "span", "step-indicator");
-    ind.setAttribute("aria-hidden", "true");
-    btn.appendChild(ind);
+    const panelId = `step-${microId}`;
+    btn.setAttribute("aria-controls", panelId);
+    btn.setAttribute("aria-label", `${label} · ${ACTIVITY_LABEL[act]}`);
+    btn.appendChild(activityIcon(doc, "step-indicator", act));
     const stxt = el(doc, "span", "step-text");
     stxt.appendChild(el(doc, "span", "step-label", label));
+    stxt.appendChild(el(doc, "span", "step-activity-label", ` · ${ACTIVITY_LABEL[act]}`));
     stxt.appendChild(el(doc, "span", "visually-hidden", ` — ${stepLabel(state)}`));
     btn.appendChild(stxt);
     const chev = el(doc, "span", "step-chevron");
@@ -534,23 +602,28 @@ function renderStepRow(doc: Document, step: StepVM, taskId: string, idx: number,
     btn.appendChild(chev);
     row = btn;
     const div = el(doc, "div", "step-detail");
+    div.id = panelId;
     div.setAttribute("data-micro-id", microId);
+    div.setAttribute("aria-label", `Acceptance: ${label}`);
     div.hidden = true;
-    const outcome = trunc(asStr(drec ? drec.outcome : ""), PLAN_VIEW_LIMITS.OUTCOME_MAX);
-    div.appendChild(el(doc, "p", "detail-outcome", outcome));
-    const accept = trunc(asStr((step as { accept?: unknown }).accept), PLAN_VIEW_LIMITS.ACCEPT_MAX);
-    if (accept.length > 0) div.appendChild(el(doc, "p", "detail-accept", accept));
-    div.appendChild(el(doc, "p", "detail-heading", "Evidence"));
-    const evList = el(doc, "ul", "detail-evidence");
+    const outcome = detail ? trunc(asStr(drec ? drec.outcome : ""), PLAN_VIEW_LIMITS.OUTCOME_MAX) : "";
+    if (detail && outcome.length > 0) div.appendChild(el(doc, "p", "detail-outcome", outcome));
+    if (acceptRaw.length > 0) div.appendChild(el(doc, "p", "detail-accept", acceptRaw));
     const ev = drec && Array.isArray(drec.evidence) ? (drec.evidence as unknown[]) : [];
-    let evCount = 0;
-    for (const e of ev) {
-      if (evCount >= PLAN_VIEW_LIMITS.EVIDENCE_MAX) break;
-      evList.appendChild(el(doc, "li", undefined, asStr(e)));
-      evCount += 1;
+    if (ev.length > 0) {
+      div.appendChild(el(doc, "p", "detail-heading", "Evidence recorded"));
+      const evList = el(doc, "ul", "detail-evidence");
+      let evCount = 0;
+      for (const e of ev) {
+        if (evCount >= PLAN_VIEW_LIMITS.EVIDENCE_MAX) break;
+        evList.appendChild(el(doc, "li", undefined, asStr(e)));
+        evCount += 1;
+      }
+      div.appendChild(evList);
+    } else {
+      div.appendChild(el(doc, "p", "detail-heading", "No evidence recorded"));
     }
-    div.appendChild(evList);
-    div.appendChild(sourcechip(doc, drec ? drec.source : undefined));
+    if (detail) div.appendChild(sourcechip(doc, drec ? drec.source : undefined));
     li.appendChild(row);
     li.appendChild(div);
     {
@@ -563,10 +636,10 @@ function renderStepRow(doc: Document, step: StepVM, taskId: string, idx: number,
         panel.hidden = !open;
         li.toggleAttribute("data-open", open);
         if (typeof onToggle === "function") {
-          try { onToggle(taskId, idx); } catch { /* contained */ }
+          containViewCallback(() => onToggle(taskId, idx));
         }
         if (typeof ann === "function") {
-          try { ann(open ? `Expanded outcome for ${microId}` : `Collapsed outcome for ${microId}`); } catch { /* contained */ }
+          containViewCallback(() => ann(open ? `Expanded outcome for ${microId}` : `Collapsed outcome for ${microId}`));
         }
       });
     }
@@ -574,11 +647,10 @@ function renderStepRow(doc: Document, step: StepVM, taskId: string, idx: number,
     const divRow = el(doc, "div", "step-row");
     divRow.setAttribute("data-task-id", taskId);
     divRow.setAttribute("data-step-idx", String(idx));
-    const ind = el(doc, "span", "step-indicator");
-    ind.setAttribute("aria-hidden", "true");
-    divRow.appendChild(ind);
+    divRow.appendChild(activityIcon(doc, "step-indicator", act));
     const stxt = el(doc, "span", "step-text");
     stxt.appendChild(el(doc, "span", "step-label", label));
+    stxt.appendChild(el(doc, "span", "step-activity-label", ` · ${ACTIVITY_LABEL[act]}`));
     stxt.appendChild(el(doc, "span", "visually-hidden", ` — ${stepLabel(state)}`));
     divRow.appendChild(stxt);
     row = divRow;
@@ -589,8 +661,9 @@ function renderStepRow(doc: Document, step: StepVM, taskId: string, idx: number,
   return li;
 }
 
-export function renderPhaseTaskCards(doc: Document, groups: readonly PhaseGroupVM[], handlers?: PlanCardHandlers): HTMLElement {
+export function renderPhaseTaskCards(doc: Document, groups: readonly PhaseGroupVM[], handlers?: PlanCardHandlers, opts?: { syncStale?: boolean }): HTMLElement {
   const wrap = el(doc, "div", "phase-groups");
+  const stale = opts?.syncStale === true;
   try {
     const safe = safeGroups(groups);
     let rendered = 0;
@@ -611,6 +684,7 @@ export function renderPhaseTaskCards(doc: Document, groups: readonly PhaseGroupV
         if (!t || typeof t !== "object") continue;
         const trec = (t as unknown) as Record<string, unknown>;
         const tid = asStr(trec.taskId) || asStr(trec.id);
+        const vmId = asStr(trec.id) || tid;
         const title = asStr(trec.title);
         const taskType = asStr(trec.taskType);
         const assignee = asStr(trec.assignee);
@@ -619,8 +693,11 @@ export function renderPhaseTaskCards(doc: Document, groups: readonly PhaseGroupV
         const waitsText = formatWaitsFor(waits);
         const status = asStr(trec.status);
         const blockedReason = asStr(trec.blockedReason);
+        const taskAct = trec.operatorQuestion !== undefined && trec.operatorQuestion !== null ? "needs_you" : displayActivity(trec.activity, stale);
         const art = el(doc, "article", "task");
         art.setAttribute("data-task-id", tid);
+        art.setAttribute("data-task-vm-id", vmId);
+        art.setAttribute("data-activity", taskAct);
         if (waitsText.length > 0) art.setAttribute("data-ready", "false");
         else art.setAttribute("data-ready", "true");
         if (isSafe(status)) art.setAttribute("data-status", status);
@@ -633,16 +710,27 @@ export function renderPhaseTaskCards(doc: Document, groups: readonly PhaseGroupV
         const st = el(doc, "span", "status", statusLabel(status));
         if (isSafe(status)) st.setAttribute("data-status", status);
         head.appendChild(st);
+        head.appendChild(activityIcon(doc, "status-icon", taskAct));
+        head.appendChild(el(doc, "span", "activity-label", ACTIVITY_LABEL[taskAct]));
         art.appendChild(head);
         if (waitsText.length > 0) art.appendChild(el(doc, "p", "waits-for", waitsText));
         if (blockedReason.length > 0) art.appendChild(el(doc, "p", "blocked-reason", blockedReason));
+        const questionRaw = trec.operatorQuestion;
+        if (questionRaw && typeof questionRaw === "object") {
+          const qrec = questionRaw as Record<string, unknown>;
+          const qtext = asStr(qrec.text);
+          const qwrap = el(doc, "div", "operator-question");
+          qwrap.appendChild(el(doc, "span", "operator-question-text", qtext));
+          art.appendChild(qwrap);
+        }
         const verdictRaw = trec.nanoVerdict;
         if (verdictRaw && typeof verdictRaw === "object") {
           const vrec = verdictRaw as Record<string, unknown>;
           const verdict = asStr(vrec.verdict);
           const reason = asStr(vrec.reason);
+          const isReview = verdict === "needs_user";
           const vwrap = el(doc, "div", "nano-verdict");
-          vwrap.appendChild(el(doc, "span", "verdict-badge", verdict));
+          vwrap.appendChild(el(doc, "span", "verdict-badge", isReview ? "Review request" : verdict));
           if (reason.length > 0) vwrap.appendChild(el(doc, "span", "verdict-reason", reason));
           vwrap.appendChild(sourcechip(doc, vrec.source));
           art.appendChild(vwrap);
@@ -650,21 +738,42 @@ export function renderPhaseTaskCards(doc: Document, groups: readonly PhaseGroupV
         const steps = taskSteps(t as TaskVM).slice(0, PLAN_VIEW_LIMITS.MICRO_MAX);
         const ol = el(doc, "ol", "steps");
         steps.forEach((s, i) => {
-          ol.appendChild(renderStepRow(doc, s, tid, i, handlers));
+          ol.appendChild(renderStepRow(doc, s, tid, i, handlers, stale));
         });
         art.appendChild(ol);
-        art.appendChild(el(doc, "div", "task-foot"));
+        const foot = el(doc, "div", "task-foot");
+        const stepsArr = taskSteps(t as TaskVM);
+        const firstMicro = stepsArr.length > 0 ? microIdOf(tid, 0, stepsArr[0] as StepVM) : undefined;
+        let chatBtn: HTMLButtonElement | undefined;
         if (handlers && typeof handlers.onOpenTask === "function") {
+          chatBtn = el(doc, "button", "task-chat", "Chat");
+          chatBtn.setAttribute("type", "button");
+          chatBtn.setAttribute("data-task-id", tid);
+          chatBtn.setAttribute("data-task-vm-id", vmId);
+          if (firstMicro !== undefined) chatBtn.setAttribute("data-micro-id", firstMicro);
+          chatBtn.id = `chat-${tid}`;
+          chatBtn.setAttribute("aria-label", `Open chat: ${title}`);
+          foot.appendChild(chatBtn);
+        }
+        art.appendChild(foot);
+        if (handlers && typeof handlers.onOpenTask === "function" && chatBtn !== undefined) {
           const cb = handlers.onOpenTask;
-          const id = tid;
-          const openId = id;
+          const openId = vmId;
+          const chatId = chatBtn.id;
+          const btn = chatBtn;
+          btn.addEventListener("click", (e: MouseEvent) => {
+            e.preventDefault();
+            const trig: { triggerId: string; taskId: string; microId?: string } = { triggerId: chatId, taskId: tid };
+            if (firstMicro !== undefined) trig.microId = firstMicro;
+            containViewCallback(() => cb(openId, chatId, trig));
+          });
           art.addEventListener("click", (e: MouseEvent) => {
             const target = e.target as Element | null;
             if (target && typeof (target as Element).closest === "function") {
               const inside = (target as Element).closest("button");
               if (inside && art.contains(inside)) return;
             }
-            try { cb(openId); } catch { /* contained */ }
+            containViewCallback(() => cb(openId));
           });
         }
         list.appendChild(art);
@@ -812,7 +921,7 @@ export function renderPlanArchive(doc: Document, items: readonly ArchivedVM[], h
         const cb = handlers.onRestore;
         const rid = id;
         btn.addEventListener("click", () => {
-          try { cb(rid); } catch { /* contained */ }
+          containViewCallback(() => cb(rid));
         });
       }
       li.appendChild(btn);
