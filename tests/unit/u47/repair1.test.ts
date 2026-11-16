@@ -1,4 +1,4 @@
-// A-U47r1: fail-first regressions for the cross-family review (Sol) HOLD findings 1-5 on src/providers/registry.ts.
+// A-U47r1: fail-first regressions for the cross-family review (reviewer) HOLD findings 1-5 on src/providers/registry.ts.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetPolicy } from "./policyRef";
 import { LOC, TEXT, flush, okResult, track, world } from "./fixtures";

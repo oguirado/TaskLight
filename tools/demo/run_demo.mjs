@@ -1,6 +1,6 @@
 // Context Wall LOCAL end-to-end demo (no Firebase project).
 //
-//   node tools/demo/run_demo.mjs [--dir <path>]  (default: $TASKLIGHT_DEMO_DIR or <os tmpdir>/tasklight-demo) [--headless] [--keep]
+//   node tools/demo/run_demo.mjs [--dir <path>]  (default: $TASKLIGHT_DEMO_DIR or <os tmpdir>/tasklight-demo) [--headless] [--keep] [--no-mcp]
 //
 // room events.jsonl -> bridge.wall native host -> extension SW -> hosted wall page (vite dev)
 // and back: wall chat -> SW -> native host -> room `question` event.
@@ -13,6 +13,7 @@ import { dirname, join } from "node:path";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { chromeCandidates, summaryExitCode } from "./demo_lib.mjs";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const args = process.argv.slice(2);
@@ -23,9 +24,20 @@ const opt = (name, dflt) => {
 const DIR = opt("--dir", process.env.TASKLIGHT_DEMO_DIR ?? path.join(os.tmpdir(), "tasklight-demo"));
 const HEADLESS = args.includes("--headless") || !process.env.DISPLAY;
 const KEEP = args.includes("--keep");
-const CHROME = "/usr/bin/google-chrome";
+const NO_MCP = args.includes("--no-mcp");
+const DRIFT_LABEL = "Rules";
 const ROOM = "demo";
 const AGENT = "claude-code";
+
+function findChrome() {
+  const candidates = chromeCandidates(process.platform, process.env);
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+const CHROME = findChrome();
+if (!CHROME) throw new Error("Chrome/Chromium browser not found: set CHROME or install google-chrome/chromium on PATH");
 
 const P = {
   profile: join(DIR, "profile"), cwhome: join(DIR, "cwhome"), keys: join(DIR, "keys"),
@@ -69,6 +81,30 @@ function stopAll() {
       log(`stop ${name} pgid=${pid}: ${e.code}`);
     }
   }
+}
+
+
+async function waitForVite(url) {
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline) {
+    try {
+      // Bound both the connection and response body, even for a stalled server.
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(Math.min(1000, Math.max(1, deadline - Date.now()))),
+        redirect: "error",
+      });
+      const html = await response.text();
+      if (response.status === 200 && html.includes('<title>TaskLight</title>') && html.includes('id="wall"')) return;
+    } catch { /* retry until the readiness deadline */ }
+    await sleep(Math.min(250, Math.max(0, deadline - Date.now())));
+  }
+  let tail;
+  try {
+    tail = readFileSync(join(P.logs, "vite.log"), "utf8").trimEnd().split("\n").slice(-20).join("\n");
+  } catch (e) {
+    tail = `Unable to read logs/vite.log: ${e.message}`;
+  }
+  throw new Error(`Vite did not serve the TaskLight index within 15000 ms. Last lines of logs/vite.log:\n${tail}`);
 }
 
 function py(argv, env = {}) {
@@ -155,13 +191,13 @@ open('ext_id.txt','w').write(''.join(chr(97+int(c,16)) for c in h))`], { cwd: P.
     { text: "Add CSV writer with header row", accept: "unit test passes" },
     { text: "Wire export button", accept: "button downloads file" },
   ] };
-  const planV2 = { title: "Add CSV export to reports", steps: [
+  const driftPlanV2 = { title: "Add CSV export to reports", steps: [
     { text: "Rewrite the report module in Rust", accept: "old module deleted" },
     { text: "Add CSV writer with header row", accept: "unit test passes" },
     { text: "Wire export button", accept: "button downloads file" },
   ] };
   writeFileSync(join(P.plans, "plan_v1.json"), JSON.stringify(planV1));
-  writeFileSync(join(P.plans, "plan_v2.json"), JSON.stringify(planV2));
+  writeFileSync(join(P.plans, "plan_v2.json"), JSON.stringify(driftPlanV2));
   // Only `open` is posted before the page exists: the room directory must exist for the host
   // (room_post refuses rooms without a directory). Plan v1 is posted live, after the page links:
   // a fresh page sends room_sync with since={} (store.since() knows no rooms yet), so history
@@ -175,10 +211,7 @@ open('ext_id.txt','w').write(''.join(chr(97+int(c,16)) for c in h))`], { cwd: P.
     cwd: REPO, env: { ...process.env, VITE_EXTENSION_ORIGINS: `chrome-extension://${extId}` },
   });
   const wallUrl = `http://localhost:${vitePort}/`;
-  for (let i = 0; i < 60; i++) {
-    try { if ((await fetch(wallUrl)).ok) break; } catch { /* not up yet */ }
-    await sleep(250);
-  }
+  await waitForVite(wallUrl);
 
   // 5. Chrome with throwaway profile + CDP
   const cdpPort = await freePort();
@@ -239,7 +272,9 @@ open('ext_id.txt','w').write(''.join(chr(97+int(c,16)) for c in h))`], { cwd: P.
   const bodyHas = (s) => `document.body && document.body.innerText.includes(${JSON.stringify(s)})`;
 
   const results = {};
-  await waitFor(`!!document.querySelector('h1, h2')`, "wall page rendered");
+  if (!await waitFor(`document.title === "TaskLight" && !!document.querySelector('#wall')`, "wall page rendered")) {
+    throw new Error("TaskLight wall page did not render");
+  }
   await sleep(1500); // let the T1 port link and the first room_hello / room_sync pass
   roomPost("plan", "Plan v1 for CSV export", ["--plan-file", join(P.plans, "plan_v1.json")]);
   results.plan = await waitFor(bodyHas(planV1.steps[0].text), "plan v1 task rendered");
@@ -250,11 +285,16 @@ open('ext_id.txt','w').write(''.join(chr(97+int(c,16)) for c in h))`], { cwd: P.
   roomPost("step", "Started reading the report module", ["--step-json", JSON.stringify({ index: 0, state: "active" })]);
   await sleep(1200);
   roomPost("plan", "Plan v2 for CSV export", ["--plan-file", join(P.plans, "plan_v2.json")]);
-  results.drift = await waitFor(bodyHas("Reviewed by rules"), "drift banner 'Reviewed by rules'");
+  results.drift = await waitFor(bodyHas(DRIFT_LABEL), `drift banner '${DRIFT_LABEL}'`);
   await sleep(500);
   await shot("2_drift.png");
 
-  // 8. chat: type + send through CDP Input events
+  // 8. chat: open the task Chat drawer first, then type + send through CDP Input events
+  const chatOpen = await evalJs(`(() => { const b = document.querySelector('button.task-chat'); if (!b) return null; b.scrollIntoView({block:'center'}); const r = b.getBoundingClientRect(); return {x: r.x + r.width/2, y: r.y + r.height/2}; })()`);
+  if (chatOpen) {
+    for (const type of ["mousePressed", "mouseReleased"]) await cdp.send("Input.dispatchMouseEvent", { type, x: chatOpen.x, y: chatOpen.y, button: "left", clickCount: 1 }, S);
+  } else log("task Chat button not found");
+  await sleep(500);
   const box = await evalJs(`(() => { const t = document.querySelector('textarea.chat-input'); if (!t) return null; t.scrollIntoView({block:'center'}); const r = t.getBoundingClientRect(); return {x: r.x + r.width/2, y: r.y + r.height/2}; })()`);
   const msg = "Why are you rewriting the module in Rust? Please keep Python.";
   if (box) {
@@ -278,12 +318,112 @@ open('ext_id.txt','w').write(''.join(chr(97+int(c,16)) for c in h))`], { cwd: P.
   await shot("3_chat.png");
   writeFileSync(join(P.logs, "room_events.json"), py(["-m", "bridge.room", "read", "--room", ROOM, "--json"]));
 
+  // 9. MCP v2 planning (skip with --no-mcp): plan_create, task_claim, microtask_set, memory_set
+  let planV2 = false;
+  let memory = false;
+  if (NO_MCP) {
+    log("MCP step skipped (--no-mcp)");
+    planV2 = true;
+    memory = true;
+  } else {
+    const mcp = spawn("python3", ["-m", "bridge.room.mcp"], {
+      cwd: REPO,
+      env: { ...process.env, PYTHONPATH: REPO, CW_HOME: P.cwhome },
+      stdio: ["pipe", "pipe", "ignore"],
+    });
+    let nextId = 1;
+    let buf = "";
+    const pending = new Map();
+    mcp.stdout.on("data", (d) => {
+      buf += d.toString();
+      let idx;
+      while ((idx = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, idx).trim();
+        buf = buf.slice(idx + 1);
+        if (!line) continue;
+        try {
+          const resp = JSON.parse(line);
+          if (resp.id && pending.has(resp.id)) {
+            const { res, rej } = pending.get(resp.id);
+            pending.delete(resp.id);
+            if (resp.error) rej(new Error(JSON.stringify(resp.error)));
+            else res(resp.result);
+          }
+        } catch { /* ignore partial */ }
+      }
+    });
+    const mcpCall = (name, arguments_) => new Promise((res, rej) => {
+      const id = nextId++;
+      pending.set(id, { res, rej });
+      mcp.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: arguments_ } }) + "\n");
+      setTimeout(() => { if (pending.has(id)) { pending.delete(id); rej(new Error("MCP timeout " + name)); } }, 10000);
+    });
+    try {
+      const initId = nextId++;
+      await new Promise((res, rej) => {
+        pending.set(initId, { res, rej });
+        mcp.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: initId, method: "initialize", params: { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "run-demo", version: "0" } } }) + "\n");
+      });
+      const planTitle = "Add CSV export via MCP";
+      const created = await mcpCall("plan_create", {
+        room: ROOM, agent: AGENT, template_id: "web-app", title: planTitle,
+        brief: { goal: planTitle, users: "report readers", stack: "python + vite" },
+        tasks: [
+          { key: "t1", title: "Read report module", type: "feature", phase: "discovery", accept: "entry points listed" },
+          { key: "t2", title: "Add CSV writer", type: "feature", phase: "build", accept: "unit test passes" },
+          { key: "t3", title: "Wire export button", type: "ui", phase: "verify", accept: "button downloads file" },
+        ],
+      });
+      log("plan_create -> " + JSON.stringify(created).slice(0, 300));
+      const payloadOf = (result) => {
+        const text = result?.content?.[0]?.text;
+        if (!text) return result;
+        try { return JSON.parse(text); } catch { return result; }
+      };
+      const createPayload = payloadOf(created);
+      const ids = createPayload?.ids ?? {};
+      const firstTaskId = ids["t1"] ?? "t1";
+      await mcpCall("task_claim", { room: ROOM, agent: AGENT, task_id: firstTaskId, base_rev: 1 });
+      // Find a real micro id via plan_get, then mark it done.
+      let microId = "m1";
+      try {
+        const got = await mcpCall("plan_get", { room: ROOM });
+        const planPayload = payloadOf(got);
+        const tasks = planPayload?.plan?.tasks ?? planPayload?.tasks ?? [];
+        const firstMicro = (tasks[0]?.microtasks ?? planPayload?.tasks?.[0]?.microtasks)?.[0];
+        if (firstMicro?.id) microId = firstMicro.id;
+      } catch { /* fall back to m1 */ }
+      await mcpCall("microtask_set", { room: ROOM, agent: AGENT, id: microId, state: "done" });
+      await mcpCall("memory_set", { room: ROOM, agent: AGENT, section: "architecture", text: "CSV export: report module -> csv writer -> button download.", base_rev: 1 });
+      results.planV2 = await waitFor(bodyHas(planTitle), "MCP plan title rendered", 15000);
+      results.memory = await waitFor(bodyHas("Memory"), "Memory view entry rendered", 15000);
+      planV2 = results.planV2;
+      memory = results.memory;
+      await shot("4_plan_v2.png");
+      const memoryTab = await evalJs(`(() => { const b = document.querySelector('[role="tab"][data-nav="memory"]') || Array.from(document.querySelectorAll('button')).find((x) => x.textContent === 'Memory'); if (!b) return null; b.scrollIntoView({block:'center'}); const r = b.getBoundingClientRect(); return {x: r.x + r.width/2, y: r.y + r.height/2}; })()`);
+      if (memoryTab) {
+        for (const type of ["mousePressed", "mouseReleased"]) await cdp.send("Input.dispatchMouseEvent", { type, x: memoryTab.x, y: memoryTab.y, button: "left", clickCount: 1 }, S);
+      }
+      await sleep(800);
+      await shot("5_memory.png");
+      log(`MCP planV2=${planV2} memory=${memory}`);
+    } catch (e) {
+      log("MCP step failed: " + (e && e.stack ? e.stack : String(e)));
+      planV2 = false;
+      memory = false;
+    } finally {
+      try { mcp.stdin.end(); } catch { }
+      try { mcp.kill("SIGTERM"); } catch { }
+    }
+  }
+
   const summary = { extId, wallUrl, plan: results.plan, drift: results.drift,
-    question: q ? { agent: q.agent, to: q.to, lamport: q.lamport } : null };
+    question: q ? { agent: q.agent, to: q.to, lamport: q.lamport } : null,
+    planV2, memory };
   writeFileSync(join(P.logs, "summary.json"), JSON.stringify(summary, null, 2) + "\n");
   log("SUMMARY " + JSON.stringify(summary));
   cdp.ws.close();
-  return summary.plan && summary.drift && summary.question ? 0 : 1;
+  return summaryExitCode(summary, { noMcp: NO_MCP });
 }
 
 let rc = 1;

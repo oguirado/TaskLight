@@ -1,4 +1,4 @@
-// Repair r2 (Sol review, DISP_03 threat model). Two BLOCKING items only:
+// Repair r2 (cross-family review, DISP_03 threat model). Two BLOCKING items only:
 //  R2-1 B14/B16: accept must refuse a template of another lens; a stored ring must never be
 //       one the same session would silently discard on reload.
 //  R2-2 B3/B5/B11: lens descriptor prerequisites (array `template`) missing/invalid -> fail closed,

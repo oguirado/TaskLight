@@ -1,4 +1,4 @@
-"""Repair loop 1 regressions from the Sol review of U37a (strategy/flights/U37a/REVIEW_1.md)."""
+"""Repair loop 1 regressions from the cross-family review of U37a (strategy/flights/U37a/REVIEW_1.md)."""
 import math, unittest
 
 from . import support as S

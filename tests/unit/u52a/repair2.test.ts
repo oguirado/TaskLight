@@ -1,4 +1,4 @@
-// U52a repair 2 (Sol HOLD, privacy): a capsule attempt that started while p1 was "standard"
+// U52a repair 2 (review HOLD, privacy): a capsule attempt that started while p1 was "standard"
 // must not stage capsule/project text after p1 turns "private" (metadata + setTier) mid-txn.
 import { describe, expect, it } from 'vitest';
 import { cap, makeEnv, settle, type Env } from '../u14/harness';

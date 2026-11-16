@@ -210,7 +210,7 @@ function mcpInitialize() {
         const name = init.result?.serverInfo?.name;
         const tools = (list.result?.tools ?? []).map((t) => t.name);
         const need = ["post_plan", "post_step", "post_status"];
-        const ok = name === "context-wall" && need.every((t) => tools.includes(t));
+        const ok = (name === "tasklight" || name === "context-wall") && need.every((t) => tools.includes(t));
         done({ ok, detail: `${name ?? "?"} ${init.result?.serverInfo?.version ?? ""}; tools ${tools.join(",")}` });
       } catch (e) { done({ ok: false, detail: "bad JSON-RPC: " + e.message }); }
     });

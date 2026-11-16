@@ -67,9 +67,11 @@ export function renderMemoryView(
       if (required && isEmpty) {
         panel.appendChild(el(doc, "p", "memory-flag", "Required — empty"));
       }
-      if (by.length > 0) panel.appendChild(el(doc, "p", "memory-by", by));
-      if (changedAt.length > 0) panel.appendChild(el(doc, "p", "memory-time", changedAt));
-      if (rev.length > 0) panel.appendChild(el(doc, "p", "memory-rev", rev));
+      const metaParts: string[] = [];
+      if (rev.length > 0) metaParts.push(`rev ${rev}`);
+      if (by.length > 0) metaParts.push(`by ${by}`);
+      if (changedAt.length > 0) metaParts.push(changedAt);
+      if (metaParts.length > 0) panel.appendChild(el(doc, "p", "memory-meta", metaParts.join(", ")));
       panel.appendChild(el(doc, "p", "memory-text", text));
       list.appendChild(panel);
     }

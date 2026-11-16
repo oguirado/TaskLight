@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createLedger, type FrameRecord } from '../../../src/perf';
 import { make, frames } from './helpers';
 
-// Repair loop 1 regression tests (Hydrogen HOLD items; see ORACLE.md "Repair loop 1").
+// Repair loop 1 regression tests (reviewer HOLD items; see ORACLE.md "Repair loop 1").
 const rec = (jsUs: number): FrameRecord => ({ startUs: 0, jsUs, applied: 0, deferred: 0, tier: 'T0' });
 
 describe('U12 repair1 B14 unpaired endFrame', () => {

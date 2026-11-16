@@ -37,11 +37,20 @@ Privacy policy is fail-closed and takes precedence over user selection and Remot
 
 TaskLight ships zero third-party endpoints, API keys, or external SDKs. You bring your own endpoint and credentials, and you are responsible for complying with your chosen provider's terms of service.
 
-External endpoints are configured on your machine inside the native host configuration file `wall.config.json` under the `"models"` key—never in the browser, `chrome.storage`, or the repository:
+To enable the model relay in the native host, add `"models": {}` (or `{"models": {"home": "<dir>"}}` to override the storage directory) in your local `wall.config.json`:
 
-1. Add your endpoint entries under `"models"` in your local `wall.config.json` (for example, pointing a local endpoint to a local OpenAI-compatible runtime such as Ollama, llama.cpp server, LM Studio, or vLLM, or pointing a remote endpoint to an `https://` URL).
-2. Keep API keys solely in the native host configuration with restrictive file permissions (`0600` on key-bearing files) and never commit `wall.config.json` or any secrets to git.
-3. For a local endpoint that should serve `private` projects, explicitly set `allow_private` on that endpoint in the host config.
+1. Enable the relay in `wall.config.json` with `"models": {}` (optionally `{"home": "<dir>"}`).
+2. Manage endpoints using the native host models CLI (`python3 -m bridge.models`):
+   - Add an endpoint:
+     `python3 -m bridge.models add --id ID --kind local|remote --base-url URL --model NAME [--label L] [--allow-private] [--rung N]`
+     (use `--allow-private` only for trusted local endpoints that should serve `private` projects).
+   - Set or clear an API key (read from stdin or a hidden prompt, never from `argv`):
+     `python3 -m bridge.models set-key --id ID [--clear]`
+   - List, probe, or remove endpoints:
+     `python3 -m bridge.models list`
+     `python3 -m bridge.models probe --id ID`
+     `python3 -m bridge.models remove --id ID`
+3. Keep the generated store files private: endpoints and keys are stored in `<cw-home>/models/endpoints.json` and `<cw-home>/models/keys.json` (where `<cw-home>` is `$CW_HOME` or `~/.context-wall`). Both files must have mode `0600` and be owned by your user; the native host refuses loose permissions. Never commit `wall.config.json`, `endpoints.json`, or `keys.json` to git.
 
 Security boundaries enforced by the native host and extension:
 - Page JavaScript and `chrome.storage` store and transmit endpoint `id` values only—never URLs, model names, or API keys.

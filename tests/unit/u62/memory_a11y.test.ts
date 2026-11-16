@@ -163,7 +163,8 @@ describe("O9 static and token gates", () => {
     for (const m of css.matchAll(/var\(\s*(--[\w-]+)/g)) expect(defined.has(m[1]), m[1]).toBe(true);
     expect(css).not.toMatch(/#[\da-f]{3,8}\b|\b(?:rgb|rgba|hsl|hsla)\s*\(/i);
   });
-  it("O9 memory panels enforce reading width through the existing token", () => {
+  // A-U78a: superseded by U78 M6 (memory text uses the full content width; persona study R28).
+  it.skip("O9 memory panels enforce reading width through the existing token", () => {
     // A-U62a: jsdom does not resolve var() in getComputedStyle; assert the stylesheet rule and the class chain instead.
     const root = renderMemoryView(document, memory()); document.body.append(root);
     const css = read("styles/plan.css").replace(/\/\*[\s\S]*?\*\//g, "");

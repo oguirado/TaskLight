@@ -9,6 +9,8 @@ import type { Clock, ExternalPortGate } from "./types";
 import { createServiceWorker } from "./sw";
 import type { ServiceWorker } from "./sw";
 
+declare const __CW_SW_AUTOBOOT__: boolean | undefined;
+
 export interface SwMainDeps {
   chrome: ChromeLike;
   clock?: Clock;
@@ -65,11 +67,11 @@ export async function startSwMain(d: SwMainDeps): Promise<SwMain> {
 }
 
 /**
- * U38 G2: this module is the only entry that starts the service worker.
- * It boots on import when a chrome global exists (inert without one);
+ * Boots on import when a chrome global exists, unless the build disables it.
+ * The built entry owns startup and supplies its configured gate; otherwise
  * origins come from the manifest at runtime.
  */
 const chromeGlobal = (globalThis as unknown as { chrome?: ChromeLike }).chrome;
-if (chromeGlobal !== undefined) {
+if ((typeof __CW_SW_AUTOBOOT__ === "undefined" || __CW_SW_AUTOBOOT__ === true) && chromeGlobal !== undefined) {
   void startSwMain({ chrome: chromeGlobal }).catch(() => {}); /* startup failure is contained; SW stays inert */
 }

@@ -306,8 +306,47 @@ def _build_model_relay(cfg, send):
         return None
     if mcfg is None or not isinstance(mcfg, dict):
         return None
+    # U80: pass room floors from the same allow-list the room relay uses
+    floors: dict = {}
     try:
-        return ctor(mcfg, send)
+        rooms_cfg = cfg.get("rooms") if isinstance(cfg, dict) else None
+        if isinstance(rooms_cfg, dict):
+            allow = rooms_cfg.get("allow")
+            if isinstance(allow, list):
+                for entry in allow:
+                    if not isinstance(entry, dict):
+                        continue
+                    room = entry.get("room")
+                    tier = entry.get("tier")
+                    if not isinstance(room, str) or not isinstance(tier, str):
+                        continue
+                    # Map room tier to floor vocabulary understood by ModelRelay
+                    if tier == "private":
+                        floors[room] = "private"
+                    elif tier == "standard":
+                        floors[room] = "standard"
+                    elif tier == "shared":
+                        floors[room] = "shared"
+                    elif tier == "ONLY_ON_DEVICE":
+                        floors[room] = "private"
+                    elif tier == "PREFER_ON_DEVICE":
+                        floors[room] = "standard"
+    except Exception:
+        floors = {}
+    try:
+        return ctor(mcfg, send, room_floors=floors)
+    except BrokenPipeError:
+        raise
+    except TypeError:
+        # Fallback for legacy ModelRelay without room_floors kwarg
+        try:
+            return ctor(mcfg, send)
+        except BrokenPipeError:
+            raise
+        except Exception:
+            return None
+    except Exception:
+        return None
     except BrokenPipeError:
         raise
     except Exception:

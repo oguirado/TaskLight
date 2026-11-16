@@ -181,8 +181,8 @@ function toBriefInput(snap: RoomPlanSnapshot): PlanBriefInput {
     if (t && typeof t.id === "string") byId.set(t.id, t);
   }
   const tasks = (snap.tasks ?? []).map((t) => {
-    const waitsFor = Array.isArray(t.deps) ? [...t.deps] : [];
-    const ready = waitsFor.every((d) => byId.get(d)?.status === "done");
+    const waitsFor = Array.isArray(t.deps) ? t.deps.filter((d) => byId.get(d)?.status !== "done") : [];
+    const ready = waitsFor.length === 0;
     return { id: t.id, title: t.title, state: t.status, ready, waitsFor };
   });
   return {
@@ -369,7 +369,8 @@ export function createPlanWiring(deps: PlanWiringDeps): PlanWiring {
       const floor = job.floor;
       const tier = tierFor(job.kind === "task" ? job.room : job.room);
       if (job.kind === "task") {
-        const ctx: { tier: PlanAiTier; floor: DriftFloor; memory?: PlanMemoryInput; signal: AbortSignal } = {
+        const ctx: { tier: PlanAiTier; floor: DriftFloor; memory?: PlanMemoryInput; signal: AbortSignal; room: string } = {
+          room: job.room,
           tier,
           floor,
           signal: job.controller.signal,
@@ -377,7 +378,7 @@ export function createPlanWiring(deps: PlanWiringDeps): PlanWiring {
         if (job.memory !== undefined) ctx.memory = job.memory;
         promise = Promise.resolve(planAi.reviewTask(job.task, ctx));
       } else {
-        promise = Promise.resolve(planAi.briefPlan(job.plan, { tier, floor, signal: job.controller.signal }));
+        promise = Promise.resolve(planAi.briefPlan(job.plan, { tier, floor, signal: job.controller.signal, room: job.room }));
       }
     } catch {
       finish();

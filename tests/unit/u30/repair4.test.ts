@@ -1,4 +1,4 @@
-// Repair r4 (Sol review r3, DISP_03 BLOCKING; SPEC_U30 B9): a final-validation failure must be attributed to the
+// Repair r4 (cross-family review r3, DISP_03 BLOCKING; SPEC_U30 B9): a final-validation failure must be attributed to the
 // operation that CAUSED it, not to a later benign edit (e.g. a label rename) of the same slot.
 import { describe, expect, it } from 'vitest';
 import { applyOps } from '../../../src/template';

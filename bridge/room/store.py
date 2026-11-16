@@ -2,7 +2,8 @@
 
 import copy
 import errno
-import fcntl
+from . import _lock
+from ._lock import _backend as fcntl  # Compatibility for existing backend probes.
 import hashlib
 import json
 import math
@@ -664,7 +665,7 @@ def post(room, agent, act, text, *, re=None, to=None, evidence=(), plan=None, st
             os.chmod(lpath, 0o600)
         except OSError:
             pass
-        fcntl.flock(lockfd, fcntl.LOCK_EX)
+        _lock.lock_exclusive(lockfd)
         try:
             try:
                 with open(epath, "rb") as f:
@@ -744,7 +745,7 @@ def post(room, agent, act, text, *, re=None, to=None, evidence=(), plan=None, st
             return event
         finally:
             try:
-                fcntl.flock(lockfd, fcntl.LOCK_UN)
+                _lock.unlock(lockfd)
             except OSError:
                 pass
     finally:
@@ -815,7 +816,7 @@ def post_ops(room, agent, ops, *, strict=False, home=None, clock=None, templates
             os.chmod(lpath, 0o600)
         except OSError:
             pass
-        fcntl.flock(lockfd, fcntl.LOCK_EX)
+        _lock.lock_exclusive(lockfd)
         try:
             try:
                 with open(epath, "rb") as f:
@@ -1143,7 +1144,7 @@ def post_ops(room, agent, ops, *, strict=False, home=None, clock=None, templates
             return new_events
         finally:
             try:
-                fcntl.flock(lockfd, fcntl.LOCK_UN)
+                _lock.unlock(lockfd)
             except OSError:
                 pass
     finally:

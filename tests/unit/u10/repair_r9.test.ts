@@ -1,4 +1,4 @@
-// Repair r9 (Sol review r8, BLOCKING; threat model DISP_03 items: injected-port failures,
+// Repair r9 (cross-family review r8, BLOCKING; threat model DISP_03 items: injected-port failures,
 // invalid numeric configuration). Public API + harness fakes only.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createReconciler } from '../../../src/reconcile/index';

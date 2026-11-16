@@ -3,8 +3,9 @@
 This guide covers the v9 planning model used by developers and agent
 operators. Planning turns a template into a concrete plan inside a room,
 and an MCP client drives tasks, microtasks and memory through the tools
-described in [MCP](MCP.md). Plan and memory storage is local to the host;
-nothing is collected in the cloud.
+described in [MCP](MCP.md) under the rules in
+[docs/PLANNING_CONTRACT.md](PLANNING_CONTRACT.md). Plan and memory storage
+is local to the host; nothing is collected in the cloud.
 
 ## Planning templates (`planning-template/v1`)
 
@@ -31,17 +32,22 @@ Every template is checked for control characters and code-like strings
 before use. Templates supplied by the user live in `CW_HOME/templates/`
 and are validated as untrusted data.
 
-Derived `rooms/<room>/PLAN.md` and `rooms/<room>/MEMORY.md` files are
-human-readable exports of the folded plan and memory. They are never the
-source of truth; the room event log is authoritative.
+**Known limit (Markdown exports):** Markdown renderers exist in
+`bridge/plan/markdown.py` (`render_plan_md` and `render_memory_md`), but
+no command writes `rooms/<room>/PLAN.md` or `rooms/<room>/MEMORY.md`
+files to disk yet. The room event log (`events.jsonl`) is the
+authoritative source of truth.
 
 ## Starter templates
 
 The schema itself uses neutral planning vocabulary; software terms exist
-only inside development starters. Five starters ship in
+only inside development starters. Starter templates ship in
 `templates/planning/*.json`:
 
 - `blank`: the neutral minimal template.
+- `autonomous-software`: the six-phase (`brief`, `design`, `oracle`,
+  `build`, `verify`, `release`) software template built for
+  [docs/PLANNING_CONTRACT.md](PLANNING_CONTRACT.md).
 - `web-app`: the full-stack development template used by the demo room.
 - `cli-library`: a command-line library template.
 - `mobile-app`: a mobile application template.
@@ -60,7 +66,8 @@ only inside development starters. Five starters ship in
 4. Read `conformance.findings[]`. Findings are advisory by default; when
    `strict` is true the batch is rejected with `not_conformant` instead.
 5. Execute with `next_work`, `task_claim`, `task_release`,
-   `microtask_add`, `microtask_set`, `plan.phase` and `plan.close`.
+   `microtask_add`, `microtask_set`, `plan_phase` (op `plan.phase`) and
+   `plan_close` (op `plan.close`).
    Agents that need context can call `resume_from_memory`.
 
 ## Task and microtask model
@@ -94,6 +101,8 @@ only inside development starters. Five starters ship in
 In the MVP both plan and memory data stay on-device. The `private` tier
 never leaves the device, `standard` prefers on-device storage with a
 fallback only when allowed, and `shared` permits hybrid review. The
-relay redacts all strings inside `op` events before browser delivery,
+relay redacts all strings inside `op` events before browser delivery
+(structural sha256 values such as `template_hash` and evidence hashes pass
+unchanged, and a redacted `op_id` becomes an opaque surrogate),
 and agent-provided strings remain inside `untrusted` envelopes rather
 than being interpreted by the wall.

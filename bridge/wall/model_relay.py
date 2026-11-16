@@ -15,6 +15,7 @@ abandoned threads never accumulate without bound. Timeouts must be finite positi
 import json
 import os
 import queue
+import re
 import sys
 import threading
 import time
@@ -33,6 +34,8 @@ _GRACE_S = 0.25          # lets the transport report its own (more precise) outc
 _MAX_ABANDONED = 2
 _INBOUND = (FRAME_LIST, FRAME_PROBE, FRAME_GENERATE, FRAME_CANCEL)
 _GEN_KEYS = {"t", "v", "rid", "id", "tier", "messages", "max_tokens", "rung"}
+ROOM_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,47}")
+_TIER_ORDER = {"standard": 0, "shared": 1, "private": 2}
 
 
 def load_model_config(cfg):
@@ -96,7 +99,10 @@ def _valid(obj):
         return keys == {"t", "v", "rid"} and _rid_ok(obj["rid"])
     if t == FRAME_PROBE:
         return keys == {"t", "v", "rid", "id"} and _rid_ok(obj["rid"]) and _id_ok(obj["id"])
-    if keys != _GEN_KEYS and keys != _GEN_KEYS | {"schema"}:
+    _allowed = _GEN_KEYS | {"schema", "room"}
+    if not keys <= _allowed:
+        return False
+    if not _GEN_KEYS.issubset(keys):
         return False
     if not (_rid_ok(obj["rid"]) and _id_ok(obj["id"])):
         return False
@@ -114,6 +120,10 @@ def _valid(obj):
         return False
     if rung == 1 and "schema" not in obj:
         return False
+    if "room" in obj:
+        room = obj["room"]
+        if not isinstance(room, str) or not ROOM_RE.fullmatch(room):
+            return False
     return True
 
 
@@ -140,7 +150,7 @@ class _Job:
 
 
 class ModelRelay:
-    def __init__(self, mcfg, send, *, home=None, clock=None, transport=None, timeouts=None):
+    def __init__(self, mcfg, send, *, home=None, clock=None, transport=None, timeouts=None, room_floors=None):
         self._send_fn = send
         self._home = _resolve_home(mcfg, home)
         self._clock = clock if callable(clock) else time.monotonic
@@ -159,6 +169,22 @@ class ModelRelay:
         self._closed = False
         self._stats = {"store_refused": 0, "structural": 0, "requests": 0, "results": 0, "health": 0,
                        "nacks": 0, "busy": 0, "cancelled": 0, "late_discarded": 0, "watchdog": 0}
+        # Normalize room floors: map room slug -> tier (private/shared/standard)
+        self._room_floors: dict = {}
+        self._invalid_room_floors = room_floors is not None and not isinstance(room_floors, dict)
+        if isinstance(room_floors, dict):
+            for k, v in room_floors.items():
+                if not isinstance(k, str):
+                    continue
+                if v == "ONLY_ON_DEVICE":
+                    tier = "private"
+                elif v == "PREFER_ON_DEVICE":
+                    tier = "standard"
+                elif isinstance(v, str) and v in _TIER_ORDER:
+                    tier = v
+                else:
+                    tier = "private"
+                self._room_floors[k] = tier
 
     # ------------------------------------------------------------ helpers
     def _bump(self, k, n=1):
@@ -294,7 +320,30 @@ class ModelRelay:
             self._start(_Job(self._next(), "probe", rid, endpoint, key, obj, None, t0))
             return 0
         # model_generate: policy second gate (§2.3, R22), then key, then body cap
-        tier = obj["tier"]
+        # U80: effective tier = stricter(declared, room floor); unknown room -> policy; missing room -> strictest floor
+        declared = obj["tier"]
+        effective: str | None = None
+        if self._invalid_room_floors:
+            effective = "private"
+        elif "room" in obj:
+            room_name = obj["room"]
+            if room_name not in self._room_floors:
+                code_policy = "policy"
+                self._log(t, eid, code_policy, t0)
+                self._nack(rid, code_policy)
+                return 0
+            floor_tier = self._room_floors[room_name]
+            effective = declared if _TIER_ORDER[declared] >= _TIER_ORDER[floor_tier] else floor_tier
+        else:
+            if not self._room_floors:
+                effective = declared
+            else:
+                strictest = "standard"
+                for v in self._room_floors.values():
+                    if _TIER_ORDER[v] > _TIER_ORDER[strictest]:
+                        strictest = v
+                effective = declared if _TIER_ORDER[declared] >= _TIER_ORDER[strictest] else strictest
+        tier = effective  # type: ignore[assignment]
         code = None
         if not endpoint.get("enabled", True):
             code = "policy"

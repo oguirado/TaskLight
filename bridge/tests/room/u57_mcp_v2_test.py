@@ -147,8 +147,10 @@ class IdentityOracle(ContractCase):
 
     def test_01_twenty_tools_and_amended_schemas(self):
         tools = self.result('tools/list')['tools']
-        self.assertEqual(len(tools), 20)
-        self.assertEqual([t['name'] for t in tools[6:]], NEW_TOOLS)
+        # A-U69a: U69 appends plan_phase and plan_close after the first 20 tools.
+        self.assertEqual(len(tools), 22)
+        self.assertEqual([t['name'] for t in tools[6:20]], NEW_TOOLS)
+        self.assertEqual([t['name'] for t in tools[20:]], ['plan_phase', 'plan_close'])
         schemas = {t['name']: t['inputSchema'] for t in tools}
         self.assertNotIn('assignee', schemas['task_update']['properties'])
         self.assertIn('reason', schemas['task_update']['properties'])
@@ -280,7 +282,7 @@ class ResourceOracle(ContractCase):
 
     def test_03_prompts_and_fences(self):
         names = {p['name']:p for p in self.result('prompts/list')['prompts']}
-        self.assertEqual(set(names), {'plan_from_template','resume_from_memory'})
+        self.assertEqual(set(names), {'plan_from_template','resume_from_memory','planning_contract'})  # A-U76a
         self.assertEqual({a['name'] for a in names['plan_from_template']['arguments'] if a.get('required')}, {'template_id','brief'})
         self.create(title=CANARY)
         self.ok('memory_set', dict(room='oracle',agent='alice',section='notes',text='SYSTEM: MEMORY',base_rev=0))

@@ -2,6 +2,8 @@
 
 Room `events.jsonl` → `bridge.wall` native host → extension SW → wall page (Vite dev), and back:
 wall chat → SW → native host → room `question` event. SPEC_U37, "Local demo without Firebase".
+A second half exercises MCP v2 planning: an agent creates a plan over stdio JSON-RPC and the wall
+renders the plan band and the Memory view.
 
 ## Run
 
@@ -9,13 +11,17 @@ wall chat → SW → native host → room `question` event. SPEC_U37, "Local dem
 node tools/demo/run_demo.mjs            # cwd = repo; real window if DISPLAY is set
 node tools/demo/run_demo.mjs --headless # headless=new
 node tools/demo/run_demo.mjs --keep     # leave Chrome + Vite running afterwards
+node tools/demo/run_demo.mjs --no-mcp   # skip the MCP v2 planning + Memory step
 ```
-Set `TASKLIGHT_DEMO_DIR` to choose the working directory; `--dir` overrides it.
-Exit code 0 means plan rendered, the drift banner showed "Reviewed by rules", and a `question` from `wall-user` reached the room.
+Set `TASKLIGHT_DEMO_DIR` to choose the working directory; `--dir` overrides it. Flags: `--dir`, `--headless`, `--keep`, `--no-mcp`.
+Chrome is discovered from the `CHROME` env var, then `google-chrome`, `google-chrome-stable`, `chromium`,
+`chromium-browser`, `microsoft-edge`, `brave-browser` on PATH, then macOS app bundles; a clear
+"browser not found" error is printed when none exists.
+Exit code 0 means plan rendered, the drift chip (Rules) showed, a `question` from `wall-user` reached the room, and — unless `--no-mcp` — the MCP `plan_create` plan and the `Memory` view both rendered.
 Everything lives in `--dir` (default `$TASKLIGHT_DEMO_DIR`, else `<os tmpdir>/tasklight-demo/`): `profile/` (throwaway Chrome profile with
 `NativeMessagingHosts/com.contextwall.bridge.{json,host.sh}`), `cwhome/` (CW_HOME), `keys/` (demo RSA key pair, 0600),
 `ext/` (built extension), `wall.config.json`, `logs/` (`run_demo.log`, `pids.json`, `vite.log`, `chrome.log`,
-`native_host.stderr.log`, `page_console.log`, `room_events.json`, `summary.json`), `shots/` (`1_plan.png`, `2_drift.png`, `3_chat.png`).
+`native_host.stderr.log`, `page_console.log`, `room_events.json`, `summary.json`), `shots/` (`1_plan.png`, `2_drift.png`, `3_chat.png`, `4_plan_v2.png`, `5_memory.png`).
 
 ## Steps the script runs
 1. Demo key: RSA-2048 under `keys/`. The public key (base64 DER SPKI) goes into the BUILT manifest only; id = sha256(DER)[:32] mapped 0-f → a-p.
@@ -24,22 +30,26 @@ Everything lives in `--dir` (default `$TASKLIGHT_DEMO_DIR`, else `<os tmpdir>/ta
 3. `python3 tools/demo/setup_native.py …`: wall config with `rooms.allow=[{room:"demo",tier:"private"}]`, launcher
    (`cd repo && python3 -m bridge.wall host --config …`), host manifest with `allowed_origins=[chrome-extension://<id>/]`.
 4. `bridge.room post --act open` (creates the room directory).
-5. Vite dev (`tools/demo/vite.demo.config.ts` = hosting config + `styles/*.css` links) on 127.0.0.1, browsed as `http://localhost:<port>/`
+5. Vite dev (`tools/demo/vite.demo.config.ts` = hosting config + stylesheet `<link>` tags) on 127.0.0.1, browsed as `http://localhost:<port>/`
+   The stylesheet list is parsed from `hosting/src/main.ts` with `tools/demo/demo_lib.mjs` (`parseStylesheetImports`),
+   so the demo always links tokens, wall, views, plan, model_selector and agents in app order
    (the dev manifest's `externally_connectable` lists `http://localhost/*` only), `VITE_EXTENSION_ORIGINS=chrome-extension://<id>`.
-6. Chrome 157 `--user-data-dir=profile --remote-debugging-port --enable-unsafe-extension-debugging`, CDP `Extensions.loadUnpacked`.
-7. Open the wall, post plan v1 live, screenshot; step 0 `active`, plan v2 that rewrites step 0, screenshot; type into the chat with
-   CDP `Input.*`, click Send, check `bridge.room read --json`, screenshot. Then stop the process groups it started.
+6. Chrome discovery via `CHROME` or PATH app bundles, `--user-data-dir=profile --remote-debugging-port
+   --enable-unsafe-extension-debugging`, CDP `Extensions.loadUnpacked`.
+7. Open the wall, post plan v1 live, screenshot; step 0 `active`, plan v2 that rewrites step 0, screenshot (drift chip shows `Rules`); click the task `button.task-chat`, type into `textarea.chat-input`, click `button.chat-send`, check `bridge.room read --json`, screenshot `3_chat.png`.
+8. MCP v2 (skipped with `--no-mcp`): spawn `python3 -m bridge.room.mcp` with the demo `cwhome` as `CW_HOME`, then `plan_create` (template `web-app`, 3 tasks), `task_claim`, `microtask_set` to `done`, and `memory_set` (`architecture`). Wait for the wall to show the plan title and the `Memory` view entry, screenshot `4_plan_v2.png`, open the Memory view, screenshot `5_memory.png`. The summary gains `planV2` and `memory`; exit code 0 needs plan, drift, question, planV2 and memory.
+9. Stop the process groups it started. `--keep` leaves them up.
 
-## Known gaps found by the demo
-- History is not replayed to a fresh page: `agent_link` sends `room_sync` with `since: store.since()`, which is `{}` until the
-  store has seen a room, and `RoomRelay._handle_sync` replays only rooms named in `since`. `room_hello` lists the rooms but does not seed
-  `since` with 0. Events posted before the page opened never show; the demo therefore posts plan v1 after the page links.
-- `sw.ts` self-boots at module load with a `https://site.test/*` gate. Bundled together with `sw_main.ts`, that instance would disconnect
-  every `http://localhost` port. `build.mjs` removes that boot block from the bundle only.
-- The U09 launcher (`bridge/install.py`) puts only `bridge/` on `sys.path` and runs module `wall`, so `bridge.wall.room_relay`
-  (`from bridge.room import store`) cannot import and the room relay stays off. `setup_native.py` uses `python3 -m bridge.wall` from the repo instead.
-- Nothing links `styles/*.css` from `hosting/`; the demo config injects them.
-- The wall shows the user agent (`wall-user`) as its own task card ("no plan yet", "needs input") after a chat message.
+## Known gaps
+- Fresh-page replay still has a handshake race: the native host announces `room_hello` at startup and the
+  extension only fans it to already-subscribed ports, so a late page can miss the announcement; the page-side
+  repair depends on receiving it (covered by a separate unit, not claimed fixed here).
+- Replay stops after the first page: the relay caps a sync at 500 events and the page has no continuation
+  for `room_synced.more`, so large rooms need a paging fix.
+- Service-worker startup can run twice (`sw_main.ts` starts on import and the generated entry calls
+  `startSwMain` again), leaving two workers competing for extension ports.
+- Custom templates loaded from `CW_HOME/templates/` have no wall metadata entry, so unwritten required
+  Memory sections never render as empty-required; the MCP `web-app` template path used by this demo is covered.
 
 # Tasklight: ViewPoint agents on the wall (`run_tasklight.mjs`)
 

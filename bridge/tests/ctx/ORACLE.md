@@ -34,7 +34,7 @@ A throw-away correct reference (outside the repo) passed all 120 tests; the stub
 10. CLI flags [ASSUMED] (spec says only `--flag value`): `page --path --from-line [--expect-sha256]`, `find --term T (repeat) --root --k [--deadline-ms]`, `census --dir`, `tail --path --n`, `state --target [--proc-root --now-s]`, `check --obj-json`, plus repeatable `--allow-root DIR` for `Roots`. Tests start it with `python3 -I -c "sys.path.insert(0, repo); runpy.run_module('bridge.ctx', run_name='__main__')"` because `-I` ignores PYTHONPATH and cwd. Usage error => exit 2.
 11. `bridge/tests/ctx/__init__.py` exists so `-s bridge/tests/ctx -t .` can import; `bridge/` and `bridge/tests/` are namespace packages (no `__init__.py` needed).
 
-## Repair loop 1 (Sol HOLD) — tests in `test_repair1.py`
+## Repair loop 1 (review HOLD) — tests in `test_repair1.py`
 ACCEPTED (BLOCKING, spec-supported):
 - Item 1 git half: `.git` symlinked outside root -> rc 2 (B5 symlinks never followed). `test_dot_git_symlink_to_outside_rejected`.
 - Item 2: symlink swapped in after `Roots.resolve` approves (page, tail; hostile `Roots` subclass). B5 "never followed, nothing read". `RaceTests`. find/census descendant races are not deterministically testable without fd-level spies: not covered.
@@ -48,7 +48,7 @@ REJECTED:
 - Item 7 unknown-verb envelope: `Verb` excludes unknown values; reviewer itself says AUSENTE. Only rc 2 is asserted (already tested).
 - "Test gaming" / U28 parity / golden vectors: NON-BLOCKING known debt (no fixture-specific branch found).
 
-## Repair loop 2 (Sol HOLD) — tests in `test_repair2.py`, threat model DISP_03
+## Repair loop 2 (review HOLD) — tests in `test_repair2.py`, threat model DISP_03
 ACCEPTED (BLOCKING):
 - Item 1 ancestor half: directory swapped for a symlink after `Roots.resolve` (page, tail; hostile `Roots`) must not read outside (B5). `AncestorRaceTests`.
 - Item 2: FIFO without writer must not stall page/tail and must not return rc 0 (DISP_03 #4). `FifoStallTests` (3 s watchdog, releases the FIFO).
@@ -56,7 +56,7 @@ ACCEPTED (BLOCKING):
 - Item 4: lone surrogate in `data` must give `valid:false`, rc 2, never a skipped digest check (B19). `CheckDigestFailureTests`.
 NON-BLOCKING (known debt, no test): `find` lstat/open race (not deterministically testable without fd spies); stale "STUB" labels in `bridge/ctx/__init__.py` and this file; U28 parity / golden vectors.
 
-## Repair loop 3 (Sol HOLD) - tests in `test_repair3.py`, threat model DISP_03
+## Repair loop 3 (review HOLD) - tests in `test_repair3.py`, threat model DISP_03
 ACCEPTED (BLOCKING): (1) `state` must not follow repo metadata outside roots: `.git` file with absolute/relative `gitdir:` outside (rc != 0, no outside head/branch); `core.worktree` and config `include` pointing outside must not change the answer (rc!=0 or dirty 0); (2) no clean/smudge filter (config and `info/attributes`), hook, or fsmonitor execution (planted marker file must not appear); (3) root-ancestor replacement races: ancestor of the allowed root swapped for a symlink after `Roots.resolve` (page, tail, state) and repo dir / root ancestor swapped between validation and git launch (patched `subprocess.run`, outside repo's HEAD/branch must never appear) (B5 "symlinks never followed, nothing read"); (4) `Roots(("/",)).resolve` accepts descendants.
 Stances: the `core.worktree`/include/global-config checks accept either rejection or in-root answer; the git launch race test is coupled to `subprocess.run` (B4 mandates subprocess in `state.py`). Currently green by design: include/global-config/hook/fsmonitor scenarios already neutralised by existing flags.
 NON-BLOCKING (no test): stale "STUB" text in `bridge/ctx/__init__.py`.

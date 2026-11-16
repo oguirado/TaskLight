@@ -21,7 +21,7 @@ Type stub added (type-only, no behaviour): `FirebaseTextRequest`, `FirebaseTextF
 - J10 `firebaseText` tests build a sibling registry with `createProviderRegistry({...w.deps, firebaseText})` from a u47 `world()`; the policy mock is the u47 `policyRef`.
 - No amendment A-U52b needed: u47 "initDevice initialises every live overlay" stays green under the stated behaviour.
 
-## A-U52b-r1 (repair loop 1, Sol HOLD: reentrancy + retention)
+## A-U52b-r1 (repair loop 1, review HOLD: reentrancy + retention)
 - File `repair1.test.ts`: 7 tests, 7 red before the fix [MEASURED] (`npx vitest run tests/unit/u52b/repair1.test.ts`: 7 failed).
 - Reentrancy (3): a joiner created inside a synchronous progress callback never resolves `not_initialised`; it gets `downloading` (last progress) at its own bound, or the real status / real rejection when the attempt settles first; one `deps.hybrid.initDevice`.
 - Retention (4): no stats/debug hook exists, so retention is pinned via progress delivery: after 50 expired bounded retries, forwarded progress reaches 0 expired callbacks and only the active one; late completion resolves the active waiter, leaves 0 clock timers and clears the in-flight slot (next call = fresh init). Bound expiry and `clock.setTimeout` failure (first caller and joiner) each detach that waiter's callback only.

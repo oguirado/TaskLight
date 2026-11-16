@@ -31,7 +31,7 @@ Stub (`src/template/`) is accept-all and wrong on purpose; tsc clean for u30; st
 7. Ring semantics inferred from T11/T13: history holds previous templates (current excluded), 11 accepts give 10 undos then NOTHING_TO_UNDO. Restore test assumes `save` persists a ring from which a new session restores current + history.
 8. `load()` when the store throws, and "invalid ring entries dropped" (ring format is opaque `unknown`): not tested.
 
-## Repair loop 1 (tests only; file `repair1.test.ts`; source: Sol REVIEW HOLD + DISP_02)
+## Repair loop 1 (tests only; file `repair1.test.ts`; source: reviewer REVIEW HOLD + DISP_02)
 Result vs build/U30 impl: 22 tests, 17 fail (each pins a reviewer defect), 5 are controls; existing 92 pass; tsc clean for u30 files. `vi.mock('../../../src/lens')` overrides `getLens` only inside this file.
 
 | Review item | Verdict | Test | Spec basis / notes |
@@ -46,7 +46,7 @@ Result vs build/U30 impl: 22 tests, 17 fail (each pins a reviewer defect), 5 are
 | One invalid history entry discards the ring | ACCEPTED | R1-8 | B16 "Invalid entries are dropped, never repaired". Ring shape is taken from what the session itself saved (the single array property); invalid `current` still defaults (control). |
 | Test-gaming / documented coverage debt (filtered steps/progress, relaxed slot oracle, invalid-ring untested) | REJECTED as NON-BLOCKING | none | Reviewer marks it non-blocking; filtering and slot cap are ratified by DISP_02 items 1-2. Invalid-ring coverage is now added by R1-8. |
 
-## Repair r2 (Sol review; DISP_03 threat model; file `repair2.test.ts`)
+## Repair r2 (cross-family review; DISP_03 threat model; file `repair2.test.ts`)
 Result vs build/U30 impl: 21 new tests, 16 fail, 5 controls pass (existing 111 pass); tsc clean for u30 files. `vi.mock('../../../src/lens')` overrides `getLens` only inside this file.
 | Review item | Verdict | Test | Notes |
 |---|---|---|---|
@@ -57,7 +57,7 @@ Result vs build/U30 impl: 21 new tests, 16 fail, 5 controls pass (existing 111 p
 | Stored ring with throwing getter escapes `load()` | REJECTED NON-BLOCKING (hostile getters; store returns JSON-producible data) | none | |
 | `hash.ts` stub-compat comment as test gaming | folded into R2-2 (behaviour, not comment) | | |
 
-## Repair r3 (Sol review r2; DISP_03 items 3+4; file `repair3.test.ts`)
+## Repair r3 (cross-family review r2; DISP_03 items 3+4; file `repair3.test.ts`)
 Result vs build/U30 impl: 8 new fail (never-settling load/save, queue recovery, late settlement, timer leak), reject/throw controls pass; existing pass; tsc clean for u30 files.
 | Review item | Verdict | Test | Notes |
 |---|---|---|---|

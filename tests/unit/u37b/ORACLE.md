@@ -21,7 +21,7 @@ Files: `fixture.ts` (2 rooms x 2 agents, 21 unique events, 5 redeliveries, plan 
 - Static no-`firebase/*` checks pass against the stubs by design (they guard the real code).
 - `src/ai` currently has unrelated tsc errors (`plan` task added mid-amendment); U37b only type-imports `ModelFactory`, `ModeName`, `HybridParamsShape`, `ModelHandle`.
 
-## Repair loop 1 (Sol review)
+## Repair loop 1 (cross-family review)
 `review1.test.ts`: R1 invalid maxPerRoom (negative/0/NaN/Infinity/fractional) never deletes an accepted event (refusing the config is acceptable); R2 timestamps outside the Date range never crash ingest or toChatVM.
 
 ## Oracle amendment A-U38

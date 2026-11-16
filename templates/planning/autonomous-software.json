@@ -1,0 +1,200 @@
+{
+  "v": 1,
+  "id": "autonomous-software",
+  "name": "Autonomous Software",
+  "summary": "Contract-driven software planning with fail-first oracles, write-disjoint tasks, evidence-backed microtasks, and durable memory.",
+  "lens_id": "dev",
+  "brief_fields": [
+    {
+      "id": "goal",
+      "label": "Problem and target outcome",
+      "required": true
+    },
+    {
+      "id": "repo-scope",
+      "label": "Repository paths and allowed surfaces",
+      "required": true
+    },
+    {
+      "id": "constraints",
+      "label": "Non-functional, safety, and budget constraints",
+      "required": true
+    },
+    {
+      "id": "verification-cmd",
+      "label": "Local verification and test commands",
+      "required": true
+    },
+    {
+      "id": "privacy-tier",
+      "label": "Room privacy tier (private, standard, or shared)",
+      "required": false
+    },
+    {
+      "id": "non-goals",
+      "label": "Explicit non-goals and out-of-scope work",
+      "required": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "brief",
+      "label": "Brief",
+      "exit": "All required brief fields captured, verbatim operator rulings stored in memory, and plan passes conformance check."
+    },
+    {
+      "id": "design",
+      "label": "Design",
+      "exit": "Architecture, file boundaries, and interface contracts recorded in memory; tasks form a write-disjoint acyclic graph."
+    },
+    {
+      "id": "oracle",
+      "label": "Oracle",
+      "exit": "Tests and acceptance checks are written and confirmed failing before any product implementation begins."
+    },
+    {
+      "id": "build",
+      "label": "Build",
+      "exit": "All implementation tasks completed within declared surfaces and previously failing oracles now pass."
+    },
+    {
+      "id": "verify",
+      "label": "Verify",
+      "exit": "Full local checks, adversarial negative controls, and evidence paths verified for every completed microtask."
+    },
+    {
+      "id": "release",
+      "label": "Release",
+      "exit": "Artifacts packaged, open items reconciled, lessons recorded in memory, and plan closed with a factual outcome."
+    }
+  ],
+  "task_types": [
+    {
+      "id": "spec",
+      "label": "Specification",
+      "accept_required": true,
+      "evidence_required": true,
+      "micro_hints": [
+        "Record problem scope, constraints, and non-goals in brief",
+        "Save verbatim operator rulings in the rules memory section",
+        "Define measurable acceptance criteria for each planned task"
+      ]
+    },
+    {
+      "id": "design",
+      "label": "Design",
+      "accept_required": true,
+      "evidence_required": true,
+      "micro_hints": [
+        "Document component boundaries and interfaces in architecture",
+        "Assign write-disjoint file surfaces to concurrent tasks",
+        "Log key trade-offs and rejected options in decisions"
+      ]
+    },
+    {
+      "id": "oracle",
+      "label": "Oracle",
+      "accept_required": true,
+      "evidence_required": true,
+      "micro_hints": [
+        "Write automated tests covering acceptance criteria first",
+        "Run new tests and capture failing output as baseline proof",
+        "Add negative control checks that fail on broken behavior"
+      ]
+    },
+    {
+      "id": "implement",
+      "label": "Implementation",
+      "accept_required": true,
+      "evidence_required": true,
+      "micro_hints": [
+        "Edit only files inside the task's declared surface",
+        "Make pre-written oracle tests pass without weakening checks",
+        "Attach test log and modified file paths as microtask evidence"
+      ]
+    },
+    {
+      "id": "verify",
+      "label": "Verification",
+      "accept_required": true,
+      "evidence_required": true,
+      "micro_hints": [
+        "Run full test suite and linters against integrated changes",
+        "Confirm real cross-component integration beyond unit mocks",
+        "Verify no secrets or out-of-scope edits entered the diff"
+      ]
+    },
+    {
+      "id": "review",
+      "label": "Review",
+      "accept_required": true,
+      "evidence_required": true,
+      "micro_hints": [
+        "Audit diff against acceptance criteria and memory rulings",
+        "Verify every cited file path and test outcome on disk",
+        "Record confirmed defects as new tasks or open items"
+      ]
+    },
+    {
+      "id": "release",
+      "label": "Release",
+      "accept_required": true,
+      "evidence_required": true,
+      "micro_hints": [
+        "Verify clean build, packaging, and final gate pass",
+        "Update open-items and lessons memory sections before closing",
+        "Close the plan with a factual outcome and evidence paths"
+      ]
+    }
+  ],
+  "granularity": {
+    "tasks_max": 40,
+    "micro_min": 2,
+    "micro_max": 8,
+    "rule": "Keep each task scoped to an exclusive file surface and split it into small microtasks where each produces one verifiable outcome backed by file evidence."
+  },
+  "memory_sections": [
+    {
+      "id": "mission",
+      "label": "Mission",
+      "required": true,
+      "max_chars": 1500,
+      "hint": "Project goal, target users, acceptance bar, and explicit non-goals"
+    },
+    {
+      "id": "rules",
+      "label": "Rules",
+      "required": true,
+      "max_chars": 2000,
+      "hint": "Verbatim operator rulings and hard constraints; never paraphrase or silently drop"
+    },
+    {
+      "id": "decisions",
+      "label": "Decisions",
+      "required": true,
+      "max_chars": 2000,
+      "hint": "Technical choices with rationale, alternatives rejected, and revision context"
+    },
+    {
+      "id": "architecture",
+      "label": "Architecture",
+      "required": true,
+      "max_chars": 2000,
+      "hint": "Modules, data flows, interface contracts, and write-disjoint surface boundaries"
+    },
+    {
+      "id": "open-items",
+      "label": "Open Items",
+      "required": false,
+      "max_chars": 1500,
+      "hint": "Blocked work, deferred tasks with trigger conditions, and unanswered operator questions"
+    },
+    {
+      "id": "lessons",
+      "label": "Lessons",
+      "required": false,
+      "max_chars": 1500,
+      "hint": "Failure modes observed during execution paired with the concrete check or rule preventing recurrence"
+    }
+  ]
+}

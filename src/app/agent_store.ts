@@ -4,15 +4,17 @@ import type { AgentState, DriftVerdict, RoomEvent, TemplateMemorySectionMeta } f
 import type { AgentChatVM, ChatMessageVM } from "../agentsui/types";
 import type { AccentVM, WallVM, ViewId, TaskVM, StepVM, AgendaGroupVM, AgendaItemVM, ArchivedVM, PlanVM, DiaryEntryVM, MemoryVM, MemorySectionVM, PlanPhaseVM, PlanAgentDotVM, SourceVM } from "../views/types";
 import * as Plan from "../plan";
-import type { PlanProjection, PlanTask, PlanMicrotask, PlanState } from "../plan";
+import type { PlanProjection, PlanTask, PlanMicrotask, PlanState, PlanningTemplate } from "../plan";
 
-export interface AgentStoreOptions { maxPerRoom?: number }
+export type TemplateResolver = (templateId: string, templateHash: string) => PlanningTemplate | undefined;
+export interface AgentStoreOptions { maxPerRoom?: number; templates?: TemplateResolver }
 export interface IngestSummary { accepted: number; duplicate: number; malformed: number; torn: boolean }
 export interface PlanProjectionResult {
   room: string;
   source: "v2" | "legacy";
   projection: PlanProjection;
   invalidOps: number;
+  template?: PlanningTemplate;
 }
 export interface AgentStore {
   ingest(ev: unknown): boolean;
@@ -23,9 +25,10 @@ export interface AgentStore {
   plan(room: string): PlanProjectionResult | undefined;
   plans(): PlanProjectionResult[];
 }
-export interface ChatOpts { userAgent: string; nowMs: number; drift?: DriftVerdict; sending: boolean }
+export interface ChatOpts { userAgent: string; nowMs: number; drift?: DriftVerdict; sending: boolean; suggestNotice?: string }
 export interface WallOpts { nowMs: number; model: WallVM["model"]; network: WallVM["network"]; userAgent?: string }
 export interface PlanWallOpts extends WallOpts {
+  theme?: WallVM["theme"];
   view?: ViewId;
   workspace?: string;
   archiveScope?: "workspace" | "all";
@@ -233,6 +236,7 @@ const cloneEvent = (e: RoomEvent): RoomEvent => {
 };
 
 export function createAgentStore(opts?: AgentStoreOptions): AgentStore {
+  const resolver: TemplateResolver | undefined = opts !== undefined && typeof (opts as AgentStoreOptions).templates === "function" ? (opts as AgentStoreOptions).templates : undefined;
   const maxPerRoom = opts?.maxPerRoom ?? 5000;
   if (!Number.isInteger(maxPerRoom) || maxPerRoom <= 0) {
     throw new RangeError(`maxPerRoom must be a positive integer, got ${String(maxPerRoom)}`);
@@ -320,11 +324,34 @@ export function createAgentStore(opts?: AgentStoreOptions): AgentStore {
         const sorted = [...list].sort(compareEvents);
         const hasOp = sorted.some((e) => e.act === "op");
         if (!hasOp) return undefined;
-        const result = Plan.foldPlan(sorted as unknown);
+        let template: PlanningTemplate | undefined;
+        if (resolver !== undefined) {
+          try {
+            let latest: Record<string, unknown> | undefined;
+            for (const e of sorted) {
+              if (e.act !== "op") continue;
+              const op = (e as { op?: unknown }).op;
+              if (!isRecord(op as unknown)) continue;
+              if ((op as Record<string, unknown>)["kind"] !== "plan.open") continue;
+              latest = op as Record<string, unknown>;
+            }
+            if (latest !== undefined) {
+              const tid = latest["template_id"];
+              const thash = latest["template_hash"];
+              if (typeof tid === "string" && typeof thash === "string") {
+                const candidate = resolver(tid, thash);
+                if (isRecord(candidate as unknown) && (candidate as PlanningTemplate).hash === thash) {
+                  template = candidate as PlanningTemplate;
+                }
+              }
+            }
+          } catch { template = undefined; }
+        }
+        const result = template !== undefined ? Plan.foldPlan(sorted as unknown, template) : Plan.foldPlan(sorted as unknown);
         const proj = (result as { projection?: PlanProjection })?.projection;
         const stats = (result as { stats?: { invalid?: number } })?.stats;
         if (proj === undefined) return undefined;
-        return { room, source: "v2", projection: proj, invalidOps: typeof stats?.invalid === "number" ? stats.invalid : 0 };
+        return { room, source: "v2", projection: proj, invalidOps: typeof stats?.invalid === "number" ? stats.invalid : 0, ...(template !== undefined ? { template } : {}) };
       } catch { return undefined; }
     },
     plans(): PlanProjectionResult[] {
@@ -402,6 +429,7 @@ export function toChatVM(state: AgentState, events: readonly RoomEvent[], opts: 
     }
     vm.drift = { verdict: d.verdict, reason: d.reason, source: d.source, added, removed };
   }
+  if (typeof opts.suggestNotice === "string" && opts.suggestNotice.length > 0) vm.suggestNotice = opts.suggestNotice;
   return vm;
 }
 
@@ -697,18 +725,50 @@ export function toWallVM(
         if (primary !== undefined && primary.projection.plan !== null && primary.projection.plan !== undefined) {
           const ps = primary.projection.plan as PlanState;
           const tasksArr = Array.isArray(primary.projection.tasks) ? primary.projection.tasks : [];
-          const phaseIds = new Set<string>();
-          phaseIds.add(ps.phase);
-          for (const t of tasksArr) if (typeof (t as PlanTask).phase === "string") phaseIds.add((t as PlanTask).phase);
-          const useNeutral = ps.template_id === "neutral";
-          const phaseDefs = useNeutral ? NEUTRAL_PHASES : [...phaseIds].map((id) => ({ id, label: id[0]!.toUpperCase() + id.slice(1), exit: "" }));
-          const phases: PlanPhaseVM[] = (phaseDefs as { id: string; label: string; exit?: string }[]).map((d) => ({ id: d.id, label: d.label, exit: d.exit ?? "", active: d.id === ps.phase }));
+          const resolvedTemplate = (primary as { template?: PlanningTemplate }).template;
+          const useNeutral = resolvedTemplate === undefined && ps.template_id === "neutral";
+          let phaseDefs: { id: string; label: string; exit: string }[] = [];
+          if (useNeutral) {
+            phaseDefs = NEUTRAL_PHASES.map((d) => ({ id: d.id, label: d.label, exit: d.exit ?? "" }));
+          } else if (resolvedTemplate !== undefined && Array.isArray(resolvedTemplate.phases)) {
+            const defs: { id: string; label: string; exit: string }[] = [];
+            for (const p of resolvedTemplate.phases) {
+              if (!isRecord(p as unknown)) continue;
+              const rec = p as unknown as Record<string, unknown>;
+              const pid = rec["id"];
+              if (typeof pid !== "string" || pid.length === 0) continue;
+              const plabel = typeof rec["label"] === "string" ? (rec["label"] as string) : "";
+              const pexit = typeof rec["exit"] === "string" ? (rec["exit"] as string) : "";
+              defs.push({ id: pid, label: plabel, exit: pexit });
+            }
+            if (defs.length > 0) phaseDefs = defs;
+          }
+          if (!useNeutral && phaseDefs.length === 0) {
+            const phaseIds: string[] = [];
+            const seenPhase = new Set<string>();
+            const addPhase = (v: unknown): void => {
+              if (typeof v !== "string" || v.length === 0) return;
+              if (seenPhase.has(v)) return;
+              seenPhase.add(v);
+              phaseIds.push(v);
+            };
+            addPhase((ps as unknown as Record<string, unknown>)["phase"]);
+            for (const t of tasksArr) {
+              if (t === null || typeof t !== "object") continue;
+              addPhase((t as unknown as Record<string, unknown>)["phase"]);
+            }
+            phaseDefs = phaseIds.map((id) => ({ id, label: id.charAt(0).toUpperCase() + id.slice(1), exit: "" }));
+          }
+          const psPhase: unknown = (ps as unknown as Record<string, unknown>)["phase"];
+          const phases: PlanPhaseVM[] = phaseDefs.map((d) => ({ id: d.id, label: d.label, exit: d.exit ?? "", active: d.id === psPhase }));
           const agentsSet = new Set<string>();
           for (const t of tasksArr) { const a = (t as PlanTask).assignee; if (typeof a === "string" && a.length > 0) agentsSet.add(a); }
           const agents: PlanAgentDotVM[] = [...agentsSet].sort().map((a) => ({ agent: a, active: true }));
           const rollup = primary.projection.rollup;
-          const totalCount = typeof rollup?.tasks_total === "number" ? rollup.tasks_total : tasksArr.length;
-          const doneCount = typeof rollup?.tasks_done === "number" ? rollup.tasks_done : tasksArr.filter((t) => (t as PlanTask).state === "done").length;
+          // The plan band computes its percentage from these microtask counts.
+          const micros = tasksArr.flatMap((t) => Array.isArray(t.microtasks) ? t.microtasks : []);
+          const totalCount = typeof rollup?.micro_total === "number" ? rollup.micro_total : micros.length;
+          const doneCount = typeof rollup?.micro_done === "number" ? rollup.micro_done : micros.filter((m) => m.state === "done").length;
           const progressPct = typeof rollup?.progress_pct === "number" ? rollup.progress_pct : 0;
           const briefParts: string[] = [];
           try { const b = ps.brief as unknown as Record<string, unknown>; for (const v of Object.values(b)) if (typeof v === "string") briefParts.push(v); } catch { /* ignore */ }
@@ -1016,6 +1076,7 @@ export function toWallVM(
       archive,
     };
     const ext = vm as unknown as Record<string, unknown>;
+    if (safeOpts.theme === "light" || safeOpts.theme === "dark") ext["theme"] = safeOpts.theme;
     if (plan !== undefined) ext["plan"] = plan;
     if (diary !== undefined) ext["diary"] = diary as unknown;
     if (memory !== undefined) ext["memory"] = memory as unknown;

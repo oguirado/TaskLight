@@ -103,6 +103,7 @@ export function mountAgentChat(
   counter.textContent = "0 / 4096";
   const note = el<HTMLParagraphElement>("p", "chat-suggest-note");
   note.textContent = SUGGEST_NOTE;
+  const suggestNoticeEl = el<HTMLParagraphElement>("p", "chat-suggest-notice");
   form.append(textarea, suggestBtn, sendBtn, counter);
 
   const refreshComposer = (): void => {
@@ -297,6 +298,13 @@ export function mountAgentChat(
       form.append(note);
     } else {
       note.remove();
+    }
+    const notice = typeof rec.suggestNotice === "string" && rec.suggestNotice.length > 0 ? rec.suggestNotice : null;
+    if (notice !== null) {
+      suggestNoticeEl.textContent = notice;
+      form.append(suggestNoticeEl);
+    } else {
+      suggestNoticeEl.remove();
     }
 
     assemble();

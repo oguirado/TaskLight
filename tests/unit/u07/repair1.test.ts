@@ -1,4 +1,4 @@
-// Repair loop 1: regression tests for Hydrogen review r0 (B3/B4 prototype-key version lookup).
+// Repair loop 1: regression tests for reviewer review r0 (B3/B4 prototype-key version lookup).
 import { describe, expect, it } from "vitest";
 import { cap, ev, ok } from "./helpers";
 import { buildPrompt, templateHash } from "../../../src/prompts/index";

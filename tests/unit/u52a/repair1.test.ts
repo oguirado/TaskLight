@@ -1,4 +1,4 @@
-// U52a repair 1 (Sol HOLD): after cancellation (dispose / uid switch) settles flush(),
+// U52a repair 1 (review HOLD): after cancellation (dispose / uid switch) settles flush(),
 // a still-running fs.txn callback must not stage any write (tx.set / tx.update).
 import { describe, expect, it } from 'vitest';
 import type { DigestIn } from '../../../src/sync';

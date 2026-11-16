@@ -22,6 +22,7 @@ export interface AgentChatVM {
     source: "device" | "cloud" | "local" | "remote" | "rules";
   };
   suggestion?: string;
+  suggestNotice?: string;
   sending: boolean;
 }
 

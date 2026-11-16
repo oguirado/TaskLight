@@ -553,7 +553,7 @@ export function buildDriftPrompt(
 /* ------------------------------------------------------------------ */
 
 export interface DriftPort {
-  generate(prompt: string, schema: object, signal: AbortSignal): Promise<{ text: string; source: DriftSource }>;
+  generate(prompt: string, schema: object, signal: AbortSignal, room?: string): Promise<{ text: string; source: DriftSource }>;
 }
 
 export async function reviewDrift(

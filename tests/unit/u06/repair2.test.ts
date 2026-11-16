@@ -1,4 +1,4 @@
-// Repair loop 2 regressions (Sol review r1). Concrete failing inputs from REVIEW.md.
+// Repair loop 2 regressions (cross-family review r1). Concrete failing inputs from REVIEW.md.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHybrid } from "../../../src/ai/hybrid";
 import { runParity } from "../../../src/ai/parity";

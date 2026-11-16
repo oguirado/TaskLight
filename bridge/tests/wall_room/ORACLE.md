@@ -33,7 +33,7 @@ Trap: `bridge/wall/__init__.py` re-exports `emit`, so `import bridge.wall.emit a
 - Stats keys (ints, snapshot copy): `events_sent` (live + replay frames), `dropped_residue`, `dropped_oversize`, `posts_acked`, `posts_refused` (includes rate_limited), `structural`.
 - Not tested: `to: null`/`re: null` (only "no crash"), room_full end to end (only via mocked store error), room_hello (not in U37a API), exact float window of the rate limiter.
 
-## Repair loop 1 (Sol review)
+## Repair loop 1 (cross-family review)
 `test_review1.py`: R1 a failed room_event send during replay never lets room_synced.upto skip it, and a retry recovers all events; R2 a NaN/±inf clock never lets more than POSTS_PER_SEC posts through.
 
 ## U58 oracle — operation redaction and replay paging

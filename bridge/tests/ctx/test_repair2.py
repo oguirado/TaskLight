@@ -1,4 +1,4 @@
-"""Repair loop 2 regression tests (Sol HOLD, DISP_03 BLOCKING items only)."""
+"""Repair loop 2 regression tests (review HOLD, DISP_03 BLOCKING items only)."""
 import json
 import os
 import threading

@@ -27,6 +27,7 @@ export interface MemorySectionVM { id: string; label: string; text: string; requ
   rev: number; by?: string; changedAt?: string; maxChars: number }
 export interface MemoryVM { planId?: string; sections: readonly MemorySectionVM[] }
 export interface WallVM { now: string; model: { state: "ready" | "downloading" | "unavailable"; label: string }; network: "online" | "offline";
+  theme?: "light" | "dark";
   workspaces: readonly WorkspaceVM[]; workspace: string; view: ViewId; archiveScope: "workspace" | "all";
   tasks: readonly TaskVM[]; agenda: readonly AgendaGroupVM[]; archive: readonly ArchivedVM[];
   plan?: PlanVM; diary?: readonly DiaryEntryVM[]; memory?: MemoryVM }

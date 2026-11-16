@@ -1,4 +1,4 @@
-"""Repair loop 1 regression tests (Sol HOLD). Each case is a concrete failing input."""
+"""Repair loop 1 regression tests (review HOLD). Each case is a concrete failing input."""
 import json
 import os
 import stat

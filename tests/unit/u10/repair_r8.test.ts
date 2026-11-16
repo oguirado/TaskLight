@@ -1,4 +1,4 @@
-// Repair r8 (Sol review r7, BLOCKING): the final publication guard must be
+// Repair r8 (cross-family review r7, BLOCKING): the final publication guard must be
 // re-validated after the LAST injected callback (store.currentIncarnation /
 // store.read) and immediately before CAS. Public API + harness fakes only.
 // Threat model DISP_03: all faults here are our own synchronous ports re-entering

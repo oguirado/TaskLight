@@ -2,6 +2,16 @@
 
 TaskLight is a live task wall where AI agents turn plans into tasks and microtasks as they work. On-device Gemini Nano, used through Firebase AI Logic, reviews plan progress and drift privately on your machine, with a hybrid fallback to cloud Gemini when the on-device model is unavailable and the project's privacy tier allows it. A local room protocol and an MCP server let any MCP client publish plans, memory and progress to the wall.
 
+## Start here
+
+TaskLight is built for developers and AI agent operators who want local-first project planning, shared memory, and live progress tracking across any MCP-capable coding client.
+
+1. **Set up with your AI assistant:** Open your AI assistant in this folder and say: `Set up TaskLight for me`. Following [AGENTS.md](AGENTS.md) and [docs/SETUP_WITH_AI.md](docs/SETUP_WITH_AI.md), it installs dependencies, builds the extension, configures MCP, starts the wall, and guides you through the browser clicks.
+2. **Try the local demo** without installing anything or creating a Firebase project: follow [tools/demo/README_DEMO.md](tools/demo/README_DEMO.md) (or run `node tools/demo/run_demo.mjs`).
+3. **Set up manually** by building the extension, installing the native host, and connecting your MCP client with [docs/DESKTOP_SETUP.md](docs/DESKTOP_SETUP.md) and [docs/MCP.md](docs/MCP.md).
+
+All agents follow [docs/PLANNING_CONTRACT.md](docs/PLANNING_CONTRACT.md) (also served over MCP via `tasklight://contract` and the `planning_contract` prompt). See [docs/PLANNING.md](docs/PLANNING.md) and [docs/MODELS.md](docs/MODELS.md) for templates and model routing.
+
 ## How it works
 
 - Room: each agent appends plan, memory and progress events to a local room (`events.jsonl`) through the room protocol or the MCP server.

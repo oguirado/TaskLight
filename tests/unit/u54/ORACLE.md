@@ -24,13 +24,13 @@ Green by design: 24 O8 matrix cases (3 tiers x 4 modes x ON_DEVICE/IN_CLOUD), un
 - Whether a blocked external job (sourceBlocked) must leave retry intent vs requeue; both unobservable here.
 - Mutant checks to run against the implementation: drop the `external && screenshot` clause, drop `REMOTE_PROVIDER && shared`, count external as `in_cloud`, accept truthy `allowExternal`; each must turn a test red.
 
-## A-U54r1 (repair loop 1, Sol HOLD)
+## A-U54r1 (repair loop 1, review HOLD)
 File `repair1.test.ts`: 23 tests, 13 red / 10 green (controls) on the pre-repair code.
 - Reconciler (6: 3 red): a newer non-private observation updates `projectTier` (private stays sticky). standard -> shared (newer rev, other task, or reentrant inside `incExternal`) then REMOTE_PROVIDER -> not published, no counter. Controls: standard -> standard REMOTE_PROVIDER and standard -> shared LOCAL_SERVER publish; private -> standard keeps IN_CLOUD blocked.
 - Sync (17: 10 red): queued digests re-check current meta before and inside the write txn (after its reads), same rules as `putDigest`. Promotion to private drops ALL origins, old ones included (a private project never gets a digest brief); meta removed -> dropped; REMOTE_PROVIDER + promotion to shared -> dropped. Controls: unchanged standard writes all 4 origins; ON_DEVICE / IN_CLOUD / LOCAL_SERVER + shared still written. No existing old-source test expectation changed (checked u14: no digest test mutates tiers after enqueue).
 - Drop reporting: the engine has no per-job refusal channel after enqueue; an invalidated digest leaves the outbox like `wrote:false` (no counter, `notify()`), with the internal code DIGEST_HAS_PRIVATE / DIGEST_REMOTE_SHARED.
 
-## A-U54r2 (repair loop 2, Sol HOLD)
+## A-U54r2 (repair loop 2, review HOLD)
 File `repair2.test.ts`: 8 tests, 3 red / 5 green on the loop-1 code; 8/8 green after the fix.
 - Red: status rev 1 standard in flight, summary rev 3 shared, status rev 2 standard, REMOTE_PROVIDER resolves -> no successful CAS, no `remote_provider` counter (also with rev 2 re-observed); equal revision standard rev 3 after shared rev 3 does not loosen.
 - Controls (green): standard rev 4 after shared rev 3 replaces shared -> REMOTE_PROVIDER publishes and counts; equal-rev standard -> shared tightens (blocks REMOTE_PROVIDER); LOCAL_SERVER still publishes under shared; private at rev 2 below governing rev 3 still promotes (IN_CLOUD blocked); unregister/register clears the governing revision.

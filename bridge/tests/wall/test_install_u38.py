@@ -9,7 +9,7 @@ from . import support as S
 
 def _install(home):
     env = S.clean_env(HOME=str(home))
-    p = subprocess.run([sys.executable, "-I", str(S.INSTALL), "--apply"], capture_output=True, env=env, timeout=30)
+    p = subprocess.run([sys.executable, "-I", str(S.INSTALL), "--apply", "--extension-id", S.PINNED_ID], capture_output=True, env=env, timeout=30)
     assert p.returncode == 0, p.stderr
     hits = list(pathlib.Path(home).rglob(S.HOST_NAME + ".json"))
     assert len(hits) == 1

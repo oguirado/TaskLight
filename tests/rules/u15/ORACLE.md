@@ -45,7 +45,7 @@ Tests live in `tests/rules/u15/` by orchestrator decision; review item 4 (separa
 Typecheck-only fix in the E5 tests: optional chaining on the regex match and a widened length guard. No behaviour change.
 
 ## Repair loop 2
-- Sol review r1 (HOLD) items covered: E7 unknown stored `privacy_tier` (string "unknown" and non-string 7, seeded with rules disabled) + text fields must be DENIED, create and update; `shared` still allowed. Capsule `inference_source`: "OTHER" and a map denied, ON_DEVICE / IN_CLOUD accepted. H1: text-header test requires `firebase/firestore.rules` line 1 to start with `// TO VERIFY`.
+- cross-family review r1 (HOLD) items covered: E7 unknown stored `privacy_tier` (string "unknown" and non-string 7, seeded with rules disabled) + text fields must be DENIED, create and update; `shared` still allowed. Capsule `inference_source`: "OTHER" and a map denied, ON_DEVICE / IN_CLOUD accepted. H1: text-header test requires `firebase/firestore.rules` line 1 to start with `// TO VERIFY`.
 - REJECTED (orchestrator decision, not tested): review request for separate predicate files (`firebase/predicates.ts`, `model.ts`, fixtures, `firebase/tests/*`) under `firebase/`; emulator-only suite at `tests/rules/u15/` stays authoritative.
 - Spec amendment / E2 Unicode-length status: out of test scope.
 

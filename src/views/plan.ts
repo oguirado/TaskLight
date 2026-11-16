@@ -412,7 +412,7 @@ function safePlan(plan: unknown): PlanVM {
   return { id: "p1", title: "", templateId: "", templateHash: "", phaseId: "", phases: [], doneCount: 0, totalCount: 0, progressPct: 0, agents: [] } as PlanVM;
 }
 
-export function renderPlanBand(doc: Document, plan: PlanVM, opts?: { onSelectPhase?: (id: string) => void; announce?: AnnounceFn }): HTMLElement {
+export function renderPlanBand(doc: Document, plan: PlanVM, opts?: { onSelectPhase?: (id: string) => void; announce?: AnnounceFn; selectedPhase?: string | null }): HTMLElement {
   const sec = el(doc, "section", "plan-band");
   try {
     const p = safePlan(plan);
@@ -451,6 +451,7 @@ export function renderPlanBand(doc: Document, plan: PlanVM, opts?: { onSelectPha
       const chip = el(doc, "button", "phase-chip", label);
       chip.setAttribute("type", "button");
       chip.setAttribute("data-phase-id", pid);
+      chip.setAttribute("aria-pressed", opts && opts.selectedPhase === pid ? "true" : "false");
       chip.setAttribute("data-active", active ? "true" : "false");
       if (active) chip.setAttribute("aria-current", "step");
       else chip.setAttribute("aria-current", "false");
@@ -790,13 +791,18 @@ export function renderPlanArchive(doc: Document, items: readonly ArchivedVM[], h
       const outcome = asStr(arec.outcome);
       const stepsRaw = arec.steps;
       const countRaw = arec.taskCount;
-      const count = countRaw !== undefined && countRaw !== null && asStr(countRaw) !== "" ? asStr(countRaw) : asStr(stepsRaw);
+      const hasTaskCount = countRaw !== undefined && countRaw !== null && asStr(countRaw) !== "";
+      const countValue = hasTaskCount ? asStr(countRaw) : asStr(stepsRaw);
+      const countLabel = countValue.length === 0 ? "" : hasTaskCount
+        ? `${countValue} task${countValue === "1" ? "" : "s"}`
+        : `${countValue} steps`;
+      const tookLabel = (took === "" || took === "unavailable") ? "Duration unknown" : took;
       const li = el(doc, "li", "archived");
       if (id) li.setAttribute("data-arch-id", id);
       li.appendChild(el(doc, "h2", "archived-title", title));
-      if (archived.length > 0) li.appendChild(el(doc, "p", "archived-date", `Archived ${archived} `));
-      if (took.length > 0) li.appendChild(el(doc, "p", "archived-took", `${took} `));
-      if (count.length > 0) li.appendChild(el(doc, "p", "archived-count", ` ${count} `));
+      if (archived.length > 0 && archived !== "unavailable") li.appendChild(el(doc, "p", "archived-date", `Archived ${archived} `));
+      li.appendChild(el(doc, "p", "archived-took", `${tookLabel} `));
+      if (countLabel.length > 0) li.appendChild(el(doc, "p", "archived-count", ` ${countLabel} `));
       if (outcome.length > 0) li.appendChild(el(doc, "p", "archived-outcome", outcome));
       li.appendChild(sourcechip(doc, arec.source));
       const btn = el(doc, "button", "archived-restore", "Restore");

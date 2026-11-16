@@ -1,4 +1,4 @@
-// Repair loop 1 regressions from the Sol review of U37b (strategy/flights/U37b/REVIEW_1.md).
+// Repair loop 1 regressions from the cross-family review of U37b (strategy/flights/U37b/REVIEW_1.md).
 import { describe, expect, it } from "vitest";
 import { createAgentStore, toChatVM } from "../../../src/app/agent_store";
 import { LAUNCH, LAUNCH_EVENTS, foldAll, stateOf } from "./fixture";

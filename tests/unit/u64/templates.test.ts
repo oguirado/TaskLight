@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { getStarterTemplateMeta, getTemplateMemorySections, STARTER_TEMPLATE_IDS } from "../../../src/app/starter_templates";
-const ids = ["blank", "web-app", "cli-library", "mobile-app", "data-ml"] as const;
+const ids = ["blank", "web-app", "cli-library", "mobile-app", "data-ml", "autonomous-software"] as const; // A-U76a: sixth starter (planning contract)
 afterEach(() => { vi.doUnmock("../../../templates/planning/blank.json"); vi.resetModules(); });
 describe("U64 bundled template metadata", () => {
   it.each(ids)("A9 %s is normalized, deeply frozen and matches bundled JSON", id => {

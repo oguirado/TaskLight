@@ -37,7 +37,7 @@ Stub-passing tests are true controls (static greps, pure helpers, SDK constant m
 - U05 is not implemented in the repo despite the brief; integration with the real validator is untested here.
 
 ## Repair loop 1
-Source: Sol review r0 (HOLD). New files: `repair1.test.ts` (mocked schema, 11 tests; 10 red on current impl, 1 control green) and `repair1.integration.test.ts` (REAL U05 `../schema`, no mock; 4 tests, green: params reference real `TASK_SCHEMAS`, real validator accept/reject, `runParity` t4).
+Source: cross-family review r0 (HOLD). New files: `repair1.test.ts` (mocked schema, 11 tests; 10 red on current impl, 1 control green) and `repair1.integration.test.ts` (REAL U05 `../schema`, no mock; 4 tests, green: params reference real `TASK_SCHEMAS`, real validator accept/reject, `runParity` t4).
 | Finding | Disposition | Tests |
 |---|---|---|
 | 1 private handle never initialised (B7/B11/B12) | Accepted | R1 x2: uninitialised device-only handle refuses to generate; failed-init handle gets zero calls |
@@ -48,7 +48,7 @@ Source: Sol review r0 (HOLD). New files: `repair1.test.ts` (mocked schema, 11 te
 Exact status values after a stale completion (R4) are not fixed by the spec; tests only forbid `ready`/`needs_gesture`/stale progress, not a specific replacement state.
 
 ## Repair loop 2
-Source: Sol review r1 (HOLD). New file: `repair2.test.ts` (mocked schema).
+Source: cross-family review r1 (HOLD). New file: `repair2.test.ts` (mocked schema).
 | Finding | Disposition | Tests |
 |---|---|---|
 | Request blocks on lazy private handle init (B11) | Accepted | R2-1: never-settling init -> run resolves `DEVICE_NOT_INITIALISED`, zero calls |
@@ -61,7 +61,7 @@ Source: Sol review r1 (HOLD). New file: `repair2.test.ts` (mocked schema).
 | Test-gaming remark | REJECTED | implementation matter |
 
 ## Repair r6
-Source: Sol review r5 (HOLD). New file: `repair_r6.test.ts` (mocked schema). Against current impl: 14 red new / 126 existing green; tsc clean for the file.
+Source: cross-family review r5 (HOLD). New file: `repair_r6.test.ts` (mocked schema). Against current impl: 14 red new / 126 existing green; tsc clean for the file.
 | Finding | Disposition | Tests |
 |---|---|---|
 | `run` rejects when request accessors or ctx copies throw (B18) | Accepted | R6-1 x10: throwing `prompt`/`tier`/`projectId`/`task`/`image`/`image.data`/`ctx`/`ctx.knownProjectIds` getters, Set with throwing iterator, `ctx` getter throwing on second read: resolve `SDK_ERROR` (`meta.called` false and zero SDK calls where failure precedes generation); plus control |
@@ -71,7 +71,7 @@ Source: Sol review r5 (HOLD). New file: `repair_r6.test.ts` (mocked schema). Aga
 Note: spec B20 is silent on setup-failure reporting; the "runParity rejects with Error" shape follows the review's fix 2, not an explicit spec rule. The throwing-second-read case does not assert `called:false` (SDK may already have been called).
 
 ## Repair r7 (fault injection)
-Source: Sol review r6 (HOLD, `errMessage` throws) plus the standing request to enumerate escaping-exception paths systematically instead of one per round. New file: `fault_injection.test.ts` (mocked schema, harness fake; no impl access). Against current impl: 157 red new of 1160 new / 140 existing green; tsc clean for the file.
+Source: cross-family review r6 (HOLD, `errMessage` throws) plus the standing request to enumerate escaping-exception paths systematically instead of one per round. New file: `fault_injection.test.ts` (mocked schema, harness fake; no impl access). Against current impl: 157 red new of 1160 new / 140 existing green; tsc clean for the file.
 Method: every injected dependency method (`factory.create`, `factory.modeConst`, `factory.sourceConst` and its two members, `handle.generateContent`, `handle.initializeDeviceModel`, the schema validator, the caller's `onProgress`) is wrapped in a counting Proxy. Each scenario (std lifecycle incl. two private tiers and an auto re-init; parity) is first run clean to enumerate every call site (port, nth call, step); one row is generated per site x fault kind and the fault fires once. Kinds: sync throw, hostile thrown object, getter throw at access, rejected promise, never-settling promise, undefined/null result, throwing `response`/`text`/`inferenceSource` getters, throwing `text()`, bad source, validator returning undefined or throwing `ok`/`errors` getters, throwing `onProgress`.
 | Block | Rows | Red |
 |---|---|---|
@@ -88,6 +88,6 @@ Defects exposed (all remaining reds): (1) `errMessage` throws for hostile reason
 Stances taken (not explicit spec text): (a) parity case accessor faults count as rejects (B20 lists SDK_ERROR as a reject and `run` maps accessor throws to SDK_ERROR); (b) factory/init setup faults in parity may reject but only with the injected error (follows R6-3); (c) `factory.create` returning a non-handle is not generated (contract violation outside the requested fault classes); (d) never-settling `generateContent`/init promises have no timeout in U06, so the tests only require that they do not wedge later work (W5), not that they settle. Optional triage aid: `FI_DUMP=<file>` writes row -> violations JSON.
 
 ## Repair r8 (init rejection must not wait for siblings)
-Source: Sol review r7b (HOLD, B12): `initDevice` and the auto re-init after `applyConfig` wait on `Promise.allSettled`, so a rejection next to a never-settling init leaves status `downloading` forever. New file: `repair_r8.test.ts` (vitest fake timers, harness manual init mode). Against current impl: 9 red new of 16 new / existing 1307 green.
+Source: cross-family review r7b (HOLD, B12): `initDevice` and the auto re-init after `applyConfig` wait on `Promise.allSettled`, so a rejection next to a never-settling init leaves status `downloading` forever. New file: `repair_r8.test.ts` (vitest fake timers, harness manual init mode). Against current impl: 9 red new of 16 new / existing 1307 green.
 Cases: explicit init, rejection of handle 0/1/4 with 4 pending siblings -> `failed` (detail kept); rejection + 3 resolved + 1 pending -> `failed`; later `initDevice` after prompt failure reaches ready; auto re-init, rejection of replacement 0/2/4 or mixed with resolved siblings -> `needs_gesture`. Guards (green today, must stay green): late sibling settlement never reverts failed/needs_gesture, stale-attempt rejections ignored (new initDevice, second applyConfig), success still waits for all five handles, ONLY_ON_DEVICE blocked with no SDK call after failure.
 Stance: only `deviceStatus()` is required to flip promptly; the `initDevice()` promise may still settle after siblings.

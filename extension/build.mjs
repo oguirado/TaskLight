@@ -6,9 +6,8 @@
 // - Service worker: a virtual entry that calls startSwMain() from src/sw_main.ts with the
 //   external-port gate built from the manifest's externally_connectable.matches (or --origin).
 //   Bundled as a classic IIFE script at <out>/src/sw.js (manifest background.service_worker).
-// - sw.ts self-boots at module load with a fixed `https://site.test/*` gate. When it is bundled
-//   under sw_main that second instance would disconnect every other origin's port (same port
-//   object), so the build neutralises that boot block in the bundle only (source untouched).
+// - The service-worker bundle disables sw_main import-time startup so the virtual entry
+//   starts exactly one worker with the configured gate.
 // - Panel: src/panel/panel.ts -> <out>/src/panel/panel.js; panel.html is copied with a script tag.
 // - Manifest: copied from manifest.json / manifest.dev.json; --key-file replaces `key` in the
 //   BUILT copy only.
@@ -68,12 +67,13 @@ function swEntryPlugin(gateOrigins) {
   };
 }
 
-async function bundle(entry, outDir, fileName, name, plugins = []) {
+async function bundle(entry, outDir, fileName, name, plugins = [], options = {}) {
   await build({
     configFile: false,
     root: extRoot,
     logLevel: "warn",
     plugins,
+    ...options,
     build: {
       outDir,
       emptyOutDir: false,
@@ -98,7 +98,7 @@ async function main() {
   rmSync(o.out, { recursive: true, force: true });
   mkdirSync(join(o.out, "src", "panel"), { recursive: true });
 
-  await bundle("cw-sw-entry", o.out, "src/sw.js", "cwSw", [swEntryPlugin(gate)]);
+  await bundle("cw-sw-entry", o.out, "src/sw.js", "cwSw", [swEntryPlugin(gate)], { define: { __CW_SW_AUTOBOOT__: "false" } });
   await bundle(join(extRoot, "src", "panel", "panel.ts"), o.out, "src/panel/panel.js", "cwPanel");
 
   const panelHtml = readFileSync(join(extRoot, "src", "panel", "panel.html"), "utf8")

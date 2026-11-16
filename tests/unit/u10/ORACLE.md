@@ -49,7 +49,7 @@ Against the stub (admit everything, no inference, no publish; `jobKeyId` = naive
 
 ## Repair loop 1
 
-Source: Sol review (HOLD). Real implementation = build/U10; all new/corrected cases red there, stub red in repo.
+Source: cross-family review (HOLD). Real implementation = build/U10; all new/corrected cases red there, stub red in repo.
 
 | Case | Review item | Spec rule | File |
 |---|---|---|---|
@@ -96,7 +96,7 @@ Added `repair3.test.ts` (public API + FakeClock only). Against current impl: 6 r
 Not covered (spec silent or not observable via public API): lifecycle metadata growth (lastStart on unregister/dispose). Thresholds (12 rounds of 20 s in R3-4) are test choices.
 
 ## Repair r6
-Source: Sol review r5 (HOLD). New file: `repair_r6.test.ts` (public API + FakeClock only). Against current impl: 17 red new / 91 existing green; tsc clean for the file.
+Source: cross-family review r5 (HOLD). New file: `repair_r6.test.ts` (public API + FakeClock only). Against current impl: 17 red new / 91 existing green; tsc clean for the file.
 | Finding | Disposition | Tests |
 |---|---|---|
 | Work of an unregistered project publishes / recreates a job | Accepted | R6-1: outstanding inference resolved after `unregisterProject` publishes nothing; same with `prompt_version` bump (no new P1 job, no pending P1); control for a registered project |
@@ -105,7 +105,7 @@ Source: Sol review r5 (HOLD). New file: `repair_r6.test.ts` (public API + FakeCl
 Note: spec lists `inference_timeout_ms` as required with value AUSENTE; "throws on invalid" is the review's fix 2 (spec does not name the error channel). Zero is treated as invalid (non-positive).
 
 ## Repair r7 (fault injection)
-Source: Sol review r6 (HOLD: stall after `unregisterProject` of another project; throwing publication ports escape the outcome continuation) plus the standing request to enumerate escaping-exception paths systematically. New file: `fault_injection.test.ts` (public API + harness fakes; no impl access). Against current impl: 937 red new of 1505 new / 108 existing green; tsc clean for the file.
+Source: cross-family review r6 (HOLD: stall after `unregisterProject` of another project; throwing publication ports escape the outcome continuation) plus the standing request to enumerate escaping-exception paths systematically. New file: `fault_injection.test.ts` (public API + harness fakes; no impl access). Against current impl: 937 red new of 1505 new / 108 existing green; tsc clean for the file.
 Method: every injected port method (`infer.run`, `validator.validate`, `store.read`, `store.currentIncarnation`, `store.compareAndPublish`, `clock.now`, `clock.setTimer`, `ledger.inc`) is wrapped in a counting Proxy. Eleven scenarios (cycle, CAS conflict, cloud fallback, cloud only, schema reject, device gate, refusal at dispatch, refusal at observe, timeout, unregister-other, dispose) are first run clean to enumerate every call site (port, nth call, step; counter/task as argument). One row is generated per site x fault kind (max 4 sites per port/step/argument group: first, second, middle, last) and the fault fires once. Kinds: sync throw, hostile thrown object, getter throw at access, rejected promise (plain and hostile), never-settling promise, `run` returning undefined or a thenable with a throwing `then`, inference resolving undefined or an object with a throwing `raw`, validator returning undefined or throwing `ok`/`patch` getters, hostile capsule from `store.read`, `setTimer` cancel handle that throws or is not a function.
 | Block | Rows | Red |
 |---|---|---|
@@ -122,7 +122,7 @@ Invariants per row (listed as a violation list so a failure names every broken o
 Defects exposed (all reds): (1) `unregisterProject` frees a lane without `scheduleDispatch` (review 1); (2) exceptions from `ledger.inc`, `store.*`, `clock.now`/`setTimer`, a bad validator return, or a malformed inference result escape the `outcome.then` continuation as unhandled rejections and drop retry intent; (3) `tryDispatch` aborts its loop when the refusals ledger call or `infer.run` shape handling throws, stranding later pending jobs; (4) `startJob` leaks the in-flight entry when `clock.setTimer` throws, when the cancel handle throws or is not a function (also in `removeInFlight`, `unregisterProject`, `dispose`, which then also skips aborting later in-flight jobs); (5) `freshness` propagates store failures; (6) config read live from the caller's object, so a later poisoned accessor wedges dispatch and timers.
 Stances taken (not explicit spec text): (a) a public sync call may propagate the injected port error but nothing else (spec only names TypeError for bad revisions); (b) freshness with unreadable evidence is `stale` (B15: no publication means stale); (c) config must be snapshotted at install (derived from the accessor class in the review; no spec sentence); (d) rows where the same defect repeats across call sites are intentional: they pin each site. Optional triage aid: `FI_DUMP=<file>` writes row -> violations JSON.
 
-## Repair r8 (Sol review r7; threat model DISP_03)
+## Repair r8 (cross-family review r7; threat model DISP_03)
 New file: `repair_r8.test.ts` (public API + harness fakes). Against current impl: 6 red of 8 new; all existing green; tsc clean for the file.
 Accepted (BLOCKING, item 5 race between our own async steps / B11 privacy): final publication guard checks tier before awaiting `store.currentIncarnation`/`store.read`; a private promotion, `unregisterProject`, or incarnation change inside any post-ledger call of those ports must still block publication (hook fired at every nth call after the `in_cloud` increment, call count measured by a probe run; no CAS attempted for unregister/incarnation; no IN_CLOUD publish for private).
 Rejected as NON-BLOCKING under DISP_03 (known debt, no test): `genByProject` unbounded tombstone growth; NaN/invalid `ondevice_concurrency` / `queue_max_depth_factor` (spec leaves domains unspecified; only `inference_timeout_ms` validated).
@@ -130,7 +130,7 @@ Rejected as NON-BLOCKING under DISP_03 (known debt, no test): `genByProject` unb
 ## Amendment A1-U10r8 (orchestrator)
 The incarnation mutation on the final pre-CAS currentIncarnation read is excluded: closing it requires the atomic compareAndPublish port contract (declared in Codex ACCEPTANCE_SCOPE.md); a check-then-act reconciler cannot observe it. All other positions remain asserted.
 
-## Repair r9 (Sol review r8; threat model DISP_03)
+## Repair r9 (cross-family review r8; threat model DISP_03)
 New file: `repair_r9.test.ts` (public API + harness fakes). Against current impl: all new reds are the two BLOCKING items; all existing tests green; tsc clean for the file.
 Accepted (BLOCKING, injected-port failures / B2): a throwing `clock.now` during `observe` (call #1, #2 or #3, first and coalescing observe) must not consume the revision: work or retry intent is retained and a repeated observation or time alone dispatches exactly one job.
 Accepted (BLOCKING, invalid numeric configuration; supersedes the r8 NON-BLOCKING ruling on concurrency/depth): `ondevice_concurrency`, `cloud_concurrency`, `min_inference_interval_ms`, `queue_max_depth_factor` are rejected at `createReconciler` and `updateConfig` for NaN, +/-Infinity, negative, undefined, null, string; concurrencies additionally for non-integer. A rejected update preserves the previous config.

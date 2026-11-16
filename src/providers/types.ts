@@ -24,7 +24,7 @@ export interface ModelTransport {
   list(): Promise<EndpointInfo[]>;
   probe(id: string, signal: AbortSignal): Promise<{ state: HealthState; rung: Rung | null }>;
   generate(req: { id: string; messages: ChatMessage[]; maxTokens: number; schema?: object;
-    rung: Rung; tier: PrivacyTier; signal: AbortSignal }): Promise<{ ok: true; text: string } | { ok: false; nack: NackCode }>;
+    rung: Rung; tier: PrivacyTier; signal: AbortSignal; room?: string }): Promise<{ ok: true; text: string } | { ok: false; nack: NackCode }>;
   cancel(id: string): void;
 }
 export interface Clock { now(): number; setTimeout(f: () => void, ms: number): unknown; clearTimeout(h: unknown): void }
@@ -43,13 +43,13 @@ export const DEVICE_STATUS_BOUND_MS = 10_000;
 export type ProviderErrorCode = "TIMEOUT" | "OFFLINE" | "NEEDS_SETUP" | "NACK" | "SCHEMA_REJECT"
   | "BLOCKED" | "BODY_TOO_LARGE" | "ABORTED" | "FIREBASE_FAILED";
 export interface GenerateRequest { task: CallTask; tier: PrivacyTier; prompt: string; schema: object;
-  signal: AbortSignal; ctx?: ValidateCtx; maxTokens?: number }
+  signal: AbortSignal; ctx?: ValidateCtx; maxTokens?: number; room?: string }
 export type GenerateResult =
   | { ok: true; text: string; source: InferenceSource; providerId: ProviderId; modelLabel: string; fallback: boolean }
   | { ok: false; code: ProviderErrorCode; providerId: ProviderId; fallback: boolean; detail?: string };
 export type DriftSource = "device" | "cloud" | "local" | "remote";
 export interface ProviderDriftPort {
-  generate(prompt: string, schema: object, signal: AbortSignal): Promise<{ text: string; source: DriftSource }>;
+  generate(prompt: string, schema: object, signal: AbortSignal, room?: string): Promise<{ text: string; source: DriftSource }>;
 }
 /** U52b (D-U47-2, SPEC_U52 section 3): optional Firebase text channel for route/drift (no Hybrid.run). */
 export interface FirebaseTextRequest { task: "route" | "drift"; mode: ModeName; prompt: string; schema: object; signal: AbortSignal }

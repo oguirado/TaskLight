@@ -40,6 +40,7 @@ interface Entry {
 const L = MODEL_RELAY_LIMITS;
 const RID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const ID_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;
+const ROOM_RE = /^[a-z0-9][a-z0-9-]{0,47}$/;
 const TIERS: ReadonlySet<string> = new Set(["private", "standard", "shared"]);
 const ROLES: ReadonlySet<string> = new Set(["system", "user", "assistant"]);
 const KIND_LOCAL = "local-openai-compatible";
@@ -63,6 +64,7 @@ export const SELECTION_MS = 2_000;
 const isRecord = (v: unknown): v is Rec => typeof v === "object" && v !== null && !Array.isArray(v);
 const isRid = (v: unknown): v is string => typeof v === "string" && RID_RE.test(v);
 const isId = (v: unknown): v is string => typeof v === "string" && ID_RE.test(v);
+const isRoom = (v: unknown): v is string => typeof v === "string" && ROOM_RE.test(v);
 const isInt = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v);
 const hasKeys = (o: Rec, keys: readonly string[]): boolean => {
   const k = Object.keys(o).sort();
@@ -125,7 +127,8 @@ function validPage(o: Rec): boolean {
     case "model_sel_set":
       return hasKeys(o, ["t", "v", "rid", "selection"]) && parseSelection(o["selection"]) !== null;
     case "model_generate": {
-      if (!hasKeys(o, GEN_KEYS) && !hasKeys(o, [...GEN_KEYS, "schema"])) return false;
+      if (!hasKeys(o, GEN_KEYS) && !hasKeys(o, [...GEN_KEYS, "schema"]) &&
+          !hasKeys(o, [...GEN_KEYS, "room"]) && !hasKeys(o, [...GEN_KEYS, "room", "schema"])) return false;
       if (!isId(o["id"])) return false;
       if (typeof o["tier"] !== "string" || !TIERS.has(o["tier"])) return false;
       if (!messagesOk(o["messages"])) return false;
@@ -135,6 +138,7 @@ function validPage(o: Rec): boolean {
       if (!isInt(rung) || (rung !== 1 && rung !== 2 && rung !== 3)) return false;
       if ("schema" in o && !isRecord(o["schema"])) return false;
       if (rung === 1 && !("schema" in o)) return false;
+      if ("room" in o && !isRoom(o["room"])) return false;
       return true;
     }
     default:
@@ -446,6 +450,7 @@ export function createModelRelay(d: { native: ModelRelayNative; clock: Clock; st
     const e = accept(port, rid, "generate", id, (r) => {
       const f: Rec = { t: "model_generate", v: 1, rid: r, id, tier, messages, max_tokens: o["max_tokens"], rung: o["rung"] };
       if ("schema" in o) f["schema"] = o["schema"];
+      if ("room" in o) f["room"] = o["room"];
       return f;
     });
     if (e !== null) enqueue(e);

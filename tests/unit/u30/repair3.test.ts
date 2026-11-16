@@ -1,4 +1,4 @@
-// Repair r3 (Sol review r2, DISP_03 items 3+4): injected TemplateStore failures must never stall the
+// Repair r3 (cross-family review r2, DISP_03 items 3+4): injected TemplateStore failures must never stall the
 // session queue. Spec bounds: load -> {restored:false}; accept/undo -> STORE_FAILED, state unchanged
 // (SPEC_U30 persist-before-OK, STORE_FAILED row). The spec gives no number, so the oracle uses a
 // generous per-operation bound (BOUND ms of fake time); any finite deadline <= BOUND passes.

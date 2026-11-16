@@ -38,7 +38,7 @@ Against the stub: 73 tests, 59 fail or error (74 failures counting subtests); th
 - Redaction patterns were taken from SPEC_U08 B6 (redact.ts is a stub). For `AppCheck debug token: "<uuid>"` either `APPCHECK_DEBUG` or `KEY_ASSIGN` is accepted (ordering ambiguity in the spec); the other classes are pinned.
 - Chrome 1 MiB host->extension cap is unreachable by design (frames are capped at 65536); covered by the oversize-line test.
 
-## Repair loop 1 (Sol HOLD) — tests in `test_repair1.py`
+## Repair loop 1 (review HOLD) — tests in `test_repair1.py`
 ACCEPTED (BLOCKING, spec-supported):
 - F1: B9 `seq` = the envelope `sourceSeq` (per project+source, B8); spool write failure leaves no partial line and burns no seq (B8 "no partial line"). **Conflict:** existing `test_emit.test_all_kinds_and_seq_per_project_source` (line 60) asserts per-kind result seq `1` for every kind and contradicts B8/B9; it passes only on the buggy `@kind` counters. It must be relaxed (result seq == spool `sourceSeq`) when the fix lands; left untouched here.
 - F2: `seq.json` at 2^53-1 -> rc 2, nothing written (B3 safe integers).
@@ -52,7 +52,7 @@ REJECTED: none. NON-BLOCKING debt kept: U08 `loadFixture` digest parity (stub, s
 ## Amendment A1-U09 (orchestrator)
 `test_all_kinds_and_seq_per_project_source` now expects seq per (project, source) incrementing across kinds (B8/B9), resolving the conflict noted in Repair loop 1 F1.
 
-## Repair loop 3 (Sol HOLD) - tests in `test_repair3.py`, threat model DISP_03
+## Repair loop 3 (review HOLD) - tests in `test_repair3.py`, threat model DISP_03
 ACCEPTED (BLOCKING): (1) B11/B12 + DISP_03 data loss: an observer's cursor/baseline (files mtime map, git HEAD/upstream, log tail state incl. `ci_started`, transcript offset/line_count, proc seen-set) advances only for events whose `emit()` returned `ok:true`; a failed event (`ok:false` result or raised exception) is retried on the next poll without a new change, never duplicated after success, and an emitter exception does not escape `poll()`; (2) B10: admission and append are one critical section: with a process paused after admission and its reservation expired, no 1 s window contains more than 20 actual spool appends (threads, processes, injected pause; slack 50 ms); excess still waits, nothing dropped; (3) B3/B7: host and export apply the same text validation: over `EVENT_TEXT_MAX` (2000 UTF-16 units, ASCII and astral), lone surrogates (`\ud800`, `\udc00`), escaped C0/DEL controls; host skips the line and survives, export returns rc 2 without traceback and writes nothing; text of exactly 2000 units is accepted.
 Stances: the pause-injection test patches `emit._rate_wait` with `create=True`, so any implementation that merges admission and append passes; retry of failed events is unbounded in the test (bounded retention is the implementation's choice).
 NOT COVERED here (not requested in this task): review item 4 (`tier`/`roots` required in config validation). NON-BLOCKING (no test): U08 `loadFixture` digest parity.

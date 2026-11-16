@@ -1,4 +1,4 @@
-"""Repair loop 1 regressions from the Sol review of U33 (see ORACLE.md "Repair loop 1")."""
+"""Repair loop 1 regressions from the cross-family review of U33 (see ORACLE.md "Repair loop 1")."""
 import json, math, subprocess, sys, threading, time, unittest
 
 from .support import RoomCase, canon, events_path, mk_event, run_cli, run_py, seed

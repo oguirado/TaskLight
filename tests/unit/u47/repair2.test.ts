@@ -1,4 +1,4 @@
-// A-U47r2: fail-first regressions for the Sol HOLD findings on src/providers/registry.ts (repair loop 2):
+// A-U47r2: fail-first regressions for the review HOLD findings on src/providers/registry.ts (repair loop 2):
 // (1) throwing injected clock calls never strand settlement nor leak rejections; (2) stale generations never mutate
 // the endpoint state installed by a later refresh().
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

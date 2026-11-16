@@ -40,7 +40,7 @@ CSS tests were also run against `design/tokens.css` + `design/components.css` co
 ## AUSENTE (not tested)
 Copy beyond the strings listed above (network text wording, "Toggle theme", Restore label), responsive layout, visual contrast, `hidden` CSS behaviour in a real browser, handler exceptions.
 
-## Repair loop 1 (Sol review, 13 Nov)
+## Repair loop 1 (cross-family review, 13 Nov)
 `review1.test.ts` adds regressions for the five BLOCKING findings:
 | Test | Finding | Spec |
 |---|---|---|

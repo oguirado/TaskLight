@@ -5,6 +5,7 @@ bridge.wall.emit.redact. Never writes to standard streams, never logs.
 """
 
 import copy
+import hashlib
 import json
 import math
 import os
@@ -24,6 +25,11 @@ ROOM_LIMITS = {
 
 _RID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 _OP_MAX_DEPTH = 32
+_TEMPLATE_HASH_RE = re.compile(r"[0-9a-f]{64}")
+
+
+def _op_id_surrogate(value):
+    return "h-" + hashlib.sha256(value.encode("utf-8")).hexdigest()[:32]
 
 
 def _is_int(v):
@@ -112,7 +118,7 @@ def _sanitize_op(op):
         if not isinstance(op, dict):
             return None
         new_root = {}
-        stack = [[op, new_root, 1, iter(list(op.items()))]]
+        stack = [[op, new_root, 1, iter(list(op.items())), None]]
         while stack:
             frame = stack[-1]
             old = frame[0]
@@ -133,17 +139,39 @@ def _sanitize_op(op):
                     return None
                 if rk in new:
                     return None
+                # Only direct op evidence-list items share the hash exemption.
+                is_hash = (depth == 1 and k == "template_hash") or (
+                    frame[4] == "evidence_item" and k == "sha256")
+                if is_hash and isinstance(v, str) and _TEMPLATE_HASH_RE.fullmatch(v):
+                    try:
+                        _r, _c, _classes = redact(v)
+                    except Exception:
+                        return None
+                    try:
+                        only_entropy = set(_classes) == {"HIGH_ENTROPY"}
+                    except Exception:
+                        return None
+                    if only_entropy:
+                        new[rk] = v
+                        continue
+                if depth == 1 and k == "op_id" and isinstance(v, str):
+                    rv = _redact_str(v)
+                    if rv is None:
+                        return None
+                    new[rk] = rv if rv == v else _op_id_surrogate(v)
+                    continue
                 if isinstance(v, dict) or isinstance(v, list):
                     if depth + 1 > _OP_MAX_DEPTH:
                         return None
                     if isinstance(v, dict):
                         new_child = {}
                         new[rk] = new_child
-                        stack.append([v, new_child, depth + 1, iter(list(v.items()))])
+                        stack.append([v, new_child, depth + 1, iter(list(v.items())), None])
                     else:
                         new_child = []
                         new[rk] = new_child
-                        stack.append([v, new_child, depth + 1, iter(list(v))])
+                        context = "evidence_list" if depth == 1 and k == "evidence" else None
+                        stack.append([v, new_child, depth + 1, iter(list(v)), context])
                 elif isinstance(v, str):
                     rv = _redact_str(v)
                     if rv is None:
@@ -167,11 +195,12 @@ def _sanitize_op(op):
                     if isinstance(v, dict):
                         new_child = {}
                         new.append(new_child)
-                        stack.append([v, new_child, depth + 1, iter(list(v.items()))])
+                        context = "evidence_item" if frame[4] == "evidence_list" else None
+                        stack.append([v, new_child, depth + 1, iter(list(v.items())), context])
                     else:
                         new_child = []
                         new.append(new_child)
-                        stack.append([v, new_child, depth + 1, iter(list(v))])
+                        stack.append([v, new_child, depth + 1, iter(list(v)), None])
                 elif isinstance(v, str):
                     rv = _redact_str(v)
                     if rv is None:
@@ -200,6 +229,7 @@ def sanitize_event(ev):
         out = copy.deepcopy(ev)
     except Exception:
         return None
+    out.pop("batch", None)
     if isinstance(out.get("text"), str):
         v = _redact_str(out["text"])
         if v is None:

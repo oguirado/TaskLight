@@ -26,6 +26,19 @@ import {
 } from "./plan";
 import { renderMemoryView } from "./memory";
 
+// Dependency waits describe scheduling; plan focus follows the reviewer.
+function needsUserTasks(tasks: readonly TaskVM[]): TaskVM[] {
+  const seen = new Set<string>();
+  return tasks.filter(t => {
+    const needs = t.taskId !== undefined || t.id.startsWith("plan:")
+      ? t.nanoVerdict?.verdict === "needs_user"
+      : t.attention === "now" || t.status === "waiting" || t.status === "blocked";
+    if (!needs || seen.has(t.id)) return false;
+    seen.add(t.id);
+    return true;
+  });
+}
+
 const SAFE_RE = /^[a-z]{1,16}$/;
 
 function isSafe(v: unknown): v is string {
@@ -79,6 +92,14 @@ const VIEWS: [ViewId, string][] = [
   ["archive", "Archive"],
   ["memory", "Memory"],
 ];
+
+function isOpenTask(t: unknown): boolean {
+  if (!t || typeof t !== "object") return false;
+  const rec = t as TaskVM;
+  if (rec.archived) return false;
+  if (rec.status === "done" || rec.status === "failed") return false;
+  return true;
+}
 
 function statusLabel(status: unknown): string {
   if (typeof status === "string" && Object.prototype.hasOwnProperty.call(STATUS_LABEL, status)) return STATUS_LABEL[status] as string;
@@ -159,6 +180,8 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
   const doc: Document = host.ownerDocument;
   const instanceId = `u36-${++mountSeq}`;
   const expanded = new Map<string, boolean>();
+  let wsHelpOpen = false;
+  let selectedPhase: string | null = null;
   let destroyed = false;
   let currentHandlers = handlers;
   let currentVm: WallVM = vm;
@@ -179,6 +202,11 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
 
   function onKey(e: KeyboardEvent): void {
     if (destroyed) return;
+    if (e.key === "Escape" && wsHelpOpen) {
+      wsHelpOpen = false;
+      render(currentVm);
+      return;
+    }
     if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
     const t = e.target as Element | null;
     if (t && typeof (t as HTMLElement).tagName === "string") {
@@ -250,11 +278,23 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
       return;
     }
     if (btn.classList.contains("ws-new")) {
+      wsHelpOpen = true;
       if (currentHandlers?.onNewWorkspace) currentHandlers.onNewWorkspace();
+      render(currentVm);
+      return;
+    }
+    if (btn.classList.contains("ws-close")) {
+      wsHelpOpen = false;
+      render(currentVm);
+      return;
+    }
+    if (btn.classList.contains("phase-show-all")) {
+      selectedPhase = null;
+      render(currentVm);
       return;
     }
     // U51: the model trigger is identified by its fixed aria-controls marker, never by the sanitized state.
-    if (btn.classList.contains("status-line") && btn.getAttribute("aria-controls") === "model-sheet") {
+    if ((btn.classList.contains("status-line") || btn.classList.contains("rules-line")) && btn.getAttribute("aria-controls") === "model-sheet") {
       const open = currentHandlers?.onOpenModels;
       // Contained: a sync throw or an async rejection from the injected callback never escapes the listener.
       if (open) {
@@ -269,6 +309,7 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
     }
     if (btn.classList.contains("theme-toggle")) {
       if (currentHandlers?.onThemeToggle) currentHandlers.onThemeToggle();
+
       return;
     }
     if (btn.classList.contains("archive-option")) {
@@ -305,8 +346,11 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
     }
     if (btn.classList.contains("phase-chip")) {
       const pid = btn.getAttribute("data-phase-id");
-      if (pid !== null && currentHandlers?.onSelectPhase) {
-        try { currentHandlers.onSelectPhase(pid); } catch { /* contained */ }
+      if (pid !== null) {
+        selectedPhase = pid;
+        if (currentHandlers?.onSelectPhase) {
+          try { currentHandlers.onSelectPhase(pid); } catch { /* contained */ }
+        }
         announceLive(`Phase ${pid} selected`);
       }
       return;
@@ -339,7 +383,9 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
     const model = (input.model && typeof input.model === "object" ? input.model : {}) as { state?: unknown; label?: unknown };
     const modelState = asStr(model.state);
     // U38 V5: never an empty model status label when the state is unknown.
-    const modelLabel = asStr(model.label) || "Gemini Nano: checking…";
+    const modelLabel = asStr(model.label) || (hasPlan
+      ? "Gemini Nano: not available on this device — enable the on-device model flags in Chrome. Rules is the active reviewer."
+      : "Gemini Nano: checking…");
     const network = asStr(input.network);
 
     // .app root
@@ -415,14 +461,14 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
       b.appendChild(wsDot);
       const txtWrap = el(doc, "span", "ws-text");
       txtWrap.appendChild(el(doc, "span", "ws-name", asStr((w as { name?: unknown }).name)));
-      const openCount = tasks.filter((t) => t && (t as TaskVM).workspace === wid && !(t as TaskVM).archived).length;
+      const openCount = tasks.filter((t) => t && (t as TaskVM).workspace === wid && isOpenTask(t as TaskVM)).length;
       const lensWord = (w as { lens?: unknown }).lens === "study" ? "Study" : "Development";
       txtWrap.appendChild(el(doc, "span", "ws-lens", `${lensWord} · ${openCount} open`));
       b.appendChild(txtWrap);
       const badges = el(doc, "span", "ws-badges");
       const wsTasks = tasks.filter((t) => t && (t as TaskVM).workspace === wid && !(t as TaskVM).archived);
       const run = wsTasks.filter((t) => (t as TaskVM).status === "running").length;
-      const need = wsTasks.filter((t) => (t as TaskVM).attention === "now" || (t as TaskVM).status === "waiting" || (t as TaskVM).status === "blocked").length;
+      const need = needsUserTasks(wsTasks).length;
       if (run > 0) {
         const r = el(doc, "span", "ws-running", String(run));
         r.setAttribute("aria-label", `${run} running`);
@@ -449,6 +495,23 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
     wsNew.appendChild(el(doc, "span", undefined, "New workspace"));
     rail.appendChild(wsNew);
 
+    if (wsHelpOpen) {
+      const help = el(doc, "section", "ws-help");
+      help.setAttribute("aria-label", "How to add a workspace");
+      help.appendChild(el(doc, "h2", "ws-help-title", "How a workspace appears"));
+      help.appendChild(el(doc, "p", "ws-help-body", "A workspace appears when a room is listed in the native host config file wall.config.json (for example with the --room installer flag) and an agent posts to that room over MCP. You do not create the room here; the host owns it."));
+      const cmd = el(doc, "code", "ws-help-cmd", "TaskLight --room my-room");
+      cmd.setAttribute("aria-label", "Example installer command with --room");
+      help.appendChild(cmd);
+      const link = el(doc, "a", "ws-help-link", "Read the desktop setup guide");
+      link.setAttribute("href", "docs/DESKTOP_SETUP.md");
+      help.appendChild(link);
+      const close = el(doc, "button", "ws-close", "Close");
+      close.setAttribute("type", "button");
+      help.appendChild(close);
+      rail.appendChild(help);
+    }
+
     const railStatus = el(doc, "div", "rail-status");
     // U51: the model line opens the Models sheet when a handler is supplied; otherwise it stays a div.
     const modelLine: HTMLElement = currentHandlers?.onOpenModels ? el(doc, "button", "status-line") : el(doc, "div", "status-line");
@@ -465,6 +528,15 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
     modelLine.appendChild(mDot);
     modelLine.appendChild(el(doc, "span", "status-text", modelLabel));
     railStatus.appendChild(modelLine);
+    if (currentHandlers?.onOpenModels) {
+      const rulesLine = el(doc, "button", "rules-line");
+      rulesLine.setAttribute("type", "button");
+      rulesLine.setAttribute("aria-haspopup", "dialog");
+      rulesLine.setAttribute("aria-controls", "model-sheet");
+      rulesLine.setAttribute("aria-expanded", String(prevExpanded));
+      rulesLine.appendChild(el(doc, "span", "status-text", "Rules"));
+      railStatus.appendChild(rulesLine);
+    }
     const netLine = el(doc, "div", "status-line");
     setSafeData(netLine, "data-network", network);
     const nDot = el(doc, "span", "status-dot");
@@ -472,8 +544,12 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
     netLine.appendChild(nDot);
     netLine.appendChild(el(doc, "span", "status-text", network === "offline" ? "Offline" : "Online · cloud fallback available"));
     railStatus.appendChild(netLine);
+    const themeName = input.theme === "dark" ? "dark" : input.theme === "light"
+      ? "light"
+      : (doc.documentElement?.dataset?.theme === "dark" ? "dark" : "light");
     const theme = el(doc, "button", "theme-toggle", "Toggle theme");
     theme.setAttribute("type", "button");
+    theme.setAttribute("aria-label", `Toggle theme: ${themeName}`);
     railStatus.appendChild(theme);
     rail.appendChild(railStatus);
 
@@ -487,7 +563,7 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
     const viewTitle = VIEWS.find((v) => v[0] === view)?.[1] ?? view;
     titles.appendChild(el(doc, "h1", "view-title", viewTitle));
     const knownWorkspace = workspaces.some((w) => w && typeof w === "object" && (w as { id?: unknown }).id === workspaceId);
-    const openForRaw = knownWorkspace ? tasks.filter((t) => t && (t as TaskVM).workspace === workspaceId && !(t as TaskVM).archived).length : 0;
+    const openForRaw = knownWorkspace ? tasks.filter((t) => t && (t as TaskVM).workspace === workspaceId && isOpenTask(t as TaskVM)).length : 0;
     // if workspace unknown but effective exists, show effective open count? Use raw (0). Tests for known workspaces equal.
     // For unknown, raw is 0 which is fine.
     const lensSub = effWs ? ((effWs as { lens?: unknown }).lens === "study" ? "Study" : "Development") : "Development";
@@ -515,9 +591,7 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
     };
 
     // ---- focus ----
-    const needs = sortByAttention(wsTasksAll(workspaceId, false)).filter(
-      (t) => (t as TaskVM).attention === "now" || (t as TaskVM).status === "waiting" || (t as TaskVM).status === "blocked",
-    );
+    const needs = needsUserTasks(sortByAttention(wsTasksAll(workspaceId, false)));
     const showFocus = view === "wall" && needs.length > 0;
     if (!showFocus) {
       focusSec.hidden = true;
@@ -533,7 +607,7 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
         setSafeData(li, "data-status", (t as { status?: unknown }).status);
         const a = el(doc, "a", "focus-link");
         a.setAttribute("href", `#${tid}`);
-        a.appendChild(el(doc, "span", "focus-project", asStr((t as { project?: unknown }).project)));
+        a.appendChild(el(doc, "span", "focus-project", t.taskId !== undefined ? `${t.taskId} ${t.title}` : asStr((t as { project?: unknown }).project)));
         const steps = Array.isArray((t as { steps?: unknown }).steps) ? ((t as unknown as { steps: unknown }).steps as unknown[]) : [];
         const cur = steps.find((s) => s && typeof s === "object" && (((s as StepVM).state as string) === "blocked" || ((s as StepVM).state as string) === "active"));
         let focusText: string;
@@ -629,9 +703,15 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
       const planSec = el(doc, "section", "plan-wall");
       planSec.setAttribute("aria-label", "Plan");
       const planVm = planIn as unknown as Parameters<typeof renderPlanBand>[1];
-      planSec.appendChild(renderPlanBand(doc, planVm).cloneNode(true) as HTMLElement);
+      planSec.appendChild(renderPlanBand(doc, planVm, { selectedPhase }).cloneNode(true) as HTMLElement);
+      if (selectedPhase !== null) {
+        const showAll = el(doc, "button", "phase-show-all", "Show all phases");
+        showAll.setAttribute("type", "button");
+        planSec.appendChild(showAll);
+      }
       const phasesForGroup = (planVm && typeof planVm === "object" ? (planVm as unknown as Record<string, unknown>).phases : undefined) as unknown as Parameters<typeof groupTasksByPhase>[1];
-      const groupsForWall = groupTasksByPhase(tasks as unknown as Parameters<typeof groupTasksByPhase>[0], phasesForGroup);
+      let groupsForWall = groupTasksByPhase(tasks as unknown as Parameters<typeof groupTasksByPhase>[0], phasesForGroup);
+      if (selectedPhase !== null) groupsForWall = groupsForWall.filter((g) => g.phaseId === selectedPhase);
       planSec.appendChild(renderPhaseTaskCards(doc, groupsForWall).cloneNode(true) as HTMLElement);
       viewWrap.appendChild(planSec);
     } else if (view === "wall") {
@@ -899,7 +979,8 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
         const meta = el(doc, "p", "archived-meta");
         const stepsN = (item as { steps?: unknown }).steps;
         const tookT = asStr((item as { took?: unknown }).took);
-        meta.appendChild(el(doc, "span", "archived-steps", `${asStr(stepsN as unknown) === "" ? "0" : asStr(stepsN)} steps · ${tookT}`));
+        const tookLabel = (tookT === "" || tookT === "unavailable") ? "Duration unknown" : tookT;
+        meta.appendChild(el(doc, "span", "archived-steps", `${asStr(stepsN as unknown) === "" ? "0" : asStr(stepsN)} steps · ${tookLabel}`));
         meta.appendChild(sourcechip(doc, (item as { source?: unknown }).source));
         const rb = el(doc, "button", "archived-restore", "Restore");
         rb.setAttribute("type", "button");

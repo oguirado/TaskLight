@@ -27,7 +27,7 @@ class Installer(S.Base):
 
     # W13
     def test_w13_dry_run_default_writes_nothing(self):
-        p = run(self.home)
+        p = run(self.home, "--extension-id", S.PINNED_ID)  # A-U70a: no default id
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertEqual(files(self.home), [])
         out = p.stdout.decode()
@@ -36,7 +36,7 @@ class Installer(S.Base):
         p2 = run(self.home, "--dry-run") if False else None
 
     def test_w13_apply_writes_exact_manifest(self):
-        p = run(self.home, "--apply")
+        p = run(self.home, "--apply", "--extension-id", S.PINNED_ID)
         self.assertEqual(p.returncode, 0, p.stderr)
         m = find_manifest(self.home)
         self.assertIsNotNone(m, files(self.home))
@@ -53,7 +53,7 @@ class Installer(S.Base):
         for tok in ("-I", "wall", "host"):
             self.assertIn(tok, t)
         self.assertTrue(str(launcher).startswith(str(self.home)) or str(launcher).startswith(str(S.BRIDGE)))
-        self.assertEqual(run(self.home, "--apply").returncode, 0)    # re-apply over own file is fine
+        self.assertEqual(run(self.home, "--apply", "--extension-id", S.PINNED_ID).returncode, 0)    # re-apply over own file is fine
         self.assertEqual(json.loads(m.read_text()), d)
 
     def test_custom_extension_id_and_invalid_ids(self):
@@ -68,7 +68,7 @@ class Installer(S.Base):
             self.assertEqual(files(h2), [], bad)
 
     def test_w13_remove_deletes_only_what_it_wrote(self):
-        run(self.home, "--apply")
+        run(self.home, "--apply", "--extension-id", S.PINNED_ID)
         m = find_manifest(self.home)
         launcher = pathlib.Path(json.loads(m.read_text())["path"])
         p = run(self.home, "--remove")
@@ -78,14 +78,14 @@ class Installer(S.Base):
         self.assertEqual(run(self.home, "--remove").returncode, 0)   # nothing to remove: not an error
 
     def test_w13_foreign_file_refused_and_untouched(self):
-        run(self.home, "--apply")
+        run(self.home, "--apply", "--extension-id", S.PINNED_ID)
         m = find_manifest(self.home)
         m.unlink()
         foreign = json.dumps({"name": "com.other.host", "description": "mine", "path": "/bin/true", "type": "stdio",
                               "allowed_origins": ["chrome-extension://" + "b" * 32 + "/"]}).encode()
         m.write_bytes(foreign)
         before = S.tree_bytes(self.home)
-        p = run(self.home, "--apply")
+        p = run(self.home, "--apply", "--extension-id", S.PINNED_ID)
         self.assertEqual(p.returncode, 2)
         self.assertEqual(S.tree_bytes(self.home), before)
         run(self.home, "--remove")
@@ -93,13 +93,13 @@ class Installer(S.Base):
         self.assertEqual(S.tree_bytes(self.home), before)
 
     def test_unparseable_existing_file_is_not_overwritten(self):
-        run(self.home, "--apply")
+        run(self.home, "--apply", "--extension-id", S.PINNED_ID)
         m = find_manifest(self.home); m.write_bytes(b"{not json")
-        self.assertEqual(run(self.home, "--apply").returncode, 2)
+        self.assertEqual(run(self.home, "--apply", "--extension-id", S.PINNED_ID).returncode, 2)
         self.assertEqual(m.read_bytes(), b"{not json")
 
     def test_conflicting_or_unknown_flags(self):
-        self.assertEqual(run(self.home, "--apply", "--remove").returncode, 2)
+        self.assertEqual(run(self.home, "--apply", "--remove", "--extension-id", S.PINNED_ID).returncode, 2)
         self.assertEqual(run(self.home, "--bogus").returncode, 2)
         self.assertEqual(files(self.home), [])
 

@@ -57,7 +57,7 @@ button:focus-visible {
   color: var(--color-text-muted);
 }
 
-[role="progressbar"] {
+[role="progressbar"]:not(.progress-track) {
   background-color: var(--color-ok);
 }
 

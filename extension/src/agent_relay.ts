@@ -47,6 +47,7 @@ export function createAgentRelay(d: { native: AgentRelayNative; clock: Clock }):
   const pendingByPort = new Map<ChromePortLike, Set<string>>();
   const subscribed = new Set<ChromePortLike>();
   const ports = new Set<ChromePortLike>();
+  let cachedHello: Record<string, unknown> | null = null;
 
   const nextRid = (): string => {
     relaySeq += 1;
@@ -101,6 +102,7 @@ export function createAgentRelay(d: { native: AgentRelayNative; clock: Clock }):
       ok = false;
     }
     if (!ok) {
+      cachedHello = null;
       nack(port, pageRid, "host_unavailable");
       return;
     }
@@ -134,7 +136,19 @@ export function createAgentRelay(d: { native: AgentRelayNative; clock: Clock }):
         return;
       }
     }
+    const firstSubscribe = !subscribed.has(port);
     subscribed.add(port);
+    if (firstSubscribe && cachedHello !== null) {
+      try {
+        if (native.connected()) {
+          deliver(port, JSON.parse(JSON.stringify(cachedHello)) as Record<string, unknown>);
+        } else {
+          cachedHello = null;
+        }
+      } catch {
+        /* cache delivery must never break the sync path */
+      }
+    }
     if (capacityFull(port)) {
       nack(port, pageRid, "pending_overflow");
       return;
@@ -245,6 +259,12 @@ export function createAgentRelay(d: { native: AgentRelayNative; clock: Clock }):
           rejected += 1;
           return;
         }
+      }
+      try {
+        cachedHello = JSON.parse(JSON.stringify(frame)) as Record<string, unknown>;
+      } catch {
+        rejected += 1;
+        return;
       }
       fanOut(frame);
       return;

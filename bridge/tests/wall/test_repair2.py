@@ -1,4 +1,4 @@
-"""Repair loop 2 regression tests (Sol HOLD, DISP_03 BLOCKING items only)."""
+"""Repair loop 2 regression tests (review HOLD, DISP_03 BLOCKING items only)."""
 import importlib, io, json, os, pathlib, select, subprocess, sys, time, unittest
 from unittest import mock
 from . import support as S
@@ -66,7 +66,7 @@ class G2InstallOwnership(S.Base):
 
     def _nm_dir(self):
         # Learn where the installer writes, then undo it.
-        self.assertEqual(cmd(["--apply"], self.home).returncode, 0)
+        self.assertEqual(cmd(["--apply", "--extension-id", S.PINNED_ID], self.home).returncode, 0)
         m = list(self.home.rglob(S.HOST_NAME + ".json"))
         self.assertEqual(len(m), 1)
         d = m[0].parent
@@ -79,7 +79,7 @@ class G2InstallOwnership(S.Base):
         d, manifest = self._nm_dir()
         launcher = pathlib.Path(manifest["path"])
         launcher.write_text("#!/bin/sh\necho MINE_DO_NOT_TOUCH\n")
-        cmd(["--apply"], self.home)
+        cmd(["--apply", "--extension-id", S.PINNED_ID], self.home)
         self.assertEqual(launcher.read_text(), "#!/bin/sh\necho MINE_DO_NOT_TOUCH\n")
 
     def test_remove_keeps_foreign_manifest_with_same_name(self):

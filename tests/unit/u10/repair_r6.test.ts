@@ -1,4 +1,4 @@
-// Repair r6 regressions (Sol review r5). Public API + FakeClock only.
+// Repair r6 regressions (cross-family review r5). Public API + FakeClock only.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createReconciler } from '../../../src/reconcile/index';
 import type { ValidatorPort } from '../../../src/reconcile/types';

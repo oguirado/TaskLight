@@ -3,7 +3,7 @@ import type { DeviceStatus } from "../../../src/ai/types";
 import { flush, track, world } from "../u47/fixtures";
 import type { World } from "../u47/fixtures";
 
-// U52b repair loop 1 (Sol HOLD): reentrancy of the shared in-flight attempt and waiter retention.
+// U52b repair loop 1 (review HOLD): reentrancy of the shared in-flight attempt and waiter retention.
 const BOUND = 10_000;
 type Def = { p: Promise<DeviceStatus>; resolve(s: DeviceStatus): void; reject(e: unknown): void };
 const deferred = (): Def => {

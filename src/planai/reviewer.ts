@@ -169,6 +169,7 @@ export function createPlanAi(opts?: PlanAiOptions): PlanAi {
     prompt: string,
     schema: object,
     callerSignal: AbortSignal | undefined,
+    room?: string,
   ): Promise<PortOutcome> {
     if (callerSignal !== undefined && callerSignal.aborted) return { kind: "aborted" };
     const controller = new AbortController();
@@ -205,7 +206,9 @@ export function createPlanAi(opts?: PlanAiOptions): PlanAi {
 
     let portPromise: Promise<unknown>;
     try {
-      portPromise = Promise.resolve(port.generate(prompt, schema, controller.signal));
+      portPromise = room !== undefined
+        ? Promise.resolve(port.generate(prompt, schema, controller.signal, room))
+        : Promise.resolve(port.generate(prompt, schema, controller.signal));
     } catch {
       try {
         clock.clearTimeout(timerHandle);
@@ -264,6 +267,8 @@ export function createPlanAi(opts?: PlanAiOptions): PlanAi {
       const floor = ctx?.["floor"];
       const signal = ctx?.["signal"] as AbortSignal | undefined;
       const memory = ctx?.["memory"];
+      const roomVal = ctx?.["room"] as unknown;
+      const room = typeof roomVal === "string" && roomVal !== "" ? roomVal : undefined;
       const { mode, deviceOnly, effectiveFloor } = effectiveMode(tier, floor);
 
       if (signal !== undefined && signal.aborted) {
@@ -292,13 +297,13 @@ export function createPlanAi(opts?: PlanAiOptions): PlanAi {
         return fallbackRules;
       }
 
-      const memoKey = JSON.stringify([effectiveFloor, killSwitch, allowExternal, "task_review", prompt]);
+      const memoKey = JSON.stringify([effectiveFloor, killSwitch, allowExternal, "task_review", prompt, room ?? null]);
       const cached = memo.get(memoKey);
       if (cached !== undefined && sourceGate({ text: "", source: cached.source }, deviceOnly, allowExternal).ok) {
         return { ...(cached as DriftVerdict) };
       }
 
-      const outcome = await invokePort(resolved.port, prompt, TASK_REVIEW_SCHEMA, signal);
+      const outcome = await invokePort(resolved.port, prompt, TASK_REVIEW_SCHEMA, signal, room);
       if (outcome.kind === "timeout") {
         notify("task_review", "timeout");
         return fallbackRules;
@@ -342,6 +347,7 @@ export function createPlanAi(opts?: PlanAiOptions): PlanAi {
       const tier = c["tier"];
       const floor = c["floor"];
       const signal = c["signal"] as AbortSignal | undefined;
+      const roomB = typeof c["room"] === "string" && c["room"] !== "" ? (c["room"] as string) : undefined;
       const { mode, deviceOnly, effectiveFloor } = effectiveMode(tier, floor);
 
       if (signal !== undefined && signal.aborted) {
@@ -370,13 +376,13 @@ export function createPlanAi(opts?: PlanAiOptions): PlanAi {
         return fallbackRules;
       }
 
-      const memoKey = JSON.stringify([effectiveFloor, killSwitch, allowExternal, "plan_brief", prompt]);
+      const memoKey = JSON.stringify([effectiveFloor, killSwitch, allowExternal, "plan_brief", prompt, roomB ?? null]);
       const cached = memo.get(memoKey);
       if (cached !== undefined && sourceGate({ text: "", source: cached.source }, deviceOnly, allowExternal).ok) {
         return { ...(cached as PlanBrief) };
       }
 
-      const outcome = await invokePort(resolved.port, prompt, PLAN_BRIEF_SCHEMA, signal);
+      const outcome = await invokePort(resolved.port, prompt, PLAN_BRIEF_SCHEMA, signal, roomB);
       if (outcome.kind === "timeout") {
         notify("plan_brief", "timeout");
         return fallbackRules;

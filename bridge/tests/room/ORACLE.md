@@ -33,7 +33,7 @@ Against the stub: 92 tests, 91 fail or error; the 1 pass is a control (`test_rea
 - Hook: status map pending/in_progress/completed to pending/active/done; the first call per session uses an all-pending list (whether it also emits steps is open); session state is keyed by `session_id`; room slug = lowercase, runs of non-alnum to `-`, stripped (`My Project` -> `my-project`), from the payload/process cwd. Log is `rooms/<room>/hook.log` in an existing room dir.
 - Observer: `rooms_glob` globs room directories (`<home>/rooms/*`); room name = dir basename; on a falsy return the poll stops that room, so order is kept and the failed event is retried; other rooms continue.
 
-## Repair loop 1 (Sol review, 13 Nov)
+## Repair loop 1 (cross-family review, 13 Nov)
 `test_review1.py`: R1 Lamport from top-level field only + unknown plan step keys → `bad_plan`; R2 a complete fragment without trailing newline never yields duplicate or non-increasing Lamports; R3 non-finite or negative `timeout_s`/`poll_s` rejected without stalling (store, CLI rc 2); R4 non-string act/step state → `bad_act`/`bad_step` (no TypeError); R5 slugs use full match (no trailing newline); R6 concurrent hook runs: exactly one plan per session id, no malformed lines.
 
 ## Repair loop 2 (second review, HOLD)

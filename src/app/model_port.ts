@@ -204,7 +204,7 @@ export function createPageModelTransport(
         }
       });
     },
-    generate(req: { id: string; messages: { role: "system" | "user"; content: string }[]; maxTokens: number; schema?: object; rung: Rung; tier: "private" | "standard" | "shared"; signal: AbortSignal }): Promise<{ ok: true; text: string } | { ok: false; nack: string }> {
+    generate(req: { id: string; messages: { role: "system" | "user"; content: string }[]; maxTokens: number; schema?: object; rung: Rung; tier: "private" | "standard" | "shared"; signal: AbortSignal; room?: string }): Promise<{ ok: true; text: string } | { ok: false; nack: string }> {
       if (!seen) return Promise.resolve({ ok: false, nack: "needs_setup" });
       if (req.signal.aborted) return Promise.resolve({ ok: false, nack: "cancelled" });
       const rid = nextRid();
@@ -224,6 +224,7 @@ export function createPageModelTransport(
           messages: req.messages, max_tokens: req.maxTokens, rung: req.rung,
         };
         if (req.rung === 1 && req.schema !== undefined) frame["schema"] = req.schema;
+        if (typeof req.room === "string") frame["room"] = req.room;
         let ok = false;
         try {
           ok = ch.send(frame) === true;

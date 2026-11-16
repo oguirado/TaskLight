@@ -1,4 +1,4 @@
-// Repair loop 3: regression tests for Sol review (identity in string, projectIds present, caption bookkeeping).
+// Repair loop 3: regression tests for cross-family review (identity in string, projectIds present, caption bookkeeping).
 import { describe, expect, it } from "vitest";
 import { buildPrompt } from "../../../src/prompts/index";
 import type { PromptInput } from "../../../src/prompts/index";

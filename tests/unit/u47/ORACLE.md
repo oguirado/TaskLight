@@ -36,7 +36,7 @@ Static: sha256 of every `src/ai/**` file (6 files) taken from the files as they 
 - A6 Rung-3 handling for route/drift (strictParse applies to all tasks?).
 - A7 Cancel on caller abort (`transport.cancel`) not pinned.
 
-## A-U47r1 (repair loop 1, Sol HOLD findings 1-5)
+## A-U47r1 (repair loop 1, review HOLD findings 1-5)
 New file `repair1.test.ts` (existing tests untouched). Fail-first run on the unrepaired code: 15 tests, 13 failed, 2 passed (the passing two are guards: private ONLY_IN_CLOUD builds no cloud overlay; plain default answer keeps `fallback:false`).
 - F1 throwing `transport.cancel` with a deaf generate: timeout (30,000 ms) and caller abort both settle, no timer left.
 - F2 throwing `makeHybrid` for `firebase-ondevice` at standard -> hop to `firebase-hybrid` succeeds; private (no hop) -> resolved `FIREBASE_FAILED`.
@@ -44,7 +44,7 @@ New file `repair1.test.ts` (existing tests untouched). Fail-first run on the unr
 - F4 classifier `ONLY_IN_CLOUD` + default -> cloud overlay (`IN_CLOUD`), `deps.hybrid` not run; private never builds the cloud overlay; kill switch -> null (no on-device substitute).
 - F5 `fallback = answerer !== step-2 candidate || inner Firebase fallback`; pure helper `chainFallback` exported from `src/providers/registry.ts` (classifier output type has no `fallback`, and adapters pins `toEqual({text, source})`, so the classifier case is asserted on the helper).
 
-## A-U47r2 (repair loop 2, Sol HOLD findings: clock guards, stale generations)
+## A-U47r2 (repair loop 2, review HOLD findings: clock guards, stale generations)
 New file `repair2.test.ts` (existing tests untouched). Fail-first run on the unrepaired code: 12 tests, 9 failed, 3 passed (the passing three are guards: generate with throwing clearTimeout already settles via `safely`; non-stale rung-1 nack lowers rung to 2; non-stale policy nack blocks / non-stale timeout sets offline).
 - R1 Injected clock: throwing `clearTimeout` in `boundedList` and `probeOne` -> refresh settles, no `unhandledRejection`. Throwing `setTimeout` -> deterministic structured outcome: list = Firebase group only, probe = `offline` with no `transport.probe` call, generate = resolved `ok:false` (string code) with no transport/Firebase call.
 - R2 Stale generations: health/rung mutations from a generation are bound to the endpoint state object captured at call start; after a `refresh()` replaced it, a late `rung_unsupported` nack (rung stays 3), a timeout, a transport rejection (stay `available`) and a `policy` nack (no inherited `blocked`) are ignored.

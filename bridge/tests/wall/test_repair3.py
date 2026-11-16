@@ -1,4 +1,4 @@
-"""Repair loop 3 regression tests (Sol HOLD, DISP_03 BLOCKING items only).
+"""Repair loop 3 regression tests (review HOLD, DISP_03 BLOCKING items only).
 Concrete failing inputs. Fake secrets are never needed here."""
 import importlib, json, os, pathlib, shutil, subprocess, sys, threading, time, unittest
 from unittest import mock

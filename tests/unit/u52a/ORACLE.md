@@ -16,14 +16,14 @@ Run: `cd repo && npx vitest run tests/unit/u52a tests/unit/u54 tests/unit/u14`.
 - Did not pin the resolved SyncStatus value of the stuck flush beyond being defined.
 - Capsule branch unchanged per spec: not tested. Spec lists path `tests/unit/u52/a/`; task order says `u52a/`, followed.
 
-## A-U52a-r1 (repair loop 1, Sol HOLD: cancelled txn callback still stages writes)
+## A-U52a-r1 (repair loop 1, review HOLD: cancelled txn callback still stages writes)
 File: `repair1.test.ts` (6 tests; 4 RED, 2 green controls on pre-fix code). Pre-fix run: `Tests 4 failed | 2 passed (6)`.
 - Fake `fs.txn` really invokes the callback; first `tx.get` pauses on a deferred, later gets return null; `tx.set`/`tx.update` recorded.
 - digest x {dispose, uid switch u1->u2} (2 RED), capsule x {dispose, uid switch} (2 RED): flush settled before resume; after resume the callback completes and must stage nothing; written counter 0.
 - Controls (2 green): no cancellation -> digest/capsule `set` staged under `workspaces/u1/...`, written 1.
 - r1b ledger path, file `repair1b.test.ts` (3 tests; 2 RED, 1 green control pre-fix: `Tests 2 failed | 1 passed (3)`): applyDeltas txn callback paused on first `tx.get`; dispose / uid switch u1->u2; resume -> nothing staged and the call rejects `SYNC_LOCAL_ONLY` (ledger caller requeues). Control: ledger `set` under u1, call resolves.
 
-## A-U52a-r2 (repair loop 2, Sol HOLD: capsule privacy change during txn reads)
+## A-U52a-r2 (repair loop 2, review HOLD: capsule privacy change during txn reads)
 File: `repair2.test.ts` (4 tests; 3 RED, 1 green control pre-fix: `Tests 3 failed | 1 passed (4)`). Project name via `metaName` = `SECRET-PROJECT-NAME`, capsule `summary` = `PRIVATE-CANARY`.
 - Paused first `tx.get` (repair1 pattern, staged data recorded); p1 meta -> private + `setTier("p1", latest)`; resume -> no staged doc contains canary or name, no capsule with `summary`, no `privacy_tier:"standard"` project; replacement entry pending (1).
 - Same with meta flip + `setTier` inside a synchronous `fs.timestamp` (first call) during doc construction.

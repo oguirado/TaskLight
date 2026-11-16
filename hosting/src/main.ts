@@ -14,10 +14,9 @@ import { createAgentStore } from "../../src/app/agent_store";
 import { createDriftReviewer, driftPortFromFactory } from "../../src/app/agent_drift";
 import { createPlanWiring } from "../../src/app/plan_wiring";
 import type { PlanWiring, RoomPlanSnapshot } from "../../src/app/plan_wiring";
-import { getTemplateMemorySections } from "../../src/app/starter_templates";
+import { getTemplateMemorySections, resolveStarterTemplate } from "../../src/app/starter_templates";
 import type { DriftVerdict } from "../../src/agents/types";
-import type { PlanProjectionResult } from "../../src/app/agent_store";
-import type { PlanMicrotask, PlanTask } from "../../src/plan";
+import { buildPlanSnapshots } from "../../src/app/plan_snapshots";
 import { createModelServices } from "../../src/app/model_services";
 import type { ModelServices } from "../../src/app/model_services";
 import { attachModelChannel } from "../../src/app/model_port";
@@ -237,6 +236,7 @@ let fb: FirebasePorts | null = null;
 let hy: HybridPort | null = null;
 /** Set by hy.create from the attested app; the drift reviewer reads it lazily. */
 let driftFactory: ModelFactory | null = null;
+let deviceModelState: string | undefined;
 /** U52 model services; built inside hy.create, null when construction fails (F4). */
 let services: ModelServices | null = null;
 let offModelSheet: (() => void) | undefined;
@@ -331,7 +331,7 @@ if (extId !== null) {
   const chatHost = document.createElement("div");
   root.appendChild(wallHost);
   root.appendChild(chatHost);
-  const store = createAgentStore();
+  const store = createAgentStore({ templates: resolveStarterTemplate });
   const roomFloors = new Map<string, string>();
   let wall: AgentWall | undefined;
   const templateMemorySections = (templateId: string) => {
@@ -343,77 +343,7 @@ if (extId !== null) {
       return undefined;
     }
   };
-  const getSnapshots = (): readonly RoomPlanSnapshot[] => {
-    try {
-      const plans: PlanProjectionResult[] = typeof store.plans === "function" ? store.plans() : [];
-      const out: RoomPlanSnapshot[] = [];
-      for (const entry of Array.isArray(plans) ? plans : []) {
-        try {
-          const projection = entry.projection;
-          const plan = projection?.plan ?? null;
-          const srcTasks: readonly PlanTask[] = Array.isArray(projection?.tasks) ? projection.tasks : [];
-          let doneMicrotasks = 0;
-          let totalMicrotasks = 0;
-          const tasks = srcTasks.map((t: PlanTask) => {
-            const micros: readonly PlanMicrotask[] = Array.isArray(t.microtasks) ? t.microtasks : [];
-            totalMicrotasks += micros.length;
-            for (const m of micros) if (m?.state === "done") doneMicrotasks += 1;
-            return {
-              id: t.id,
-              title: t.title,
-              type: t.type,
-              phase: t.phase,
-              accept: t.accept,
-              status: t.state,
-              deps: Array.isArray(t.deps) ? [...t.deps] : [],
-              rev: typeof t.rev === "number" ? t.rev : 0,
-              microtasks: micros.map((m: PlanMicrotask) => {
-                const micro: { id: string; text: string; state: PlanMicrotask["state"]; accept?: string; outcome?: string } = {
-                  id: m.id,
-                  text: m.text,
-                  state: m.state,
-                };
-                if (typeof m.accept === "string" && m.accept.length > 0) micro.accept = m.accept;
-                if (typeof m.outcome === "string" && m.outcome.length > 0) micro.outcome = m.outcome;
-                return micro;
-              }),
-            };
-          });
-          const snap: RoomPlanSnapshot = {
-            room: entry.room,
-            planId: plan?.id ?? "p1",
-            title: plan?.title ?? "",
-            phase: plan?.phase ?? "plan",
-            status: plan?.state ?? "active",
-            rev: typeof plan?.rev === "number" ? plan.rev : 0,
-            doneMicrotasks,
-            totalMicrotasks,
-            tasks,
-          };
-          const mem = projection?.memory;
-          if (mem !== null && typeof mem === "object") {
-            const ids = Object.keys(mem).sort();
-            if (ids.length > 0) {
-              const first = mem[ids[0] as string];
-              if (first !== undefined) {
-                const meta = plan?.template_id !== undefined ? getTemplateMemorySections(plan.template_id)?.find((s) => s.id === first.id) : undefined;
-                snapWithMemory(snap, { id: first.id, label: meta?.label ?? first.id, text: first.text, rev: typeof first.rev === "number" ? first.rev : 0 });
-              }
-            }
-          }
-          out.push(snap);
-        } catch {
-          /* skip malformed plan entries */
-        }
-      }
-      return out;
-    } catch {
-      return [];
-    }
-  };
-  function snapWithMemory(snap: RoomPlanSnapshot, memory: NonNullable<RoomPlanSnapshot["memorySection"]>): void {
-    (snap as unknown as Record<string, unknown>)["memorySection"] = memory;
-  }
+  const getSnapshots = (): readonly RoomPlanSnapshot[] => buildPlanSnapshots(store.plans());
   let planWiring: PlanWiring | null = null;
   try {
     planWiring = createPlanWiring({
@@ -490,7 +420,13 @@ if (extId !== null) {
         }) as unknown as import("../../src/app/agent_drift").DriftReviewerOptions["port"],
       } as unknown as import("../../src/app/agent_drift").DriftReviewerOptions)
     : createDriftReviewer({});
-  wall = startAgentWall({ wallHost, chatHost, link, store, reviewer, clock: wallClock, userAgent: "wall-user", planVerdicts, planBriefs, templateMemorySections });
+  const modelStatus = (): import("../../src/views/types").WallVM["model"] | undefined => {
+    if (!WIRE_REAL) return undefined;
+    if (deviceModelState === "initialized") return { state: "ready", label: "Gemini Nano: ready" };
+    if (deviceModelState === "failed") return { state: "unavailable", label: "Gemini Nano: not available on this device — enable the on-device model flags in Chrome. Rules is the active reviewer." };
+    return undefined;
+  };
+  wall = startAgentWall({ modelStatus, wallHost, chatHost, link, store, reviewer, clock: wallClock, userAgent: "wall-user", planVerdicts, planBriefs, templateMemorySections });
   // The first render has already built the rail; anchor the boot controls.
   // Later re-renders are covered by the MutationObserver above.
   ensureBootControls();
@@ -588,6 +524,7 @@ renderSheet();
 
 if (!isPlaceholderConfig(env.firebaseConfig)) {
   void boot(env, fbPorts, hyPort, (s: HostState) => {
+    deviceModelState = "deviceModel" in s ? s.deviceModel : undefined;
     renderHostState(stateRoot, s);
   });
 }

@@ -1,4 +1,4 @@
-// Repair loop 1 regressions from the Sol review of U36 (strategy/flights/U36/review_sol). See ORACLE.md "Repair loop 1".
+// Repair loop 1 regressions from the cross-family review of U36 (strategy/flights/U36/review_sol). See ORACLE.md "Repair loop 1".
 import { afterEach, describe, expect, it } from "vitest";
 import type { TaskVM, WallVM } from "../../../src/views/types";
 import { mkDone, mkTask, ms, vm, withTasks, WORKSPACES } from "./fixture";

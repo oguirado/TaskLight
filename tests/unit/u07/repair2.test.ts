@@ -1,4 +1,4 @@
-// Repair loop 2: regression tests for Hydrogen review r1 (B5 vocab from schema, B8/B13 sparse arrays, input bounds).
+// Repair loop 2: regression tests for reviewer review r1 (B5 vocab from schema, B8/B13 sparse arrays, input bounds).
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildPrompt } from "../../../src/prompts/index";
 import type { CapsuleInput, DigestEntry, PromptEvent } from "../../../src/prompts/index";

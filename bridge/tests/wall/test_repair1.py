@@ -1,4 +1,4 @@
-"""Repair loop 1 regression tests (Sol HOLD F1-F7). Concrete failing inputs only.
+"""Repair loop 1 regression tests (review HOLD F1-F7). Concrete failing inputs only.
 Fake secrets are built at runtime by concatenation (support.planted)."""
 import importlib, json, os, pathlib, subprocess, sys, time, tracemalloc, unittest
 from unittest import mock
@@ -207,7 +207,7 @@ class F6Install(S.Base):
         return hits[0]
 
     def test_generated_launcher_actually_runs_the_host(self):
-        self.assertEqual(cmd(["--apply"], self.home).returncode, 0)
+        self.assertEqual(cmd(["--apply", "--extension-id", S.PINNED_ID], self.home).returncode, 0)
         launcher = json.loads(self.manifest().read_text())["path"]
         cfg = self.cfg()
         p = subprocess.run([launcher, "--config", cfg, S.ORIGIN], input=S.frame({"t": "bye", "v": 1}),
@@ -217,7 +217,7 @@ class F6Install(S.Base):
         self.assertEqual(json.loads(p.stdout[4:4 + n])["t"], "hello")
 
     def test_remove_never_deletes_unrelated_file_named_in_manifest(self):
-        self.assertEqual(cmd(["--apply"], self.home).returncode, 0)
+        self.assertEqual(cmd(["--apply", "--extension-id", S.PINNED_ID], self.home).returncode, 0)
         important = self.home / "important.txt"
         important.write_text("keep me")
         m = self.manifest()

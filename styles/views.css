@@ -920,8 +920,7 @@ button.step-row:active {
   outline: 2px solid var(--c-focus);
   outline-offset: 2px;
 }
-.agenda,
-.diary {
+.agenda {
   max-width: var(--reading-max);
   margin-inline: 0;
 }

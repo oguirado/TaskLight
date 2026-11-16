@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createRenderer, RenderError, type CapsulePatch, type PatchField } from '../../../src/render';
 import { ALLOWLIST, TEMPLATE, makeCaps, setup, slotText, FakeClock, FakeScheduler } from './helpers';
 
-// Repair loop 1 regression tests (Hydrogen HOLD items; see ORACLE.md "Repair loop 1").
+// Repair loop 1 regression tests (reviewer HOLD items; see ORACLE.md "Repair loop 1").
 const P = (projectId: string, field: PatchField, value: string | boolean, rev = 1): CapsulePatch =>
   ({ projectId, field, value, rev });
 afterEach(() => { vi.restoreAllMocks(); document.body.innerHTML = ''; });

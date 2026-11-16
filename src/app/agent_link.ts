@@ -24,7 +24,7 @@ export interface AgentLink {
   /** Never rejects. */
   post(req: PostRequest): Promise<PostResult>;
 }
-export const LINK_LIMITS = { POST_TIMEOUT_MS: 5000 } as const;
+export const LINK_LIMITS = { POST_TIMEOUT_MS: 5000, SYNC_CONTINUATIONS_MAX: 64 } as const;
 
 const ROOM_RE = /^[a-z0-9][a-z0-9-]{0,47}$/;
 const FLOORS: ReadonlySet<string> = new Set(["ONLY_ON_DEVICE", "PREFER_ON_DEVICE"]);
@@ -40,6 +40,9 @@ export function createAgentLink(deps: AgentLinkDeps): AgentLink {
   let seq = 0;
   const syncTimers = new Set<number>();
   const pendingPosts = new Map<string, { resolve: (r: PostResult) => void; timer: number }>();
+  const outstanding = new Map<string, string>();
+  const pendingSyncs = new Set<string>();
+  const continuations = new Map<string, number>();
 
   const nextRid = (): string => {
     seq += 1;
@@ -59,9 +62,25 @@ export function createAgentLink(deps: AgentLinkDeps): AgentLink {
   };
 
   const sendSync = (port: RuntimePort, sinceMap?: Record<string, number>): void => {
+    const requested = sinceMap ?? since();
+    const map: Record<string, number> = {};
+    for (const room of Object.keys(requested)) {
+      if (outstanding.has(room)) {
+        pendingSyncs.add(room);
+      } else {
+        map[room] = requested[room]!;
+      }
+    }
+    // Preserve an empty subscription, but do not send when every room is busy.
+    if (Object.keys(requested).length > 0 && Object.keys(map).length === 0) return;
+    const rid = nextRid();
+    for (const room of Object.keys(map)) outstanding.set(room, rid);
     try {
-      port.postMessage({ t: "room_sync", v: 1, rid: nextRid(), since: sinceMap ?? since() });
+      port.postMessage({ t: "room_sync", v: 1, rid, since: map });
     } catch {
+      for (const room of Object.keys(map)) {
+        if (outstanding.get(room) === rid) outstanding.delete(room);
+      }
       /* transport-level failure: the next hello/snapshot retries */
     }
   };
@@ -106,12 +125,43 @@ export function createAgentLink(deps: AgentLinkDeps): AgentLink {
       return;
     }
     if (t === "room_hello") {
+      outstanding.clear();
+      pendingSyncs.clear();
+      continuations.clear();
       try {
         onRoomHello(msg as unknown as RoomHelloFrame);
       } catch {
         /* callback errors must not break the link */
       }
       sendSync(port, helloSince(msg));
+      return;
+    }
+    if (t === "room_synced") {
+      const rid = msg["rid"];
+      const room = msg["room"];
+      const upto = msg["upto"];
+      const more = msg["more"];
+      if (msg["v"] !== 1 || typeof rid !== "string"
+        || typeof room !== "string" || !ROOM_RE.test(room)
+        || typeof upto !== "number" || !Number.isInteger(upto) || upto < 0
+        || typeof more !== "boolean") {
+        return;
+      }
+      if (outstanding.get(room) !== rid) return;
+      outstanding.delete(room);
+      if (!more) {
+        if (pendingSyncs.delete(room)) {
+          sendSync(port, { [room]: since()[room] ?? 0 });
+        }
+        return;
+      }
+      const used = continuations.get(room) ?? 0;
+      if (used >= LINK_LIMITS.SYNC_CONTINUATIONS_MAX) {
+        pendingSyncs.delete(room);
+        return;
+      }
+      continuations.set(room, used + 1);
+      sendSync(port, { [room]: upto });
       return;
     }
     if (t === "room_event") {
@@ -153,7 +203,12 @@ export function createAgentLink(deps: AgentLinkDeps): AgentLink {
       handleMessage(port, msg);
     });
     port.onDisconnect.addListener(() => {
-      if (latestPort === port) latestPort = null;
+      if (latestPort === port) {
+        latestPort = null;
+        outstanding.clear();
+        pendingSyncs.clear();
+        continuations.clear();
+      }
     });
     return port;
   };

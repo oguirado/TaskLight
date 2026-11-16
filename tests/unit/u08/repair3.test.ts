@@ -1,4 +1,4 @@
-// Repair loop 3: regression tests for Sol review (fail-closed lastSeq, independent B8 residue barrier,
+// Repair loop 3: regression tests for cross-family review (fail-closed lastSeq, independent B8 residue barrier,
 // host-independent SHA-256, no secrets in error paths). Fake secrets are assembled at runtime.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";

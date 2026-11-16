@@ -79,7 +79,7 @@ export type PlanAiFallbackReason =
   | "schema_reject";
 
 export interface PlanAiPort {
-  generate(prompt: string, schema: object, signal: AbortSignal): Promise<{ text: string; source: DriftSource }>;
+  generate(prompt: string, schema: object, signal: AbortSignal, room?: string): Promise<{ text: string; source: DriftSource }>;
 }
 
 export interface PlanAiPortBinding {
@@ -109,12 +109,14 @@ export interface ReviewContext {
   floor?: DriftFloor;          // overrides default floor derived from tier
   memory?: PlanMemoryInput;    // at most 1 section (STRATEGY_v9 §2)
   signal?: AbortSignal;
+  room?: string;
 }
 
 export interface BriefContext {
   tier?: PlanAiTier;
   floor?: DriftFloor;
   signal?: AbortSignal;
+  room?: string;
 }
 
 export interface PlanAi {

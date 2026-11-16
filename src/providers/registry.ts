@@ -82,7 +82,7 @@ type ChainOut = Outcome & { fallback: boolean };
 
 interface ChainReq {
   task: CallTask; tier: PrivacyTier; prompt: string; schema: object; signal: AbortSignal;
-  ctx?: ValidateCtx; maxTokens?: number;
+  ctx?: ValidateCtx; maxTokens?: number; room?: string;
   taskReq?: TaskRequest<TaskId>;       // asHybrid: forwarded verbatim to Firebase instances
   firebaseMode?: unknown;              // classifier mode: ONLY_ON_DEVICE swaps firebase-hybrid for the on-device overlay
 }
@@ -422,9 +422,12 @@ export function createProviderRegistry(deps: ProviderDeps): ProviderRegistry {
     const inner = new AbortController();
     const treq: Parameters<ModelTransport["generate"]>[0] = { id, messages, maxTokens, rung, tier: r.tier, signal: inner.signal };
     if (rung === 1) treq.schema = r.schema;
+    if (r.room !== undefined) treq.room = r.room;
     let bodyBytes: number;
     try {
-      bodyBytes = utf8Bytes(JSON.stringify({ id, messages, maxTokens, schema: treq.schema, rung, tier: r.tier }));
+      const sized: Record<string, unknown> = { id, messages, maxTokens, schema: treq.schema, rung, tier: r.tier };
+      if (r.room !== undefined) sized["room"] = r.room;
+      bodyBytes = utf8Bytes(JSON.stringify(sized));
     } catch { return Promise.resolve(fail("BODY_TOO_LARGE", "unserialisable request")); }
     if (bodyBytes > MAX_BODY_BYTES) return Promise.resolve(fail("BODY_TOO_LARGE"));
 
@@ -531,6 +534,7 @@ export function createProviderRegistry(deps: ProviderDeps): ProviderRegistry {
     };
     if (req.ctx !== undefined) r.ctx = req.ctx;
     if (req.maxTokens !== undefined) r.maxTokens = req.maxTokens;
+    if (typeof req.room === "string") r.room = req.room;
     return r;
   }
 
@@ -674,8 +678,10 @@ export function createProviderRegistry(deps: ProviderDeps): ProviderRegistry {
     },
     asDriftPort(tier: PrivacyTier): ProviderDriftPort {
       return {
-        async generate(prompt: string, schema: object, signal: AbortSignal): Promise<{ text: string; source: DriftSource }> {
-          const o = await runChain({ task: "drift", tier, prompt, schema, signal: isSignal(signal) ? signal : freshSignal() });
+        async generate(prompt: string, schema: object, signal: AbortSignal, room?: string): Promise<{ text: string; source: DriftSource }> {
+          const chain: ChainReq = { task: "drift", tier, prompt, schema, signal: isSignal(signal) ? signal : freshSignal() };
+          if (typeof room === "string") chain.room = room;
+          const o = await runChain(chain);
           if (!o.ok) throw new Error(`provider drift port: ${o.code}${o.detail !== undefined ? ` (${o.detail})` : ""}`);
           const source = DRIFT_SOURCE[o.source];
           if (source === undefined) throw new Error("provider drift port: unrecognised inference source");

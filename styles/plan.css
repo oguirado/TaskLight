@@ -183,6 +183,9 @@
 }
 .entry-outcome {
   color: var(--c-text-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .entry-took {
   color: var(--c-text-3);
@@ -201,7 +204,6 @@
   color: var(--c-text-2);
 }
 .memory-panel {
-  max-width: var(--reading-max);
   background-color: var(--c-surface-1);
   color: var(--c-text-1);
   border-color: var(--c-line);
@@ -214,7 +216,24 @@
 }
 .memory-text {
   color: var(--c-text-1);
-  max-width: var(--reading-max);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.memory-meta {
+  color: var(--c-text-3);
+}
+.phase-chip[aria-pressed="true"] {
+  background-color: var(--c-primary-tint);
+  color: var(--c-primary-ink);
+  border-color: var(--c-primary-line);
+}
+.ws-help {
+  display: grid;
+  gap: var(--sp-2);
+}
+.rules-line {
+  color: var(--c-text-2);
 }
 .memory-flag {
   color: var(--c-st-blocked);

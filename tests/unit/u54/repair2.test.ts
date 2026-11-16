@@ -1,4 +1,4 @@
-// U54 repair loop 2 (Sol HOLD): cross-task observations must not move non-private project
+// U54 repair loop 2 (review HOLD): cross-task observations must not move non-private project
 // tier policy backwards in revision order. A project-wide governing revision gates tier changes.
 // Equal-revision rule (pinned): at the governing revision a non-private observation may only
 // tighten (standard -> shared), never loosen (shared -> standard). Private is always sticky.

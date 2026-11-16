@@ -1,4 +1,4 @@
-// U54 repair loop 1 (Sol HOLD): stale projectTier after standard -> shared, and queued digests
+// U54 repair loop 1 (review HOLD): stale projectTier after standard -> shared, and queued digests
 // written without re-checking current tier authorization.
 import { describe, expect, it } from 'vitest';
 import type { DigestIn } from '../../../src/sync';

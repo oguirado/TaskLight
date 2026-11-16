@@ -1,4 +1,4 @@
-// Repair r6 regressions (Sol review r5). Concrete failing inputs from REVIEW.md.
+// Repair r6 regressions (cross-family review r5). Concrete failing inputs from REVIEW.md.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHybrid } from "../../../src/ai/hybrid";
 import { runParity } from "../../../src/ai/parity";

@@ -1,10 +1,11 @@
 // Wall mount: renders the U36 wall and the U35 agent chat from the store
 // plus drift verdicts (SPEC_U37 "U37c"). The reviewer is re-asked on every
 // refresh; silence re-renders every 30 s. No logging, no storage.
+import { readTheme, writeTheme } from "../ui/theme_store";
 import { mountAgentChat } from "../agentsui";
 import type { AgentChatHandlers, AgentChatHandle, AgentChatVM } from "../agentsui/types";
 import { mountWall } from "../views";
-import type { WallHandle, ViewId } from "../views/types";
+import type { WallHandle, ViewId, WallVM } from "../views/types";
 import type { AgentState, DriftVerdict, TemplateMemorySectionMeta } from "../agents/types";
 import { toChatVM, toWallVM } from "./agent_store";
 import type { AgentLink } from "./agent_link";
@@ -23,6 +24,8 @@ export interface AgentWallDeps {
   /** Escalation target agent; default "orchestrator". */
   orchestrator?: string | (() => string | undefined);
   initialView?: ViewId;
+  /** Undefined while the configured device model is still checking. */
+  modelStatus?: () => WallVM["model"] | undefined;
   planVerdicts?: ReadonlyMap<string, DriftVerdict> | (() => ReadonlyMap<string, DriftVerdict>);
   planBriefs?: ReadonlyMap<string, { text: string; source: string }> | (() => ReadonlyMap<string, { text: string; source: string }>);
   templateMemorySections?: (templateId: string) => readonly TemplateMemorySectionMeta[] | undefined;
@@ -40,10 +43,16 @@ function readPlanFeed<T>(feed: ReadonlyMap<string, T> | (() => ReadonlyMap<strin
 
 const ESCALATE_TEXT = "Escalation: the user asks the orchestrator to step in.";
 
+const MODEL_TIMEOUT_MS = 10_000 as const;
+
 export function startAgentWall(d: AgentWallDeps): AgentWall {
   const { wallHost, chatHost, link, store, reviewer, clock, userAgent } = d;
   let destroyed = false;
   let sending = false;
+  let currentTheme = readTheme();
+  wallHost.ownerDocument.documentElement.dataset.theme = currentTheme;
+  let modelTimedOut = false;
+  let suggestNoticeMsg = "";
   let wallHandle: WallHandle | null = null;
   let chatHandle: AgentChatHandle | null = null;
   const verdicts = new Map<string, DriftVerdict>();
@@ -101,6 +110,13 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
         }
       } catch { return; }
     },
+    onThemeToggle: (): void => {
+      if (destroyed) return;
+      currentTheme = currentTheme === "dark" ? "light" : "dark";
+      wallHost.ownerDocument.documentElement.dataset.theme = currentTheme;
+      writeTheme(currentTheme);
+      render();
+    },
     onSelectPhase: (phaseId: string): void => {
       if (destroyed) return;
       void phaseId;
@@ -111,10 +127,7 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
       void taskId; void microIndex;
       try { render(); } catch { return; }
     },
-    onThemeToggle: (): void => {
-      if (destroyed) return;
-      try { render(); } catch { return; }
-    },
+
   };
 
   // U38 V6: the chat host is a drawer (bottom sheet / right-side panel).
@@ -134,9 +147,16 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
     } catch { plans = undefined; }
     const planVerdicts = readPlanFeed(d.planVerdicts);
     const planBriefs = readPlanFeed(d.planBriefs);
+    const unavailable = { state: "unavailable" as const, label: "Gemini Nano: not available on this device — enable the on-device model flags in Chrome. Rules is the active reviewer." };
+    let model: WallVM["model"] = { state: "unavailable", label: "" };
+    if (d.modelStatus !== undefined) {
+      let status: WallVM["model"] | undefined;
+      try { status = d.modelStatus(); } catch { /* no verdict yet */ }
+      model = status ?? (modelTimedOut ? unavailable : { state: "unavailable", label: "Gemini Nano: checking…" });
+    }
     const wallVm = toWallVM(states, verdicts, {
       nowMs,
-      model: { state: "unavailable", label: "" },
+      model,
       network: "online",
       userAgent,
       view: currentView,
@@ -165,8 +185,9 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
     const key = verdictKey(target);
     const verdict = verdicts.get(key);
     const drift = verdict !== undefined && accepted.get(key) !== verdict ? verdict : undefined;
-    const opts: { userAgent: string; nowMs: number; sending: boolean; drift?: DriftVerdict } =
+    const opts: { userAgent: string; nowMs: number; sending: boolean; drift?: DriftVerdict; suggestNotice?: string } =
       drift !== undefined ? { userAgent, nowMs, sending, drift } : { userAgent, nowMs, sending };
+    if (suggestNoticeMsg.length > 0) opts.suggestNotice = suggestNoticeMsg;
     const vm: AgentChatVM = toChatVM(target, store.events(target.room), opts);
     chatHost.setAttribute("aria-label", vm.title);
     if (chatHandle === null) {
@@ -185,7 +206,7 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
     const done = (): void => {
       if (destroyed) return;
       sending = false;
-      render();
+      try { render(); } catch { return; }
     };
     let result: Promise<unknown>;
     try {
@@ -193,7 +214,7 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
     } catch {
       result = Promise.resolve(undefined);
     }
-    Promise.resolve(result).then(done, done);
+    void Promise.resolve(result).then(done, done);
   };
 
   const resolveOrchestrator = (): string => {
@@ -204,6 +225,11 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
   };
 
   const chatHandlers: AgentChatHandlers = {
+    onSuggest: () => {
+      if (destroyed) return;
+      suggestNoticeMsg = "Gemini Nano is not available on this device — Rules is the active reviewer. Please type your message instead.";
+      render();
+    },
     onClose: () => {
       if (destroyed) return;
       drawerOpen = false;
@@ -258,28 +284,51 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
       });
     });
     void Promise.allSettled(pending).then(() => {
-      render();
+      try { render(); } catch { return; }
     });
     render();
   };
 
-  const interval = clock.setInterval(refresh, WALL_REFRESH_MS);
-  refresh();
-
-  return {
-    refresh,
-    destroy(): void {
-      if (destroyed) return;
-      destroyed = true;
-      clock.clearInterval(interval);
-      if (wallHandle !== null) wallHandle.destroy();
-      if (chatHandle !== null) chatHandle.destroy();
-      wallHandle = null;
-      chatHandle = null;
-      chatHost.classList.remove("chat-drawer");
-      chatHost.removeAttribute("data-open");
-      chatHost.removeAttribute("role");
-      chatHost.removeAttribute("aria-label");
-    },
+  let interval: number | undefined;
+  let modelTimer: number | undefined;
+  const destroy = (): void => {
+    if (destroyed) return;
+    destroyed = true;
+    let failed = false;
+    let firstError: unknown;
+    const attempt = (cleanup: () => void): void => {
+      try { cleanup(); } catch (error) {
+        if (!failed) { failed = true; firstError = error; }
+      }
+    };
+    // Each resource gets a cleanup attempt even if a previous port throws.
+    attempt(() => { if (interval !== undefined) clock.clearInterval(interval); });
+    attempt(() => { if (modelTimer !== undefined) clock.clearTimeout(modelTimer); });
+    attempt(() => { wallHandle?.destroy(); });
+    attempt(() => { chatHandle?.destroy(); });
+    wallHandle = null;
+    chatHandle = null;
+    attempt(() => { chatHost.classList.remove("chat-drawer"); });
+    attempt(() => { chatHost.removeAttribute("data-open"); });
+    attempt(() => { chatHost.removeAttribute("role"); });
+    attempt(() => { chatHost.removeAttribute("aria-label"); });
+    if (failed) throw firstError;
   };
+
+  try {
+    interval = clock.setInterval(refresh, WALL_REFRESH_MS);
+    if (d.modelStatus !== undefined) modelTimer = clock.setTimeout(() => {
+      if (destroyed) return;
+      try { if (d.modelStatus?.() !== undefined) return; } catch { /* no verdict yet */ }
+      modelTimedOut = true;
+      render();
+    }, MODEL_TIMEOUT_MS);
+    refresh();
+  } catch (error) {
+    // Preserve the startup error after best-effort rollback.
+    try { destroy(); } catch { /* all cleanup steps were attempted */ }
+    throw error;
+  }
+
+  return { refresh, destroy };
 }

@@ -217,8 +217,13 @@ export function createModelServices(d: ModelServicesDeps): ModelServices {
       try { return await registry.asClassifierPort(t)(req); } finally { publish(); }
     },
     asDriftPort: (t) => ({
-      generate: async (prompt, schema, signal) => {
-        try { return await registry.asDriftPort(t).generate(prompt, schema, signal); }
+      generate: async (prompt, schema, signal, room) => {
+        try {
+          const port = registry.asDriftPort(t);
+          return await (room !== undefined
+            ? port.generate(prompt, schema, signal, room)
+            : port.generate(prompt, schema, signal));
+        }
         finally { publish(); }
       },
     }),
