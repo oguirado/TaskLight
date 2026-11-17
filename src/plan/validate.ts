@@ -399,13 +399,40 @@ function fullMatch(pattern: RegExp, value: unknown): boolean {
   return typeof value === "string" && pattern.exec(value)?.[0] === value;
 }
 
+function resultText(value: unknown, maximum: number): value is string {
+  return typeof value === "string" && codePointLen(value) <= maximum
+    && !Array.from(value).some(ch => {
+      const point = ch.codePointAt(0)!;
+      return point >= 0xd800 && point <= 0xdfff;
+    });
+}
+
+function validAgentResult(value: unknown): boolean {
+  if (!isPlainObject(value)) return false;
+  const fields = ["verdict", "summary", "receipt", "evidence"];
+  if (!hasOwn(value, "verdict") || Object.keys(value).some(key => !fields.includes(key))) return false;
+  if (typeof value["verdict"] !== "string" || !["ADMIT", "HOLD", "NO_PUDE", "OK", "FAIL"].includes(value["verdict"])) return false;
+  if (hasOwn(value, "summary") && !resultText(value["summary"], 2000)) return false;
+  if (hasOwn(value, "receipt") && !resultText(value["receipt"], 512)) return false;
+  if (!hasOwn(value, "evidence")) return true;
+  const evidence = value["evidence"];
+  return Array.isArray(evidence) && evidence.length <= 32 && evidence.every(item =>
+    isPlainObject(item) && Object.keys(item).length === 2 && hasOwn(item, "path") && hasOwn(item, "sha256")
+    && resultText(item["path"], 512)
+    && fullMatch(/^[0-9a-fA-F]{64}$/, item["sha256"]));
+}
+
 export function validateOpShapeCode(op: Record<string, unknown>): PlanOpErrorCode | null {
   try {
     if (!isPlainObject(op)) return "bad_op";
     if (!isJsonSafeValue(op, new Set(), 0)) return "bad_op";
-    // Byte cap precedes field checks (except JSON safety) so oversize => limit_exceeded
+    // Terminal results have their own field bounds, separate from the legacy
+    // operation byte cap (including summaries containing astral characters).
+    const hasResult = op["kind"] === "agent.lifecycle" && hasOwn(op, "result");
+    if (hasResult && ((op["state"] !== "finished" && op["state"] !== "failed") || !validAgentResult(op["result"]))) return "bad_op";
+    const byteOp = hasResult ? Object.fromEntries(Object.entries(op).filter(([key]) => key !== "result")) : op;
     let blen = 0;
-    try { blen = canonicalOpByteLength(op); } catch { return "bad_op"; }
+    try { blen = canonicalOpByteLength(byteOp); } catch { return "bad_op"; }
     if (blen > PLAN_LIMITS.OP_PAYLOAD_MAX_BYTES) return "limit_exceeded";
 
     const kind = op["kind"];
@@ -420,10 +447,12 @@ export function validateOpShapeCode(op: Record<string, unknown>): PlanOpErrorCod
     };
 
     if (kind === "agent.lifecycle") {
-      const e = unknown(new Set(["kind", "state", "run_id", "swarm", "harness", "reason", "op_id"]));
+      const e = unknown(new Set(["kind", "state", "run_id", "swarm", "harness", "reason", "op_id", "parent_agent", "parent_run_id", "result"]));
       if (e) return e;
       if (typeof op["state"] !== "string" || !["deployed", "alive", "finished", "failed"].includes(op["state"])) return "bad_op";
       if (!fullMatch(/^[A-Za-z0-9_-]{1,64}$/, op["run_id"]) || !fullMatch(OP_ID_RE, op["op_id"])) return "bad_op";
+      if (hasOwn(op, "parent_agent") && !fullMatch(AGENT_RE, op["parent_agent"])) return "bad_op";
+      if (hasOwn(op, "parent_run_id") && !fullMatch(/^[A-Za-z0-9_-]{1,64}$/, op["parent_run_id"])) return "bad_op";
       for (const key of ["swarm", "harness", "reason"]) {
         if (!hasOwn(op, key)) continue;
         const value = op[key];

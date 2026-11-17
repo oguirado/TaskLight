@@ -184,6 +184,8 @@ describe("M5/M6 hosting and A3/A5/A7 visible uncertainty", () => {
           const task = projection.tasks.find(task => task.assignee === agent)!;
           expect(task.microtasks[0]!.live?.run_id).toBe(registrations[agent]!.run_id);
         }
+        // A-V1: inspect the secondary Wall explicitly before checking its agent strip.
+        document.querySelector<HTMLButtonElement>('button[data-nav="wall"]')!.click();
         expect(document.querySelectorAll(".agent-strip-row")).toHaveLength(5);
         for (const agent of EXECUTORS) {
           const row = document.querySelector(`.agent-strip-row[data-agent-id="${agent}"]`)!;

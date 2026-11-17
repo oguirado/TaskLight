@@ -87,7 +87,8 @@ describe("U61b additive planning hooks", () => {
   });
   it("absent deps preserve the existing wall VM", () => {
     const input = plans(); const clock = new FakeAppClock(); clock.t = NOW;
-    wall = startAgentWall({ wallHost: document.createElement("div"), chatHost: document.createElement("div"),
+    // A-V1: this compatibility assertion inspects Wall, now a secondary view.
+    wall = startAgentWall({ initialView: "wall", wallHost: document.createElement("div"), chatHost: document.createElement("div"),
       store: Object.assign(createAgentStore(), { plans: () => input }), clock, userAgent: "human",
       reviewer: { review: async () => undefined }, link: { post: vi.fn() } });
     // A-R40: Wall adds the frozen swarm projection and truthful availability; preserve every legacy field, U138 M2/M7 / U118 M5.

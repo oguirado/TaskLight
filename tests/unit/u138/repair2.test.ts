@@ -37,7 +37,8 @@ function fixture(kind: "legacy" | "plan" = "legacy") {
   document.body.append(wallHost, chatHost);
   probe.handlers = null;
   const start = (extra: Partial<AgentWallDeps> = {}) => {
-    const wall = startAgentWall({ wallHost, chatHost, store: f.store, clock: testClock,
+    // A-V1: this Wall-specific fixture selects Wall explicitly after the default changed.
+    const wall = startAgentWall({ initialView: "wall", wallHost, chatHost, store: f.store, clock: testClock,
       userAgent: "wall-user", link: { post }, reviewer, ...extra });
     cleanup.push(() => wall.destroy());
     return wall;

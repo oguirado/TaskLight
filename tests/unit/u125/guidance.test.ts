@@ -293,10 +293,11 @@ describe("U125 A6 hostile text, help focus and announcements", () => {
       expect(announcements, "An unchanged semantic state must not rewrite its live text").toEqual([]);
     } finally { observer.disconnect(); }
   });
+  // A-V1: the swarm navigation label is now Agents.
   it("M6 guidance leaves existing landing navigation, Models and Messages (legacy) available", async () => {
     const h = mount({ view: "wall" }); await flush();
     expect(h.wallHost.querySelector(".app")?.getAttribute("data-view")).toBe("wall");
-    for (const label of ["Wall", "Diary", "Memory", "Swarm", "Models", "Messages (legacy)", "New workspace"]) control(h.wallHost, label);
+    for (const label of ["Wall", "Diary", "Memory", "Agents", "Models", "Messages (legacy)", "New workspace"]) control(h.wallHost, label);
     expect(h.wallHost.querySelector('textarea,input:not([type="hidden"]),[contenteditable="true"]')).toBeNull();
     expect(h.chatHost.getAttribute("data-open")).toBe("false");
   });

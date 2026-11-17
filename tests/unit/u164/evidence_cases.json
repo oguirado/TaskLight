@@ -1,0 +1,411 @@
+{
+  "template": {
+    "v": 1,
+    "id": "u164-parity",
+    "name": "Neutral",
+    "summary": "A neutral workflow",
+    "lens_id": "neutral",
+    "brief_fields": [
+      {
+        "id": "goal",
+        "label": "Goal",
+        "required": true
+      }
+    ],
+    "phases": [
+      {
+        "id": "start",
+        "label": "Start",
+        "exit": "Ready"
+      },
+      {
+        "id": "finish",
+        "label": "Finish",
+        "exit": "Complete"
+      }
+    ],
+    "task_types": [
+      {
+        "id": "action",
+        "label": "Action",
+        "accept_required": true,
+        "evidence_required": true,
+        "micro_hints": [
+          "Take a step"
+        ]
+      },
+      {
+        "id": "optional",
+        "label": "Optional",
+        "accept_required": true,
+        "evidence_required": false,
+        "micro_hints": [
+          "Take a step"
+        ]
+      }
+    ],
+    "granularity": {
+      "tasks_max": 40,
+      "micro_min": 1,
+      "micro_max": 12,
+      "rule": "Small steps"
+    },
+    "memory_sections": [
+      {
+        "id": "notes",
+        "label": "Notes",
+        "required": false,
+        "max_chars": 100,
+        "hint": "Keep decisions"
+      }
+    ],
+    "hash": "3ec65bb5718b335444258bb4c6e9503ec4f555adaabcc81dd2a446f01c6506d7"
+  },
+  "history": [
+    {
+      "id": "e-0000000000000001",
+      "lamport": 1,
+      "ts": 1700000000000,
+      "room": "oracle",
+      "agent": "alice",
+      "act": "op",
+      "text": "",
+      "op": {
+        "kind": "plan.open",
+        "template_id": "u164-parity",
+        "template_hash": "3ec65bb5718b335444258bb4c6e9503ec4f555adaabcc81dd2a446f01c6506d7",
+        "title": "Legacy evidence",
+        "brief": {
+          "goal": "Preserve history"
+        },
+        "phase": "start"
+      }
+    },
+    {
+      "id": "e-0000000000000002",
+      "lamport": 2,
+      "ts": 1700000000000,
+      "room": "oracle",
+      "agent": "alice",
+      "act": "op",
+      "text": "",
+      "op": {
+        "kind": "task.add",
+        "title": "Historical task",
+        "type": "action",
+        "phase": "start",
+        "accept": "Verified",
+        "microtasks": [
+          {
+            "text": "First"
+          },
+          {
+            "text": "Second"
+          }
+        ]
+      }
+    },
+    {
+      "id": "e-0000000000000003",
+      "lamport": 3,
+      "ts": 1700000000000,
+      "room": "oracle",
+      "agent": "alice",
+      "act": "op",
+      "text": "",
+      "op": {
+        "kind": "task.claim",
+        "task_id": "T01"
+      }
+    },
+    {
+      "id": "e-0000000000000004",
+      "lamport": 4,
+      "ts": 1700000000000,
+      "room": "oracle",
+      "agent": "alice",
+      "act": "op",
+      "text": "",
+      "op": {
+        "kind": "micro.set",
+        "micro_id": "T01.M01",
+        "state": "done",
+        "op_id": "legacy-parity-0001"
+      }
+    },
+    {
+      "id": "e-0000000000000005",
+      "lamport": 5,
+      "ts": 1700000000000,
+      "room": "oracle",
+      "agent": "alice",
+      "act": "op",
+      "text": "",
+      "op": {
+        "kind": "micro.set",
+        "micro_id": "T01.M02",
+        "state": "done",
+        "evidence": [],
+        "op_id": "legacy-parity-0002"
+      }
+    }
+  ],
+  "cases": [
+    {
+      "name": "completed_missing",
+      "task_state": "done",
+      "micro_states": [
+        "done"
+      ],
+      "evidence": [
+        []
+      ],
+      "task_type": "action",
+      "missing": [
+        "tasks.T01.microtasks.T01.M01.evidence"
+      ]
+    },
+    {
+      "name": "completed_valid",
+      "task_state": "done",
+      "micro_states": [
+        "done"
+      ],
+      "evidence": [
+        [
+          {
+            "path": "proof.txt",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      ],
+      "task_type": "action",
+      "missing": []
+    },
+    {
+      "name": "pending_parent",
+      "task_state": "pending",
+      "micro_states": [
+        "pending"
+      ],
+      "evidence": [
+        []
+      ],
+      "task_type": "action",
+      "missing": []
+    },
+    {
+      "name": "active_parent",
+      "task_state": "active",
+      "micro_states": [
+        "done",
+        "pending"
+      ],
+      "evidence": [
+        [],
+        []
+      ],
+      "task_type": "action",
+      "missing": []
+    },
+    {
+      "name": "blocked_parent",
+      "task_state": "blocked",
+      "micro_states": [
+        "done",
+        "blocked"
+      ],
+      "evidence": [
+        [],
+        []
+      ],
+      "task_type": "action",
+      "missing": []
+    },
+    {
+      "name": "cancelled_parent",
+      "task_state": "cancelled",
+      "micro_states": [
+        "done"
+      ],
+      "evidence": [
+        []
+      ],
+      "task_type": "action",
+      "missing": []
+    },
+    {
+      "name": "optional_completed",
+      "task_state": "done",
+      "micro_states": [
+        "done"
+      ],
+      "evidence": [
+        []
+      ],
+      "task_type": "optional",
+      "missing": []
+    },
+    {
+      "name": "completed_whitespace_record",
+      "task_state": "done",
+      "micro_states": [
+        "done"
+      ],
+      "evidence": [
+        [
+          {
+            "path": " \t\n",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      ],
+      "task_type": "action",
+      "missing": [
+        "tasks.T01.microtasks.T01.M01.evidence"
+      ]
+    },
+    {
+      "name": "completed_empty_string",
+      "task_state": "done",
+      "micro_states": [
+        "done"
+      ],
+      "evidence": [
+        ""
+      ],
+      "task_type": "action",
+      "missing": [
+        "tasks.T01.microtasks.T01.M01.evidence"
+      ]
+    },
+    {
+      "name": "completed_empty_string_list",
+      "task_state": "done",
+      "micro_states": [
+        "done"
+      ],
+      "evidence": [
+        [
+          ""
+        ]
+      ],
+      "task_type": "action",
+      "missing": [
+        "tasks.T01.microtasks.T01.M01.evidence"
+      ]
+    },
+    {
+      "name": "completed_whitespace_list",
+      "task_state": "done",
+      "micro_states": [
+        "done"
+      ],
+      "evidence": [
+        [
+          " \t\n"
+        ]
+      ],
+      "task_type": "action",
+      "missing": [
+        "tasks.T01.microtasks.T01.M01.evidence"
+      ]
+    },
+    {
+      "name": "completed_valid_plus_blank",
+      "task_state": "done",
+      "micro_states": [
+        "done"
+      ],
+      "evidence": [
+        [
+          {
+            "path": "proof.txt",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "path": " ",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      ],
+      "task_type": "action",
+      "missing": []
+    },
+    {
+      "name": "completed_mixed_micros",
+      "task_state": "done",
+      "micro_states": [
+        "done",
+        "done"
+      ],
+      "evidence": [
+        [
+          {
+            "path": "proof.txt",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        []
+      ],
+      "task_type": "action",
+      "missing": [
+        "tasks.T01.microtasks.T01.M02.evidence"
+      ]
+    },
+    {
+      "name": "completed_only_done_micros",
+      "task_state": "done",
+      "micro_states": [
+        "done",
+        "pending",
+        "active",
+        "blocked"
+      ],
+      "evidence": [
+        [],
+        [],
+        [],
+        []
+      ],
+      "task_type": "action",
+      "missing": [
+        "tasks.T01.microtasks.T01.M01.evidence"
+      ]
+    },
+    {
+      "name": "pending_with_blank_records",
+      "task_state": "pending",
+      "micro_states": [
+        "pending"
+      ],
+      "evidence": [
+        [
+          {
+            "path": " ",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      ],
+      "task_type": "action",
+      "missing": []
+    },
+    {
+      "name": "optional_with_blank_records",
+      "task_state": "done",
+      "micro_states": [
+        "done"
+      ],
+      "evidence": [
+        [
+          {
+            "path": " ",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      ],
+      "task_type": "optional",
+      "missing": []
+    }
+  ]
+}

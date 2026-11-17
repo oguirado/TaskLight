@@ -22,6 +22,7 @@ from bridge.room.store import RoomError
 from bridge.room import ext as _ext
 
 _ext.load()
+from bridge.room.ext.acquire import _nonblank_evidence
 
 VERSION = "0.2.0"
 CLOSE_OUTCOME_MAX = 240  # A-U43: close_task outcome is one line, <= 240 characters
@@ -981,6 +982,7 @@ def _do_microtask_set(args):
             raise RoomError("bad_evidence", "evidence must be array")
         if len(raw) > 8:
             raise RoomError("bad_evidence", "too many evidence")
+        raw = _nonblank_evidence(raw)
         if not all(isinstance(x, str) for x in raw):
             raise RoomError("bad_evidence", "evidence must be paths")
         rdir = os.path.join(store._home(None), "rooms", room)

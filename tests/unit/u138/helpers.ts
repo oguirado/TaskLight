@@ -122,14 +122,16 @@ export function strip(root: HTMLElement): HTMLElement {
 }
 
 export function swarmRoot(root: ParentNode): HTMLElement {
-  const el = root.querySelector<HTMLElement>('[aria-label="Swarm"]');
+  // A-V1: Agents retains the swarm view class after the navigation label changes.
+  const el = root.querySelector<HTMLElement>(".swarm-view");
   expect(el, "Swarm must render the supplied selected-room model").not.toBeNull(); return el!;
 }
 
 export function selected(root: ParentNode): string | undefined {
   const node = [...root.querySelectorAll<HTMLElement>('[aria-selected="true"],[aria-current="page"]')]
     .find(visible);
-  return node ? accessibleName(node).toLowerCase() : undefined;
+  // A-V1: assert the stable destination id independently of its new Agents label.
+  return node?.getAttribute("data-nav") ?? undefined;
 }
 
 export function key(target: EventTarget, value: string, extra: KeyboardEventInit = {}): void {

@@ -59,13 +59,16 @@ export function accessibleName(node: HTMLElement): string {
   return text(copy);
 }
 export function control(root: ParentNode, name: string): HTMLElement {
+  // A-V1: the unchanged swarm destination is labelled Agents in navigation.
+  if (name === "Swarm") name = "Agents";
   const found = [...root.querySelectorAll<HTMLElement>('button,summary,a,[role="button"],[role="tab"]')]
     .find(el => visible(el) && accessibleName(el) === name);
   expect(found, `Visible control named ${name}`).toBeDefined();
   return found!;
 }
 export function swarm(root: ParentNode): HTMLElement {
-  const found = root.querySelector<HTMLElement>('[aria-label="Swarm"]');
+  // A-V1: locate the renamed Agents board by its stable view class.
+  const found = root.querySelector<HTMLElement>(".swarm-view");
   expect(found, "Selected workspace must mount the real U112 Swarm view").not.toBeNull();
   return found!;
 }

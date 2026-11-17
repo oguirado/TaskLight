@@ -388,6 +388,15 @@ def _apply_op_event(new, event, op, *, templates=None, last_by_agent=None):
                         or record["lifecycle"] in ("finished", "failed")))
 
     if kind == "agent.lifecycle":
+        # Retain unresolved edges, but never admit a cycle in this room's
+        # current parent graph. Admission runs this fold under events.lock.
+        parent = op.get("parent_agent")
+        visited = {agent}
+        while parent is not None:
+            if parent in visited:
+                raise PlanError("bad_args", "lifecycle parent cycle")
+            visited.add(parent)
+            parent = new["agent_lifecycle"].get(parent, {}).get("parent_agent")
         run_id, lifecycle = op["run_id"], op["state"]
         retired = list(record["retired_run_ids"]) if record is not None else []
         current = record is not None and record["run_id"] == run_id
@@ -407,7 +416,7 @@ def _apply_op_event(new, event, op, *, templates=None, last_by_agent=None):
             if terminal and lifecycle != record["lifecycle"]:
                 raise PlanError("not_conformant", detail + ": terminal run")
             if any(key in op and op[key] != record.get(key)
-                   for key in ("swarm", "harness", "reason")):
+                   for key in ("swarm", "harness", "reason", "parent_agent", "parent_run_id")):
                 raise PlanError("not_conformant", detail + ": conflicting repeat")
             noop = True
         if noop:
@@ -422,7 +431,7 @@ def _apply_op_event(new, event, op, *, templates=None, last_by_agent=None):
                 record = {"run_id": run_id, "deployed_ts": ts, "retired_run_ids": retired}
             else:
                 record = copy.deepcopy(record)
-            for key in ("swarm", "harness", "reason"):
+            for key in ("swarm", "harness", "reason", "parent_agent", "parent_run_id"):
                 if key in op:
                     record[key] = op[key]
             record.update(lifecycle=lifecycle, ts=ts, lamport=lamport)
@@ -846,7 +855,10 @@ def _apply_op_event(new, event, op, *, templates=None, last_by_agent=None):
     return PlanProjection(new), result
 
 
-def fold_plan(events: Iterable[dict], *, templates: Mapping[str, dict] | None = None) -> dict:
+def fold_plan(events: Iterable[dict], *, templates: Mapping[str, dict] | None = None,
+              _observe=None) -> dict:
+    # Optional read-only observer sees admitted operations at their replay point;
+    # it adds no projection fields and leaves legacy serialization unchanged.
     state = _FoldAccumulator(empty_projection())
     raw = list(events)
     # Collect sortable events: dict with str id and valid lamport >=1
@@ -886,6 +898,8 @@ def fold_plan(events: Iterable[dict], *, templates: Mapping[str, dict] | None = 
     for e in deduped:
         if e.get("act") != "op":
             _update_activity(e)
+            if _observe is not None:
+                _observe(e, state, None)
             continue
         # eligible op event: attempt apply with prior activity snapshot
         op_obj = e.get("op")
@@ -895,7 +909,9 @@ def fold_plan(events: Iterable[dict], *, templates: Mapping[str, dict] | None = 
             op_id_for_reject = None
         snapshot = dict(last_by_agent)
         try:
-            state._apply(e, templates=templates, last_by_agent=snapshot)
+            _, disposition = state._apply(e, templates=templates, last_by_agent=snapshot)
+            if _observe is not None:
+                _observe(e, state, disposition)
         except PlanError as ex:
             # Apply failed: record rejection, update last_lamport
             state["rejected"].append({"id": e.get("id"), "lamport": e.get("lamport"), "op_id": op_id_for_reject, "code": ex.code})

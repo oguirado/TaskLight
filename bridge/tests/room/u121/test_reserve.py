@@ -18,8 +18,8 @@ class ReserveTests(RoomCase):
         if kind == "beat_batch":
             return lambda: self.batch([dict(BEAT, note=text)])
         if kind == "mixed_batch":
-            return lambda: self.batch([dict(BEAT, note=text),
-                        dict(kind="micro.set", micro_id="T01.M01", state="done", outcome="Verified")])
+            # A-U164: measure the complete evidence-bearing wire operation.
+            return lambda: self.batch([dict(BEAT, note=text), self.completion_op()])
         if kind == "semantic_batch":
             return lambda: self.batch([memory(text=text)])
         return lambda: self.post(memory(text=text))
@@ -56,7 +56,8 @@ class ReserveTests(RoomCase):
         size = self.payload_size(beat_call)
         with patch.object(store, "CAP", len(self.raw()) + size + RESERVE - 1):
             self.refuse(beat_call, "room_full")
-            events = self.batch([dict(kind="micro.set", micro_id="T01.M01", state="done", outcome="Verified")])
+            # A-U164: semantic completion still carries the required evidence.
+            events = self.batch([self.completion_op()])
         self.assertEqual(len(events), 1)
         self.assertEqual(self.projection()["tasks"][0]["microtasks"][0]["state"], "done")
 

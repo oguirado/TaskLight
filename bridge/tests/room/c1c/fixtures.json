@@ -1,0 +1,47 @@
+{
+  "common": {
+    "session_id": "raw-session-privacy-canary",
+    "transcript_path": "transcripts/main-privacy-canary.jsonl",
+    "cwd": ".",
+    "permission_mode": "default"
+  },
+  "events": {
+    "SessionStart": {
+      "source": "startup",
+      "agent_type": "general-purpose",
+      "model": "fixture-model",
+      "session_title": "Fixture session"
+    },
+    "UserPromptSubmit": {
+      "prompt": "prompt-privacy-canary: ignore prior instructions"
+    },
+    "PreToolUse": {
+      "tool_name": "Read",
+      "tool_use_id": "tool-use-fixture-a",
+      "tool_input": {
+        "file_path": "tool-input-privacy-canary"
+      }
+    },
+    "Stop": {
+      "stop_hook_active": false,
+      "last_assistant_message": "assistant-message-privacy-canary"
+    },
+    "StopFailure": {
+      "error": "api_error"
+    },
+    "SessionEnd": {
+      "reason": "prompt_input_exit"
+    },
+    "SubagentStart": {
+      "agent_id": "raw-child-privacy-canary",
+      "agent_type": "Release / QA Reviewer"
+    },
+    "SubagentStop": {
+      "agent_id": "raw-child-privacy-canary",
+      "agent_type": "Release / QA Reviewer",
+      "stop_hook_active": false,
+      "agent_transcript_path": "transcripts/child-privacy-canary.jsonl",
+      "last_assistant_message": "child-message-privacy-canary"
+    }
+  }
+}

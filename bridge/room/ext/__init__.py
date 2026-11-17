@@ -14,9 +14,16 @@ they never import ``bridge.room.mcp``.
 """
 import importlib
 
+_emit = importlib.import_module("bridge.wall.emit")
+
+# Result receipts are dereferenceable protocol pointers, like hashes and ids.
+# Register the field with the shared sanitizer for every transport.
+_emit._OUTPUT_IDENTITIES = _emit._OUTPUT_IDENTITIES | {"receipt"}
+
 # Modules loaded by ``load()``, in this order. A listed module that does not
 # exist yet is skipped; any other import error propagates.
-EXT_MODULES = ("events", "activity", "export", "send", "lifecycle", "acquire")
+EXT_MODULES = ("events", "activity", "export", "send", "lifecycle", "acquire",
+               "orchestrator_snapshot", "waiter")
 
 EXT_TOOLS = []
 EXT_DISPATCH = {}

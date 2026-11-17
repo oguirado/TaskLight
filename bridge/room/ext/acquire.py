@@ -25,6 +25,19 @@ from bridge.room import store
 _RUN_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
+def _nonblank_evidence(evidence):
+    """Leave blank paths to completion admission; retain malformed entries."""
+    paths = []
+    for item in evidence:
+        if isinstance(item, str) and not item.strip():
+            continue
+        if (isinstance(item, dict) and set(item) == {"path"}
+                and isinstance(item["path"], str) and not item["path"].strip()):
+            continue
+        paths.append(item)
+    return paths
+
+
 def _arguments(args, required, optional):
     if (not isinstance(args, dict) or set(args) - required - optional
             or not required <= set(args)):
@@ -248,8 +261,8 @@ def _completions(args):
         if len(member["outcome"]) > OUTCOME_MAX or len(member.get("took", "")) > TOOK_MAX:
             raise store.RoomError("limit_exceeded", "completion text exceeds limit")
         evidence = member["evidence"]
-        if (not isinstance(evidence, list) or not 1 <= len(evidence) <= EVIDENCE_MAX
-                or not all(isinstance(path, str) for path in evidence)):
+        if (not isinstance(evidence, list) or len(evidence) > EVIDENCE_MAX
+                or not all(isinstance(path, str) for path in _nonblank_evidence(evidence))):
             raise store.RoomError("bad_evidence", "evidence must be a nonempty bounded array of paths")
 
 
@@ -280,7 +293,7 @@ def _report(args, events, identity, digest):
     rdir = store._room_dir(None, args["room"])
     for member in args["done"]:
         try:
-            evidence = store._validate_evidence(member["evidence"], rdir)
+            evidence = store._validate_evidence(_nonblank_evidence(member["evidence"]), rdir)
         except (OSError, ValueError) as exc:
             raise store.RoomError("bad_evidence", "cannot read evidence") from exc
         op = {"kind": "micro.set", "micro_id": member["id"], "state": "done",

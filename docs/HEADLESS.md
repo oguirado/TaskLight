@@ -5,6 +5,22 @@ agents, while TaskLight stores their shared plan, coarse microtasks, evidence an
 memory. Human conversations and terminals stay in the harness. Nano narration
 requires a browser; headless operation does not provide browserless Nano.
 
+
+### Completion evidence (MCP 0.3.0)
+
+MCP and CLI new writes require evidence before a microtask can be `done` if
+its template task type sets `evidence_required`. Submit real evidence paths or
+use evidence already stored on that microtask; empty or whitespace-only values
+are insufficient. Optional-evidence types are unchanged. The rule also covers
+clearing evidence on done work, retyping and removing blocking overrides.
+
+A refused completion returns `missing_evidence` and
+`Evidence required to complete <micro_id>.`; an unavailable plan template
+returns `template_unavailable`. The locked check follows replay lookup and
+rejects the whole batch without consuming revisions or Lamport. Restore the
+missing template or supply evidence, then retry. Existing journals replay
+unchanged and exact admitted retries retain their original receipts.
+
 ## 1. What headless means
 
 In headless mode, TaskLight exposes two interfaces over the same local room store:
@@ -22,6 +38,37 @@ Both interfaces read and write the same append-only journal (`rooms/<room>/event
 If you open the visual wall later, it replays the same journal with matching fold logic and shows the exact state committed by headless clients.
 
 ## 2. Quick start
+
+### Supervise CLI agents
+
+Wrap a CLI agent to register its lifecycle automatically, without agent reports.
+Use the installed `tasklight` command, or replace `tasklight run` with
+`python3 -m bridge.room run` from the repository root:
+
+```sh
+tasklight run --room demo --agent codex-1 --harness codex -- codex exec "Review this project"
+tasklight run --room demo --agent worker-1 --harness generic -- python3 -c 'print("done")'
+```
+
+The supervisor creates a missing room under `CW_HOME` (default
+`~/.context-wall`), records `deployed` before launch, and sends `alive` while
+waiting. `--beat` defaults to 15 seconds and accepts values from 2 through 300.
+Use `--run-id` to supply a run identity; otherwise each invocation creates one.
+For a child agent, supply both `--parent orchestrator` and
+`--parent-run Parent_A-1` to link it to that parent's run.
+
+The `--` separator is required. Everything after it is passed literally to the
+child without a shell. Stdin, stdout and stderr are inherited unchanged; the
+supervisor exits with the child's exit code, or 128 plus the signal number.
+It forwards SIGINT and SIGTERM and records `finished` on success or `failed`
+with an `exit:<code>` or `signal:<name>` reason. A lifecycle write failure is
+reported once on stderr while the command continues with its own exit status.
+Invalid options fail before creating a room or starting the child.
+
+Only identity, harness, parent links, lifecycle state, exit reason, timestamps
+and journal bookkeeping are recorded. Child arguments, environment, prompts,
+stdout and stderr are never recorded. Each invocation tracks its direct child;
+wrap separately launched agents as well to register them.
 
 ### Configure an MCP client
 

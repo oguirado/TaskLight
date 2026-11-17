@@ -10,6 +10,7 @@ from bridge.plan.fold import fold_plan
 from bridge.plan.markdown import render_memory_md, render_plan_md
 from bridge.room import store
 from bridge.room.ext import register
+from bridge.wall.emit import sanitize_output
 
 _EXPORT_ALLOWED = {"room", "agent", "what"}
 _HISTORY_ALLOWED = {"room", "agent", "section", "limit"}
@@ -55,7 +56,7 @@ def room_export(args: dict) -> dict:
     if what != "plan" and what != "memory":
         _bad("invalid what")
     events = _read_events(args["room"])
-    projection = fold_plan(events)
+    projection = sanitize_output(fold_plan(events))
     if what == "plan":
         text = render_plan_md(projection)
     else:
@@ -282,7 +283,8 @@ def export_room(room: str, out: str) -> dict:
     canonical = os.path.realpath(store._home(None))
     segments = _segments_for_out(out, canonical)
     events = _read_events(room)
-    projection = fold_plan(events)
+    # Sanitize the complete snapshot before rendering or staging either file.
+    projection = sanitize_output(fold_plan(events))
     texts = {
         "PLAN.md": render_plan_md(projection).encode("utf-8"),
         "MEMORY.md": render_memory_md(projection).encode("utf-8"),

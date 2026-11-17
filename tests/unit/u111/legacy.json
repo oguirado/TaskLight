@@ -1067,8 +1067,8 @@
   },
   "executorText": "Read the planning contract.\nThen claim the task with task_claim for room demo agent executor-a.\nTarget task T01.\nSet the microtask to active with microtask_set.\nWhile working call activity_beat about every 30 s with a fresh run_id; check tools/list and if activity_beat is absent, missing or unavailable skip beats (skip if tools/list lacks it).\nRecord evidence for the microtask.\nThen set the microtask to done or blocked.\nFinally release the task with release.",
   "readDigests": {
-    "tasklight://contract": "4ed6c08e08bb6be47e787f14e9c49521c21a9da3fe0b5bf8f9664218bef92e88",
-    "tasklight://guide/headless": "0bdc8012ebe9ba07786baee546c0d8067430491efdba543be2c3a79d11a90924",
+    "tasklight://contract": "a01a5070b7beacf096526e134ba72374f6692b741fb85a42397b0b15b70e77b1",
+    "tasklight://guide/headless": "0df26cff33af12d10ad9dcb1fba9b3027b49ca9b32cfc3d3334c311861b28c54",
     "tasklight://templates/web-app": "aa7e36ef11233bc35bd623d67cfb39b1722929d6dbbcf567121ff42aa6a59503"
   }
 }

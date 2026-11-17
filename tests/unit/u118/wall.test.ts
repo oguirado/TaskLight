@@ -38,7 +38,8 @@ function navigate(value: unknown): void {
 function selected(root: ParentNode): string | null | undefined {
   // A-U152: navigation exposes its current destination through aria-current.
   const node = root.querySelector<HTMLElement>('button[data-nav][aria-current="page"]');
-  return node ? accessibleName(node).toLowerCase() : null;
+  // A-V1: destination identity remains swarm when its label becomes Agents.
+  return node?.getAttribute("data-nav") ?? null;
 }
 // A-R40: full registration/blocker/history fields live behind labelled disclosures, U138 M6.
 // A-Q1: U150 preserves Swarm metadata expansion across refresh; retain initial collapsed checks.
@@ -60,12 +61,13 @@ describe("U118 A1 / M1-M3 landing and lifecycle", () => {
     expect(deriveSwarmViewModel).toBeTypeOf("function"); expect(renderSwarmView).toBeTypeOf("function");
   });
   // A-R40: Wall is first/default and consumes selected-room agents, U138 M1/M2 and Oracle amendments supersede U118 M2/Amendment B §1.
-  it("A1 defaults to Wall as the first primary view and renders selected-room agents", () => {
+  it("A1 defaults to Agents as the first view and renders selected-room agents", () => {
     const h = start();
     const first = h.wallHost.querySelector<HTMLElement>('nav button, [role="navigation"] button');
-    expect(first ? accessibleName(first) : null).toBe("Wall");
-    expect(selected(h.wallHost)).toBe("wall");
-    const strip = h.wallHost.querySelector<HTMLElement>(".agent-strip");
+    // A-V1: Agents replaces Wall as the default.
+    expect(first ? accessibleName(first) : null).toBe("Agents");
+    expect(selected(h.wallHost)).toBe("swarm");
+    const strip = h.wallHost.querySelector<HTMLElement>(".swarm-view");
     expect(strip).not.toBeNull();
     expect(text(strip!)).toContain("executor-a");
     expect(text(strip!)).not.toContain("work-executor");
@@ -76,8 +78,9 @@ describe("U118 A1 / M1-M3 landing and lifecycle", () => {
   });
   // A-R40: invalid initial values fall back to Wall; Agenda/Archive are valid, U138 M1 / Oracle amendments.
   it.each(["__proto__", "<img src=x onerror=alert(1)>", "", null, 7])(
-    "A1 Amendment B invalid initialView %j falls back to Wall", initialView => {
-      const h = start({ initialView }); expect(selected(h.wallHost)).toBe("wall"); expect(h.wallHost.querySelector(".agent-strip")).not.toBeNull();
+    "A1 Amendment B invalid initialView %j falls back to Agents", initialView => {
+      // A-V1: invalid initial views use the new default without changing its stable id.
+      const h = start({ initialView }); expect(selected(h.wallHost)).toBe("swarm"); expect(h.wallHost.querySelector(".swarm-view")).not.toBeNull();
     });
   it("A1 navigates Swarm Wall Memory Swarm and replaces previous-room cards", () => {
     const h = start();
@@ -140,7 +143,8 @@ describe("U118 A1 / M1-M3 landing and lifecycle", () => {
     for (const room of ["demo", "work", "demo", "work", "demo"]) {
       const old = swarm(h.wallHost); observed.handlers!.onWorkspace!(room); h.wall.refresh();
       vi.advanceTimersByTime(30_000); await flush(); const live = swarm(h.wallHost);
-      expect(h.wallHost.querySelectorAll('[aria-label="Swarm"]')).toHaveLength(1);
+      // A-V1: the renamed Agents destination retains one swarm view instance.
+      expect(h.wallHost.querySelectorAll(".swarm-view")).toHaveLength(1);
       // A-U146: named non-article Swarm cards retain their class hook.
       expect(live.querySelectorAll(".swarm-card")).toHaveLength(room === "demo" ? 3 : 1);
       expect(text(live)).not.toContain(room === "demo" ? "work-executor" : "executor-a");

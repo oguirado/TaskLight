@@ -106,10 +106,14 @@ class LifecycleOracle(LifecycleCase):
         schema = tools[0]["inputSchema"]
         self.assertEqual(schema["type"], "object")
         self.assertEqual(set(schema["required"]), {"room", "agent", "state", "run_id"})
-        self.assertEqual(set(schema["properties"]), set(ARGS) | {"reason"})
+        # A-C2b: SPEC_C2 M1 adds optional parent_agent / parent_run_id (not required).
+        # A-C6: result is the sole new optional object property.
+        self.assertEqual(set(schema["properties"]), set(ARGS) | {"reason", "parent_agent", "parent_run_id", "result"})
         self.assertIs(schema["additionalProperties"], False)
         self.assertEqual(set(schema["properties"]["state"]["enum"]), {"deployed", "alive", "finished", "failed"})
-        self.assertTrue(all(v["type"] == "string" for v in schema["properties"].values()))
+        # A-C6: retain exact string types for legacy fields and pin the new object.
+        self.assertTrue(all(v["type"] == "string" for k, v in schema["properties"].items() if k != "result"))
+        self.assertEqual(schema["properties"]["result"]["type"], "object")
         from bridge.room import mcp, __main__ as cli
         sent = []
         with mock.patch.object(mcp, "_send", side_effect=sent.append):

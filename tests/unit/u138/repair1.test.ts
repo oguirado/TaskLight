@@ -22,7 +22,8 @@ function fixture() {
   const testClock = { ...clock, setTimeout: vi.fn(clock.setTimeout) };
   const post = vi.fn(async () => ({ ok: true as const, id: "e-000000000000ffff", lamport: 65535 }));
   const start = () => {
-    const wall = startAgentWall({ wallHost, chatHost, store: f.store, clock: testClock,
+    // A-V1: this Wall-specific fixture selects Wall explicitly after the default changed.
+    const wall = startAgentWall({ initialView: "wall", wallHost, chatHost, store: f.store, clock: testClock,
       userAgent: "wall-user", link: { post, state: () => ({ kind: "linked", nonce: "fixture" }) },
       reviewer: { review: async () => undefined } });
     cleanup.push(() => wall.destroy());

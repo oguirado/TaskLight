@@ -1,0 +1,2922 @@
+{
+  "schema": "c2-oracle/v1",
+  "template": {
+    "v": 1,
+    "id": "blank",
+    "name": "Blank Project",
+    "summary": "Minimal generic planning template for any project or domain.",
+    "lens_id": "dev",
+    "brief_fields": [
+      {
+        "id": "goal",
+        "label": "Project goal",
+        "required": true
+      },
+      {
+        "id": "scope",
+        "label": "Scope and boundaries",
+        "required": false
+      }
+    ],
+    "phases": [
+      {
+        "id": "plan",
+        "label": "Plan",
+        "exit": "Goal, scope, and initial tasks are defined."
+      },
+      {
+        "id": "execute",
+        "label": "Execute",
+        "exit": "All planned tasks and acceptance checks are complete."
+      },
+      {
+        "id": "review",
+        "label": "Review",
+        "exit": "Final outcomes and evidence are verified and recorded."
+      }
+    ],
+    "task_types": [
+      {
+        "id": "task",
+        "label": "General task",
+        "accept_required": true,
+        "evidence_required": false,
+        "micro_hints": [
+          "Produce the target draft or artifact for review",
+          "Verify the output against the acceptance criteria",
+          "Record the final outcome and any follow-up notes"
+        ]
+      }
+    ],
+    "granularity": {
+      "tasks_max": 20,
+      "micro_min": 1,
+      "micro_max": 6,
+      "rule": "Each microtask must state a single verifiable outcome."
+    },
+    "memory_sections": [
+      {
+        "id": "goal",
+        "label": "Goal",
+        "required": true,
+        "max_chars": 500,
+        "hint": "State the main objective and definition of done."
+      },
+      {
+        "id": "decisions",
+        "label": "Decisions",
+        "required": false,
+        "max_chars": 800,
+        "hint": "Log key choices made and the reasons behind them."
+      },
+      {
+        "id": "constraints",
+        "label": "Constraints",
+        "required": false,
+        "max_chars": 600,
+        "hint": "List deadlines, limits, and non-negotiable rules."
+      }
+    ],
+    "hash": "71ed1d88afdb9c4f86dd25ecf536ed32d45600e1e23df1fef9aa02ccecfd01ba"
+  },
+  "cases": [
+    {
+      "name": "empty_room",
+      "room": "demo",
+      "now": 150000,
+      "events": [],
+      "expected": {
+        "agents": [],
+        "totals": {
+          "working": 0,
+          "waiting": 0,
+          "idle": 0,
+          "registered": 0,
+          "finished": 0,
+          "failed": 0,
+          "unknown": 0,
+          "total": 0
+        }
+      }
+    },
+    {
+      "name": "message_only_authors",
+      "room": "demo",
+      "now": 150000,
+      "events": [
+        {
+          "id": "e-0000000000000001",
+          "room": "demo",
+          "agent": "zeta",
+          "act": "question",
+          "text": "",
+          "lamport": 1,
+          "ts": 100001,
+          "to": "recipient-only"
+        },
+        {
+          "id": "e-0000000000000002",
+          "room": "demo",
+          "agent": "alpha",
+          "act": "heartbeat",
+          "text": "",
+          "lamport": 2,
+          "ts": 100002
+        },
+        {
+          "id": "e-0000000000000003",
+          "room": "demo",
+          "agent": "zeta",
+          "act": "handoff",
+          "text": "",
+          "lamport": 3,
+          "ts": 100003,
+          "to": "recipient-only"
+        }
+      ],
+      "expected": {
+        "agents": [],
+        "totals": {
+          "working": 0,
+          "waiting": 0,
+          "idle": 0,
+          "registered": 0,
+          "finished": 0,
+          "failed": 0,
+          "unknown": 0,
+          "total": 0
+        }
+      },
+      "amendment": "A-C2a: exclude author-only members (zeta, alpha); lifecycle and folded assignments establish membership."
+    },
+    {
+      "name": "fresh_deployment",
+      "room": "demo",
+      "now": 100001,
+      "events": [
+        {
+          "id": "e-0000000000000001",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 1,
+          "ts": 100000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "deployed",
+            "run_id": "r1",
+            "op_id": "life-0001",
+            "harness": "codex"
+          }
+        }
+      ],
+      "expected": {
+        "agents": [
+          {
+            "agent": "worker",
+            "state": "registered",
+            "run_id": "r1",
+            "harness": "codex",
+            "parent": null,
+            "children": [],
+            "last_seen_lamport": 1,
+            "last_seen_ts": 100000,
+            "current": null,
+            "counts": {
+              "tasks_owned": 0,
+              "micros_done": 0,
+              "micros_total": 0
+            }
+          }
+        ],
+        "totals": {
+          "working": 0,
+          "waiting": 0,
+          "idle": 0,
+          "registered": 1,
+          "finished": 0,
+          "failed": 0,
+          "unknown": 0,
+          "total": 1
+        }
+      }
+    },
+    {
+      "name": "fresh_alive",
+      "room": "demo",
+      "now": 150000,
+      "events": [
+        {
+          "id": "e-0000000000000001",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 1,
+          "ts": 100000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "deployed",
+            "run_id": "r1",
+            "op_id": "life-0001",
+            "harness": "codex"
+          }
+        },
+        {
+          "id": "e-0000000000000002",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 2,
+          "ts": 110000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "alive",
+            "run_id": "r1",
+            "op_id": "life-0002"
+          }
+        }
+      ],
+      "expected": {
+        "agents": [
+          {
+            "agent": "worker",
+            "state": "idle",
+            "run_id": "r1",
+            "harness": "codex",
+            "parent": null,
+            "children": [],
+            "last_seen_lamport": 2,
+            "last_seen_ts": 110000,
+            "current": null,
+            "counts": {
+              "tasks_owned": 0,
+              "micros_done": 0,
+              "micros_total": 0
+            }
+          }
+        ],
+        "totals": {
+          "working": 0,
+          "waiting": 0,
+          "idle": 1,
+          "registered": 0,
+          "finished": 0,
+          "failed": 0,
+          "unknown": 0,
+          "total": 1
+        }
+      }
+    },
+    {
+      "name": "freshness_inclusive_boundary",
+      "room": "demo",
+      "now": 200000,
+      "events": [
+        {
+          "id": "e-0000000000000001",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 1,
+          "ts": 100000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "deployed",
+            "run_id": "r1",
+            "op_id": "life-0001",
+            "harness": "codex"
+          }
+        },
+        {
+          "id": "e-0000000000000002",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 2,
+          "ts": 110000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "alive",
+            "run_id": "r1",
+            "op_id": "life-0002"
+          }
+        }
+      ],
+      "expected": {
+        "agents": [
+          {
+            "agent": "worker",
+            "state": "idle",
+            "run_id": "r1",
+            "harness": "codex",
+            "parent": null,
+            "children": [],
+            "last_seen_lamport": 2,
+            "last_seen_ts": 110000,
+            "current": null,
+            "counts": {
+              "tasks_owned": 0,
+              "micros_done": 0,
+              "micros_total": 0
+            }
+          }
+        ],
+        "totals": {
+          "working": 0,
+          "waiting": 0,
+          "idle": 1,
+          "registered": 0,
+          "finished": 0,
+          "failed": 0,
+          "unknown": 0,
+          "total": 1
+        }
+      }
+    },
+    {
+      "name": "stale_alive_is_unknown",
+      "room": "demo",
+      "now": 200001,
+      "events": [
+        {
+          "id": "e-0000000000000001",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 1,
+          "ts": 100000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "deployed",
+            "run_id": "r1",
+            "op_id": "life-0001",
+            "harness": "codex"
+          }
+        },
+        {
+          "id": "e-0000000000000002",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 2,
+          "ts": 110000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "alive",
+            "run_id": "r1",
+            "op_id": "life-0002"
+          }
+        }
+      ],
+      "expected": {
+        "agents": [
+          {
+            "agent": "worker",
+            "state": "unknown",
+            "run_id": "r1",
+            "harness": "codex",
+            "parent": null,
+            "children": [],
+            "last_seen_lamport": 2,
+            "last_seen_ts": 110000,
+            "current": null,
+            "counts": {
+              "tasks_owned": 0,
+              "micros_done": 0,
+              "micros_total": 0
+            }
+          }
+        ],
+        "totals": {
+          "working": 0,
+          "waiting": 0,
+          "idle": 0,
+          "registered": 0,
+          "finished": 0,
+          "failed": 0,
+          "unknown": 1,
+          "total": 1
+        }
+      }
+    },
+    {
+      "name": "stale_deployed_is_unknown",
+      "room": "demo",
+      "now": 190001,
+      "events": [
+        {
+          "id": "e-0000000000000001",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 1,
+          "ts": 100000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "deployed",
+            "run_id": "r1",
+            "op_id": "life-0001"
+          }
+        }
+      ],
+      "expected": {
+        "agents": [
+          {
+            "agent": "worker",
+            "state": "unknown",
+            "run_id": "r1",
+            "harness": null,
+            "parent": null,
+            "children": [],
+            "last_seen_lamport": 1,
+            "last_seen_ts": 100000,
+            "current": null,
+            "counts": {
+              "tasks_owned": 0,
+              "micros_done": 0,
+              "micros_total": 0
+            }
+          }
+        ],
+        "totals": {
+          "working": 0,
+          "waiting": 0,
+          "idle": 0,
+          "registered": 0,
+          "finished": 0,
+          "failed": 0,
+          "unknown": 1,
+          "total": 1
+        }
+      }
+    },
+    {
+      "name": "explicit_finished_survives_staleness",
+      "room": "demo",
+      "now": 400000,
+      "events": [
+        {
+          "id": "e-0000000000000001",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 1,
+          "ts": 100000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "deployed",
+            "run_id": "r1",
+            "op_id": "life-0001",
+            "harness": "codex"
+          }
+        },
+        {
+          "id": "e-0000000000000002",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 2,
+          "ts": 110000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "alive",
+            "run_id": "r1",
+            "op_id": "life-0002"
+          }
+        },
+        {
+          "id": "e-0000000000000003",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 3,
+          "ts": 120000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "finished",
+            "run_id": "r1",
+            "op_id": "life-0003"
+          }
+        }
+      ],
+      "expected": {
+        "agents": [
+          {
+            "agent": "worker",
+            "state": "finished",
+            "run_id": "r1",
+            "harness": "codex",
+            "parent": null,
+            "children": [],
+            "last_seen_lamport": 3,
+            "last_seen_ts": 120000,
+            "current": null,
+            "counts": {
+              "tasks_owned": 0,
+              "micros_done": 0,
+              "micros_total": 0
+            }
+          }
+        ],
+        "totals": {
+          "working": 0,
+          "waiting": 0,
+          "idle": 0,
+          "registered": 0,
+          "finished": 1,
+          "failed": 0,
+          "unknown": 0,
+          "total": 1
+        }
+      }
+    },
+    {
+      "name": "explicit_failed_survives_staleness",
+      "room": "demo",
+      "now": 400000,
+      "events": [
+        {
+          "id": "e-0000000000000001",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 1,
+          "ts": 100000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "deployed",
+            "run_id": "r1",
+            "op_id": "life-0001",
+            "harness": "codex"
+          }
+        },
+        {
+          "id": "e-0000000000000002",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 2,
+          "ts": 110000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "alive",
+            "run_id": "r1",
+            "op_id": "life-0002"
+          }
+        },
+        {
+          "id": "e-0000000000000003",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 3,
+          "ts": 120000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "failed",
+            "run_id": "r1",
+            "op_id": "life-0003"
+          }
+        }
+      ],
+      "expected": {
+        "agents": [
+          {
+            "agent": "worker",
+            "state": "failed",
+            "run_id": "r1",
+            "harness": "codex",
+            "parent": null,
+            "children": [],
+            "last_seen_lamport": 3,
+            "last_seen_ts": 120000,
+            "current": null,
+            "counts": {
+              "tasks_owned": 0,
+              "micros_done": 0,
+              "micros_total": 0
+            }
+          }
+        ],
+        "totals": {
+          "working": 0,
+          "waiting": 0,
+          "idle": 0,
+          "registered": 0,
+          "finished": 0,
+          "failed": 1,
+          "unknown": 0,
+          "total": 1
+        }
+      }
+    },
+    {
+      "name": "redeploy_resets_terminal",
+      "room": "demo",
+      "now": 150000,
+      "events": [
+        {
+          "id": "e-0000000000000001",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 1,
+          "ts": 100000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "deployed",
+            "run_id": "r1",
+            "op_id": "life-0001",
+            "harness": "codex"
+          }
+        },
+        {
+          "id": "e-0000000000000002",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 2,
+          "ts": 110000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "alive",
+            "run_id": "r1",
+            "op_id": "life-0002"
+          }
+        },
+        {
+          "id": "e-0000000000000003",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 3,
+          "ts": 120000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "failed",
+            "run_id": "r1",
+            "op_id": "life-0003"
+          }
+        },
+        {
+          "id": "e-0000000000000004",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 4,
+          "ts": 140000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "deployed",
+            "run_id": "r2",
+            "op_id": "life-0004",
+            "harness": "claude-code"
+          }
+        }
+      ],
+      "expected": {
+        "agents": [
+          {
+            "agent": "worker",
+            "state": "registered",
+            "run_id": "r2",
+            "harness": "claude-code",
+            "parent": null,
+            "children": [],
+            "last_seen_lamport": 4,
+            "last_seen_ts": 140000,
+            "current": null,
+            "counts": {
+              "tasks_owned": 0,
+              "micros_done": 0,
+              "micros_total": 0
+            }
+          }
+        ],
+        "totals": {
+          "working": 0,
+          "waiting": 0,
+          "idle": 0,
+          "registered": 1,
+          "finished": 0,
+          "failed": 0,
+          "unknown": 0,
+          "total": 1
+        }
+      }
+    },
+    {
+      "name": "unresolved_parent",
+      "room": "demo",
+      "now": 100001,
+      "events": [
+        {
+          "id": "e-0000000000000001",
+          "room": "demo",
+          "agent": "child",
+          "act": "op",
+          "text": "",
+          "lamport": 1,
+          "ts": 100000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "deployed",
+            "run_id": "r1",
+            "op_id": "life-0001",
+            "parent_agent": "unseen",
+            "parent_run_id": "parent-r1"
+          }
+        }
+      ],
+      "expected": {
+        "agents": [
+          {
+            "agent": "child",
+            "state": "registered",
+            "run_id": "r1",
+            "harness": null,
+            "parent": {
+              "agent": "unseen",
+              "run_id": "parent-r1"
+            },
+            "children": [],
+            "last_seen_lamport": 1,
+            "last_seen_ts": 100000,
+            "current": null,
+            "counts": {
+              "tasks_owned": 0,
+              "micros_done": 0,
+              "micros_total": 0
+            }
+          }
+        ],
+        "totals": {
+          "working": 0,
+          "waiting": 0,
+          "idle": 0,
+          "registered": 1,
+          "finished": 0,
+          "failed": 0,
+          "unknown": 0,
+          "total": 1
+        }
+      }
+    },
+    {
+      "name": "tree_first_seen_order",
+      "room": "demo",
+      "now": 100010,
+      "events": [
+        {
+          "id": "e-0000000000000001",
+          "room": "demo",
+          "agent": "zroot",
+          "act": "op",
+          "text": "",
+          "lamport": 1,
+          "ts": 100001,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "deployed",
+            "run_id": "r1",
+            "op_id": "life-0001"
+          }
+        },
+        {
+          "id": "e-0000000000000002",
+          "room": "demo",
+          "agent": "zchild",
+          "act": "op",
+          "text": "",
+          "lamport": 2,
+          "ts": 100002,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "deployed",
+            "run_id": "r1",
+            "op_id": "life-0002",
+            "parent_agent": "zroot",
+            "parent_run_id": "r1"
+          }
+        },
+        {
+          "id": "e-0000000000000003",
+          "room": "demo",
+          "agent": "achild",
+          "act": "op",
+          "text": "",
+          "lamport": 3,
+          "ts": 100003,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "deployed",
+            "run_id": "r1",
+            "op_id": "life-0003",
+            "parent_agent": "zroot",
+            "parent_run_id": "r1"
+          }
+        },
+        {
+          "id": "e-0000000000000004",
+          "room": "demo",
+          "agent": "aroot",
+          "act": "op",
+          "text": "",
+          "lamport": 4,
+          "ts": 100004,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "deployed",
+            "run_id": "r1",
+            "op_id": "life-0004"
+          }
+        },
+        {
+          "id": "e-0000000000000005",
+          "room": "demo",
+          "agent": "grandchild",
+          "act": "op",
+          "text": "",
+          "lamport": 5,
+          "ts": 100005,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "deployed",
+            "run_id": "r1",
+            "op_id": "life-0005",
+            "parent_agent": "zchild",
+            "parent_run_id": "r1"
+          }
+        }
+      ],
+      "expected": {
+        "agents": [
+          {
+            "agent": "zroot",
+            "state": "registered",
+            "run_id": "r1",
+            "harness": null,
+            "parent": null,
+            "children": [
+              "achild",
+              "zchild"
+            ],
+            "last_seen_lamport": 1,
+            "last_seen_ts": 100001,
+            "current": null,
+            "counts": {
+              "tasks_owned": 0,
+              "micros_done": 0,
+              "micros_total": 0
+            }
+          },
+          {
+            "agent": "zchild",
+            "state": "registered",
+            "run_id": "r1",
+            "harness": null,
+            "parent": {
+              "agent": "zroot",
+              "run_id": "r1"
+            },
+            "children": [
+              "grandchild"
+            ],
+            "last_seen_lamport": 2,
+            "last_seen_ts": 100002,
+            "current": null,
+            "counts": {
+              "tasks_owned": 0,
+              "micros_done": 0,
+              "micros_total": 0
+            }
+          },
+          {
+            "agent": "grandchild",
+            "state": "registered",
+            "run_id": "r1",
+            "harness": null,
+            "parent": {
+              "agent": "zchild",
+              "run_id": "r1"
+            },
+            "children": [],
+            "last_seen_lamport": 5,
+            "last_seen_ts": 100005,
+            "current": null,
+            "counts": {
+              "tasks_owned": 0,
+              "micros_done": 0,
+              "micros_total": 0
+            }
+          },
+          {
+            "agent": "achild",
+            "state": "registered",
+            "run_id": "r1",
+            "harness": null,
+            "parent": {
+              "agent": "zroot",
+              "run_id": "r1"
+            },
+            "children": [],
+            "last_seen_lamport": 3,
+            "last_seen_ts": 100003,
+            "current": null,
+            "counts": {
+              "tasks_owned": 0,
+              "micros_done": 0,
+              "micros_total": 0
+            }
+          },
+          {
+            "agent": "aroot",
+            "state": "registered",
+            "run_id": "r1",
+            "harness": null,
+            "parent": null,
+            "children": [],
+            "last_seen_lamport": 4,
+            "last_seen_ts": 100004,
+            "current": null,
+            "counts": {
+              "tasks_owned": 0,
+              "micros_done": 0,
+              "micros_total": 0
+            }
+          }
+        ],
+        "totals": {
+          "working": 0,
+          "waiting": 0,
+          "idle": 0,
+          "registered": 5,
+          "finished": 0,
+          "failed": 0,
+          "unknown": 0,
+          "total": 5
+        }
+      }
+    },
+    {
+      "name": "parent_arrives_after_child",
+      "room": "demo",
+      "now": 100010,
+      "events": [
+        {
+          "id": "e-0000000000000001",
+          "room": "demo",
+          "agent": "child",
+          "act": "op",
+          "text": "",
+          "lamport": 1,
+          "ts": 100001,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "deployed",
+            "run_id": "r1",
+            "op_id": "life-0001",
+            "parent_agent": "parent",
+            "parent_run_id": "r1"
+          }
+        },
+        {
+          "id": "e-0000000000000002",
+          "room": "demo",
+          "agent": "other",
+          "act": "op",
+          "text": "",
+          "lamport": 2,
+          "ts": 100002,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "deployed",
+            "run_id": "r1",
+            "op_id": "life-0002"
+          }
+        },
+        {
+          "id": "e-0000000000000003",
+          "room": "demo",
+          "agent": "parent",
+          "act": "op",
+          "text": "",
+          "lamport": 3,
+          "ts": 100003,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "deployed",
+            "run_id": "r1",
+            "op_id": "life-0003"
+          }
+        }
+      ],
+      "expected": {
+        "agents": [
+          {
+            "agent": "other",
+            "state": "registered",
+            "run_id": "r1",
+            "harness": null,
+            "parent": null,
+            "children": [],
+            "last_seen_lamport": 2,
+            "last_seen_ts": 100002,
+            "current": null,
+            "counts": {
+              "tasks_owned": 0,
+              "micros_done": 0,
+              "micros_total": 0
+            }
+          },
+          {
+            "agent": "parent",
+            "state": "registered",
+            "run_id": "r1",
+            "harness": null,
+            "parent": null,
+            "children": [
+              "child"
+            ],
+            "last_seen_lamport": 3,
+            "last_seen_ts": 100003,
+            "current": null,
+            "counts": {
+              "tasks_owned": 0,
+              "micros_done": 0,
+              "micros_total": 0
+            }
+          },
+          {
+            "agent": "child",
+            "state": "registered",
+            "run_id": "r1",
+            "harness": null,
+            "parent": {
+              "agent": "parent",
+              "run_id": "r1"
+            },
+            "children": [],
+            "last_seen_lamport": 1,
+            "last_seen_ts": 100001,
+            "current": null,
+            "counts": {
+              "tasks_owned": 0,
+              "micros_done": 0,
+              "micros_total": 0
+            }
+          }
+        ],
+        "totals": {
+          "working": 0,
+          "waiting": 0,
+          "idle": 0,
+          "registered": 3,
+          "finished": 0,
+          "failed": 0,
+          "unknown": 0,
+          "total": 3
+        }
+      }
+    },
+    {
+      "name": "working_current_and_counts",
+      "room": "demo",
+      "now": 150000,
+      "events": [
+        {
+          "id": "e-0000000000000001",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 1,
+          "ts": 100000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "deployed",
+            "run_id": "r1",
+            "op_id": "life-0001",
+            "harness": "codex"
+          }
+        },
+        {
+          "id": "e-0000000000000002",
+          "room": "demo",
+          "agent": "planner",
+          "act": "op",
+          "text": "",
+          "lamport": 2,
+          "ts": 100001,
+          "op": {
+            "kind": "plan.open",
+            "title": "Inventory oracle",
+            "template_id": "blank",
+            "template_hash": "71ed1d88afdb9c4f86dd25ecf536ed32d45600e1e23df1fef9aa02ccecfd01ba",
+            "brief": {
+              "goal": "Verify lifecycle"
+            },
+            "phase": "plan"
+          }
+        },
+        {
+          "id": "e-0000000000000003",
+          "room": "demo",
+          "agent": "planner",
+          "act": "op",
+          "text": "",
+          "lamport": 3,
+          "ts": 100002,
+          "op": {
+            "kind": "task.add",
+            "title": "Check lifecycle",
+            "type": "task",
+            "phase": "plan",
+            "accept": "Recorded",
+            "assignee": "worker",
+            "microtasks": [
+              {
+                "text": "Verify",
+                "accept": "Recorded"
+              },
+              {
+                "text": "Second outcome",
+                "accept": "Recorded"
+              }
+            ]
+          }
+        },
+        {
+          "id": "e-0000000000000004",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 4,
+          "ts": 100003,
+          "op": {
+            "kind": "task.claim",
+            "task_id": "T01"
+          }
+        },
+        {
+          "id": "e-0000000000000005",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 5,
+          "ts": 100004,
+          "op": {
+            "kind": "micro.set",
+            "micro_id": "T01.M01",
+            "state": "done",
+            "outcome": "Recorded"
+          }
+        },
+        {
+          "id": "e-0000000000000006",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 6,
+          "ts": 100005,
+          "op": {
+            "kind": "micro.set",
+            "micro_id": "T01.M02",
+            "state": "active"
+          }
+        },
+        {
+          "id": "e-0000000000000007",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 7,
+          "ts": 100020,
+          "op": {
+            "kind": "activity.beat",
+            "task_id": "T01",
+            "micro_id": "T01.M02",
+            "run_id": "r1",
+            "op_id": "beat-0007"
+          }
+        }
+      ],
+      "expected": {
+        "agents": [
+          {
+            "agent": "worker",
+            "state": "working",
+            "run_id": "r1",
+            "harness": "codex",
+            "parent": null,
+            "children": [],
+            "last_seen_lamport": 7,
+            "last_seen_ts": 100020,
+            "current": {
+              "task_id": "T01",
+              "micro_id": "T01.M02"
+            },
+            "counts": {
+              "tasks_owned": 1,
+              "micros_done": 1,
+              "micros_total": 2
+            }
+          }
+        ],
+        "totals": {
+          "working": 1,
+          "waiting": 0,
+          "idle": 0,
+          "registered": 0,
+          "finished": 0,
+          "failed": 0,
+          "unknown": 0,
+          "total": 1
+        }
+      },
+      "amendment": "A-C2a: exclude author-only members (planner); lifecycle and folded assignments establish membership."
+    },
+    {
+      "name": "assignee_only_member",
+      "room": "demo",
+      "now": 150000,
+      "events": [
+        {
+          "id": "e-0000000000000001",
+          "room": "demo",
+          "agent": "planner",
+          "act": "op",
+          "text": "",
+          "lamport": 1,
+          "ts": 100001,
+          "op": {
+            "kind": "plan.open",
+            "title": "Inventory oracle",
+            "template_id": "blank",
+            "template_hash": "71ed1d88afdb9c4f86dd25ecf536ed32d45600e1e23df1fef9aa02ccecfd01ba",
+            "brief": {
+              "goal": "Verify lifecycle"
+            },
+            "phase": "plan"
+          }
+        },
+        {
+          "id": "e-0000000000000002",
+          "room": "demo",
+          "agent": "planner",
+          "act": "op",
+          "text": "",
+          "lamport": 2,
+          "ts": 100002,
+          "op": {
+            "kind": "task.add",
+            "title": "Check lifecycle",
+            "type": "task",
+            "phase": "plan",
+            "accept": "Recorded",
+            "assignee": "worker",
+            "microtasks": [
+              {
+                "text": "Verify",
+                "accept": "Recorded"
+              }
+            ]
+          }
+        }
+      ],
+      "expected": {
+        "agents": [],
+        "totals": {
+          "working": 0,
+          "waiting": 0,
+          "idle": 0,
+          "registered": 0,
+          "finished": 0,
+          "failed": 0,
+          "unknown": 0,
+          "total": 0
+        }
+      },
+      "membership_only": [
+        "worker"
+      ],
+      "amendment": "A-C2a: exclude author-only members (planner); lifecycle and folded assignments establish membership."
+    },
+    {
+      "name": "active_work_without_beat_is_unknown",
+      "room": "demo",
+      "now": 150000,
+      "events": [
+        {
+          "id": "e-0000000000000001",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 1,
+          "ts": 100000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "deployed",
+            "run_id": "r1",
+            "op_id": "life-0001",
+            "harness": "codex"
+          }
+        },
+        {
+          "id": "e-0000000000000002",
+          "room": "demo",
+          "agent": "planner",
+          "act": "op",
+          "text": "",
+          "lamport": 2,
+          "ts": 100001,
+          "op": {
+            "kind": "plan.open",
+            "title": "Inventory oracle",
+            "template_id": "blank",
+            "template_hash": "71ed1d88afdb9c4f86dd25ecf536ed32d45600e1e23df1fef9aa02ccecfd01ba",
+            "brief": {
+              "goal": "Verify lifecycle"
+            },
+            "phase": "plan"
+          }
+        },
+        {
+          "id": "e-0000000000000003",
+          "room": "demo",
+          "agent": "planner",
+          "act": "op",
+          "text": "",
+          "lamport": 3,
+          "ts": 100002,
+          "op": {
+            "kind": "task.add",
+            "title": "Check lifecycle",
+            "type": "task",
+            "phase": "plan",
+            "accept": "Recorded",
+            "assignee": "worker",
+            "microtasks": [
+              {
+                "text": "Verify",
+                "accept": "Recorded"
+              },
+              {
+                "text": "Second outcome",
+                "accept": "Recorded"
+              }
+            ]
+          }
+        },
+        {
+          "id": "e-0000000000000004",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 4,
+          "ts": 100003,
+          "op": {
+            "kind": "task.claim",
+            "task_id": "T01"
+          }
+        },
+        {
+          "id": "e-0000000000000005",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 5,
+          "ts": 100004,
+          "op": {
+            "kind": "micro.set",
+            "micro_id": "T01.M01",
+            "state": "done",
+            "outcome": "Recorded"
+          }
+        },
+        {
+          "id": "e-0000000000000006",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 6,
+          "ts": 100005,
+          "op": {
+            "kind": "micro.set",
+            "micro_id": "T01.M02",
+            "state": "active"
+          }
+        }
+      ],
+      "expected": {
+        "agents": [
+          {
+            "agent": "worker",
+            "state": "unknown",
+            "run_id": "r1",
+            "harness": "codex",
+            "parent": null,
+            "children": [],
+            "last_seen_lamport": 6,
+            "last_seen_ts": 100005,
+            "current": {
+              "task_id": "T01",
+              "micro_id": "T01.M02"
+            },
+            "counts": {
+              "tasks_owned": 1,
+              "micros_done": 1,
+              "micros_total": 2
+            }
+          }
+        ],
+        "totals": {
+          "working": 0,
+          "waiting": 0,
+          "idle": 0,
+          "registered": 0,
+          "finished": 0,
+          "failed": 0,
+          "unknown": 1,
+          "total": 1
+        }
+      },
+      "amendment": "A-C2a: exclude author-only members (planner); lifecycle and folded assignments establish membership."
+    },
+    {
+      "name": "working_becomes_unknown_not_finished",
+      "room": "demo",
+      "now": 190021,
+      "events": [
+        {
+          "id": "e-0000000000000001",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 1,
+          "ts": 100000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "deployed",
+            "run_id": "r1",
+            "op_id": "life-0001",
+            "harness": "codex"
+          }
+        },
+        {
+          "id": "e-0000000000000002",
+          "room": "demo",
+          "agent": "planner",
+          "act": "op",
+          "text": "",
+          "lamport": 2,
+          "ts": 100001,
+          "op": {
+            "kind": "plan.open",
+            "title": "Inventory oracle",
+            "template_id": "blank",
+            "template_hash": "71ed1d88afdb9c4f86dd25ecf536ed32d45600e1e23df1fef9aa02ccecfd01ba",
+            "brief": {
+              "goal": "Verify lifecycle"
+            },
+            "phase": "plan"
+          }
+        },
+        {
+          "id": "e-0000000000000003",
+          "room": "demo",
+          "agent": "planner",
+          "act": "op",
+          "text": "",
+          "lamport": 3,
+          "ts": 100002,
+          "op": {
+            "kind": "task.add",
+            "title": "Check lifecycle",
+            "type": "task",
+            "phase": "plan",
+            "accept": "Recorded",
+            "assignee": "worker",
+            "microtasks": [
+              {
+                "text": "Verify",
+                "accept": "Recorded"
+              },
+              {
+                "text": "Second outcome",
+                "accept": "Recorded"
+              }
+            ]
+          }
+        },
+        {
+          "id": "e-0000000000000004",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 4,
+          "ts": 100003,
+          "op": {
+            "kind": "task.claim",
+            "task_id": "T01"
+          }
+        },
+        {
+          "id": "e-0000000000000005",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 5,
+          "ts": 100004,
+          "op": {
+            "kind": "micro.set",
+            "micro_id": "T01.M01",
+            "state": "done",
+            "outcome": "Recorded"
+          }
+        },
+        {
+          "id": "e-0000000000000006",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 6,
+          "ts": 100005,
+          "op": {
+            "kind": "micro.set",
+            "micro_id": "T01.M02",
+            "state": "active"
+          }
+        },
+        {
+          "id": "e-0000000000000007",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 7,
+          "ts": 100020,
+          "op": {
+            "kind": "activity.beat",
+            "task_id": "T01",
+            "micro_id": "T01.M02",
+            "run_id": "r1",
+            "op_id": "beat-0007"
+          }
+        }
+      ],
+      "expected": {
+        "agents": [
+          {
+            "agent": "worker",
+            "state": "unknown",
+            "run_id": "r1",
+            "harness": "codex",
+            "parent": null,
+            "children": [],
+            "last_seen_lamport": 7,
+            "last_seen_ts": 100020,
+            "current": {
+              "task_id": "T01",
+              "micro_id": "T01.M02"
+            },
+            "counts": {
+              "tasks_owned": 1,
+              "micros_done": 1,
+              "micros_total": 2
+            }
+          }
+        ],
+        "totals": {
+          "working": 0,
+          "waiting": 0,
+          "idle": 0,
+          "registered": 0,
+          "finished": 0,
+          "failed": 0,
+          "unknown": 1,
+          "total": 1
+        }
+      },
+      "amendment": "A-C2a: exclude author-only members (planner); lifecycle and folded assignments establish membership."
+    },
+    {
+      "name": "dependency_waiting_beats_idle",
+      "room": "demo",
+      "now": 150000,
+      "events": [
+        {
+          "id": "e-0000000000000001",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 1,
+          "ts": 100000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "deployed",
+            "run_id": "r1",
+            "op_id": "life-0001"
+          }
+        },
+        {
+          "id": "e-0000000000000002",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 2,
+          "ts": 110000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "alive",
+            "run_id": "r1",
+            "op_id": "life-0002"
+          }
+        },
+        {
+          "id": "e-0000000000000003",
+          "room": "demo",
+          "agent": "planner",
+          "act": "op",
+          "text": "",
+          "lamport": 3,
+          "ts": 110001,
+          "op": {
+            "kind": "plan.open",
+            "title": "Inventory oracle",
+            "template_id": "blank",
+            "template_hash": "71ed1d88afdb9c4f86dd25ecf536ed32d45600e1e23df1fef9aa02ccecfd01ba",
+            "brief": {
+              "goal": "Verify lifecycle"
+            },
+            "phase": "plan"
+          }
+        },
+        {
+          "id": "e-0000000000000004",
+          "room": "demo",
+          "agent": "planner",
+          "act": "op",
+          "text": "",
+          "lamport": 4,
+          "ts": 110002,
+          "op": {
+            "kind": "task.add",
+            "title": "Check lifecycle",
+            "type": "task",
+            "phase": "plan",
+            "accept": "Recorded",
+            "microtasks": [
+              {
+                "text": "Verify",
+                "accept": "Recorded"
+              }
+            ]
+          }
+        },
+        {
+          "id": "e-0000000000000005",
+          "room": "demo",
+          "agent": "planner",
+          "act": "op",
+          "text": "",
+          "lamport": 5,
+          "ts": 110003,
+          "op": {
+            "kind": "task.add",
+            "title": "Check lifecycle",
+            "type": "task",
+            "phase": "plan",
+            "accept": "Recorded",
+            "assignee": "worker",
+            "microtasks": [
+              {
+                "text": "Verify",
+                "accept": "Recorded"
+              }
+            ],
+            "deps": [
+              "T01"
+            ]
+          }
+        }
+      ],
+      "expected": {
+        "agents": [
+          {
+            "agent": "worker",
+            "state": "waiting",
+            "run_id": "r1",
+            "harness": null,
+            "parent": null,
+            "children": [],
+            "last_seen_lamport": 2,
+            "last_seen_ts": 110000,
+            "current": {
+              "task_id": "T02",
+              "micro_id": null
+            },
+            "counts": {
+              "tasks_owned": 1,
+              "micros_done": 0,
+              "micros_total": 1
+            }
+          }
+        ],
+        "totals": {
+          "working": 0,
+          "waiting": 1,
+          "idle": 0,
+          "registered": 0,
+          "finished": 0,
+          "failed": 0,
+          "unknown": 0,
+          "total": 1
+        }
+      },
+      "amendment": "A-C2a: exclude author-only members (planner); lifecycle and folded assignments establish membership."
+    },
+    {
+      "name": "staleness_beats_dependency_waiting",
+      "room": "demo",
+      "now": 200001,
+      "events": [
+        {
+          "id": "e-0000000000000001",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 1,
+          "ts": 100000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "deployed",
+            "run_id": "r1",
+            "op_id": "life-0001"
+          }
+        },
+        {
+          "id": "e-0000000000000002",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 2,
+          "ts": 110000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "alive",
+            "run_id": "r1",
+            "op_id": "life-0002"
+          }
+        },
+        {
+          "id": "e-0000000000000003",
+          "room": "demo",
+          "agent": "planner",
+          "act": "op",
+          "text": "",
+          "lamport": 3,
+          "ts": 110001,
+          "op": {
+            "kind": "plan.open",
+            "title": "Inventory oracle",
+            "template_id": "blank",
+            "template_hash": "71ed1d88afdb9c4f86dd25ecf536ed32d45600e1e23df1fef9aa02ccecfd01ba",
+            "brief": {
+              "goal": "Verify lifecycle"
+            },
+            "phase": "plan"
+          }
+        },
+        {
+          "id": "e-0000000000000004",
+          "room": "demo",
+          "agent": "planner",
+          "act": "op",
+          "text": "",
+          "lamport": 4,
+          "ts": 110002,
+          "op": {
+            "kind": "task.add",
+            "title": "Check lifecycle",
+            "type": "task",
+            "phase": "plan",
+            "accept": "Recorded",
+            "microtasks": [
+              {
+                "text": "Verify",
+                "accept": "Recorded"
+              }
+            ]
+          }
+        },
+        {
+          "id": "e-0000000000000005",
+          "room": "demo",
+          "agent": "planner",
+          "act": "op",
+          "text": "",
+          "lamport": 5,
+          "ts": 110003,
+          "op": {
+            "kind": "task.add",
+            "title": "Check lifecycle",
+            "type": "task",
+            "phase": "plan",
+            "accept": "Recorded",
+            "assignee": "worker",
+            "microtasks": [
+              {
+                "text": "Verify",
+                "accept": "Recorded"
+              }
+            ],
+            "deps": [
+              "T01"
+            ]
+          }
+        }
+      ],
+      "expected": {
+        "agents": [
+          {
+            "agent": "worker",
+            "state": "unknown",
+            "run_id": "r1",
+            "harness": null,
+            "parent": null,
+            "children": [],
+            "last_seen_lamport": 2,
+            "last_seen_ts": 110000,
+            "current": {
+              "task_id": "T02",
+              "micro_id": null
+            },
+            "counts": {
+              "tasks_owned": 1,
+              "micros_done": 0,
+              "micros_total": 1
+            }
+          }
+        ],
+        "totals": {
+          "working": 0,
+          "waiting": 0,
+          "idle": 0,
+          "registered": 0,
+          "finished": 0,
+          "failed": 0,
+          "unknown": 1,
+          "total": 1
+        }
+      },
+      "amendment": "A-C2a: exclude author-only members (planner); lifecycle and folded assignments establish membership."
+    },
+    {
+      "name": "ignored_retired_beat_cannot_refresh",
+      "room": "demo",
+      "now": 300001,
+      "events": [
+        {
+          "id": "e-0000000000000001",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 1,
+          "ts": 100000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "deployed",
+            "run_id": "r1",
+            "op_id": "life-0001",
+            "harness": "codex"
+          }
+        },
+        {
+          "id": "e-0000000000000002",
+          "room": "demo",
+          "agent": "planner",
+          "act": "op",
+          "text": "",
+          "lamport": 2,
+          "ts": 100001,
+          "op": {
+            "kind": "plan.open",
+            "title": "Inventory oracle",
+            "template_id": "blank",
+            "template_hash": "71ed1d88afdb9c4f86dd25ecf536ed32d45600e1e23df1fef9aa02ccecfd01ba",
+            "brief": {
+              "goal": "Verify lifecycle"
+            },
+            "phase": "plan"
+          }
+        },
+        {
+          "id": "e-0000000000000003",
+          "room": "demo",
+          "agent": "planner",
+          "act": "op",
+          "text": "",
+          "lamport": 3,
+          "ts": 100002,
+          "op": {
+            "kind": "task.add",
+            "title": "Check lifecycle",
+            "type": "task",
+            "phase": "plan",
+            "accept": "Recorded",
+            "assignee": "worker",
+            "microtasks": [
+              {
+                "text": "Verify",
+                "accept": "Recorded"
+              },
+              {
+                "text": "Second outcome",
+                "accept": "Recorded"
+              }
+            ]
+          }
+        },
+        {
+          "id": "e-0000000000000004",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 4,
+          "ts": 100003,
+          "op": {
+            "kind": "task.claim",
+            "task_id": "T01"
+          }
+        },
+        {
+          "id": "e-0000000000000005",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 5,
+          "ts": 100004,
+          "op": {
+            "kind": "micro.set",
+            "micro_id": "T01.M01",
+            "state": "done",
+            "outcome": "Recorded"
+          }
+        },
+        {
+          "id": "e-0000000000000006",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 6,
+          "ts": 100005,
+          "op": {
+            "kind": "micro.set",
+            "micro_id": "T01.M02",
+            "state": "active"
+          }
+        },
+        {
+          "id": "e-0000000000000007",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 7,
+          "ts": 100020,
+          "op": {
+            "kind": "activity.beat",
+            "task_id": "T01",
+            "micro_id": "T01.M02",
+            "run_id": "r1",
+            "op_id": "beat-0007"
+          }
+        },
+        {
+          "id": "e-0000000000000008",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 8,
+          "ts": 200000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "deployed",
+            "run_id": "r2",
+            "op_id": "life-0008",
+            "harness": "codex"
+          }
+        },
+        {
+          "id": "e-0000000000000009",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 9,
+          "ts": 300000,
+          "op": {
+            "kind": "activity.beat",
+            "task_id": "T01",
+            "micro_id": "T01.M02",
+            "run_id": "r1",
+            "op_id": "beat-old9"
+          }
+        }
+      ],
+      "expected": {
+        "agents": [],
+        "totals": {
+          "working": 0,
+          "waiting": 0,
+          "idle": 0,
+          "registered": 0,
+          "finished": 0,
+          "failed": 0,
+          "unknown": 0,
+          "total": 0
+        }
+      },
+      "state_only": {
+        "worker": {
+          "state": "unknown",
+          "run_id": "r2"
+        }
+      }
+    },
+    {
+      "name": "redeploy_does_not_reuse_old_beat",
+      "room": "demo",
+      "now": 200001,
+      "events": [
+        {
+          "id": "e-0000000000000001",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 1,
+          "ts": 100000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "deployed",
+            "run_id": "r1",
+            "op_id": "life-0001",
+            "harness": "codex"
+          }
+        },
+        {
+          "id": "e-0000000000000002",
+          "room": "demo",
+          "agent": "planner",
+          "act": "op",
+          "text": "",
+          "lamport": 2,
+          "ts": 100001,
+          "op": {
+            "kind": "plan.open",
+            "title": "Inventory oracle",
+            "template_id": "blank",
+            "template_hash": "71ed1d88afdb9c4f86dd25ecf536ed32d45600e1e23df1fef9aa02ccecfd01ba",
+            "brief": {
+              "goal": "Verify lifecycle"
+            },
+            "phase": "plan"
+          }
+        },
+        {
+          "id": "e-0000000000000003",
+          "room": "demo",
+          "agent": "planner",
+          "act": "op",
+          "text": "",
+          "lamport": 3,
+          "ts": 100002,
+          "op": {
+            "kind": "task.add",
+            "title": "Check lifecycle",
+            "type": "task",
+            "phase": "plan",
+            "accept": "Recorded",
+            "assignee": "worker",
+            "microtasks": [
+              {
+                "text": "Verify",
+                "accept": "Recorded"
+              },
+              {
+                "text": "Second outcome",
+                "accept": "Recorded"
+              }
+            ]
+          }
+        },
+        {
+          "id": "e-0000000000000004",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 4,
+          "ts": 100003,
+          "op": {
+            "kind": "task.claim",
+            "task_id": "T01"
+          }
+        },
+        {
+          "id": "e-0000000000000005",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 5,
+          "ts": 100004,
+          "op": {
+            "kind": "micro.set",
+            "micro_id": "T01.M01",
+            "state": "done",
+            "outcome": "Recorded"
+          }
+        },
+        {
+          "id": "e-0000000000000006",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 6,
+          "ts": 100005,
+          "op": {
+            "kind": "micro.set",
+            "micro_id": "T01.M02",
+            "state": "active"
+          }
+        },
+        {
+          "id": "e-0000000000000007",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 7,
+          "ts": 100020,
+          "op": {
+            "kind": "activity.beat",
+            "task_id": "T01",
+            "micro_id": "T01.M02",
+            "run_id": "r1",
+            "op_id": "beat-0007"
+          }
+        },
+        {
+          "id": "e-0000000000000008",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 8,
+          "ts": 200000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "deployed",
+            "run_id": "r2",
+            "op_id": "life-0008",
+            "harness": "codex"
+          }
+        }
+      ],
+      "expected": {
+        "agents": [],
+        "totals": {
+          "working": 0,
+          "waiting": 0,
+          "idle": 0,
+          "registered": 0,
+          "finished": 0,
+          "failed": 0,
+          "unknown": 0,
+          "total": 0
+        }
+      },
+      "state_only": {
+        "worker": {
+          "state": "registered",
+          "run_id": "r2"
+        }
+      }
+    },
+    {
+      "name": "sync_gap_is_unknown",
+      "room": "demo",
+      "now": 150000,
+      "events": [
+        {
+          "id": "e-0000000000000001",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 1,
+          "ts": 100000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "deployed",
+            "run_id": "r1",
+            "op_id": "life-0001"
+          }
+        },
+        {
+          "id": "e-0000000000000003",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 3,
+          "ts": 110000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "alive",
+            "run_id": "r1",
+            "op_id": "life-0003"
+          }
+        }
+      ],
+      "expected": {
+        "agents": [
+          {
+            "agent": "worker",
+            "state": "unknown",
+            "run_id": "r1",
+            "harness": null,
+            "parent": null,
+            "children": [],
+            "last_seen_lamport": 3,
+            "last_seen_ts": 110000,
+            "current": null,
+            "counts": {
+              "tasks_owned": 0,
+              "micros_done": 0,
+              "micros_total": 0
+            }
+          }
+        ],
+        "totals": {
+          "working": 0,
+          "waiting": 0,
+          "idle": 0,
+          "registered": 0,
+          "finished": 0,
+          "failed": 0,
+          "unknown": 1,
+          "total": 1
+        }
+      },
+      "connected": false
+    },
+    {
+      "name": "duplicate_delivery_is_stable",
+      "room": "demo",
+      "now": 150000,
+      "events": [
+        {
+          "id": "e-0000000000000001",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 1,
+          "ts": 100000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "deployed",
+            "run_id": "r1",
+            "op_id": "life-0001",
+            "harness": "codex"
+          }
+        },
+        {
+          "id": "e-0000000000000002",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 2,
+          "ts": 110000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "alive",
+            "run_id": "r1",
+            "op_id": "life-0002"
+          }
+        },
+        {
+          "id": "e-0000000000000002",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 2,
+          "ts": 110000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "alive",
+            "run_id": "r1",
+            "op_id": "life-0002"
+          }
+        }
+      ],
+      "expected": {
+        "agents": [
+          {
+            "agent": "worker",
+            "state": "idle",
+            "run_id": "r1",
+            "harness": "codex",
+            "parent": null,
+            "children": [],
+            "last_seen_lamport": 2,
+            "last_seen_ts": 110000,
+            "current": null,
+            "counts": {
+              "tasks_owned": 0,
+              "micros_done": 0,
+              "micros_total": 0
+            }
+          }
+        ],
+        "totals": {
+          "working": 0,
+          "waiting": 0,
+          "idle": 1,
+          "registered": 0,
+          "finished": 0,
+          "failed": 0,
+          "unknown": 0,
+          "total": 1
+        }
+      }
+    },
+    {
+      "name": "counts_cover_all_owned_tasks",
+      "room": "demo",
+      "now": 150000,
+      "events": [
+        {
+          "id": "e-0000000000000001",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 1,
+          "ts": 100000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "deployed",
+            "run_id": "r1",
+            "op_id": "life-0001",
+            "harness": "codex"
+          }
+        },
+        {
+          "id": "e-0000000000000002",
+          "room": "demo",
+          "agent": "planner",
+          "act": "op",
+          "text": "",
+          "lamport": 2,
+          "ts": 100001,
+          "op": {
+            "kind": "plan.open",
+            "title": "Inventory oracle",
+            "template_id": "blank",
+            "template_hash": "71ed1d88afdb9c4f86dd25ecf536ed32d45600e1e23df1fef9aa02ccecfd01ba",
+            "brief": {
+              "goal": "Verify lifecycle"
+            },
+            "phase": "plan"
+          }
+        },
+        {
+          "id": "e-0000000000000003",
+          "room": "demo",
+          "agent": "planner",
+          "act": "op",
+          "text": "",
+          "lamport": 3,
+          "ts": 100002,
+          "op": {
+            "kind": "task.add",
+            "title": "Check lifecycle",
+            "type": "task",
+            "phase": "plan",
+            "accept": "Recorded",
+            "assignee": "worker",
+            "microtasks": [
+              {
+                "text": "Verify",
+                "accept": "Recorded"
+              },
+              {
+                "text": "Second outcome",
+                "accept": "Recorded"
+              }
+            ]
+          }
+        },
+        {
+          "id": "e-0000000000000004",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 4,
+          "ts": 100003,
+          "op": {
+            "kind": "task.claim",
+            "task_id": "T01"
+          }
+        },
+        {
+          "id": "e-0000000000000005",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 5,
+          "ts": 100004,
+          "op": {
+            "kind": "micro.set",
+            "micro_id": "T01.M01",
+            "state": "done",
+            "outcome": "Recorded"
+          }
+        },
+        {
+          "id": "e-0000000000000006",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 6,
+          "ts": 100005,
+          "op": {
+            "kind": "micro.set",
+            "micro_id": "T01.M02",
+            "state": "active"
+          }
+        },
+        {
+          "id": "e-0000000000000007",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 7,
+          "ts": 100020,
+          "op": {
+            "kind": "activity.beat",
+            "task_id": "T01",
+            "micro_id": "T01.M02",
+            "run_id": "r1",
+            "op_id": "beat-0007"
+          }
+        },
+        {
+          "id": "e-0000000000000008",
+          "room": "demo",
+          "agent": "planner",
+          "act": "op",
+          "text": "",
+          "lamport": 8,
+          "ts": 100030,
+          "op": {
+            "kind": "task.add",
+            "title": "Check lifecycle",
+            "type": "task",
+            "phase": "plan",
+            "accept": "Recorded",
+            "assignee": "worker",
+            "microtasks": [
+              {
+                "text": "Verify",
+                "accept": "Recorded"
+              }
+            ]
+          }
+        }
+      ],
+      "expected": {
+        "agents": [
+          {
+            "agent": "worker",
+            "state": "working",
+            "run_id": "r1",
+            "harness": "codex",
+            "parent": null,
+            "children": [],
+            "last_seen_lamport": 7,
+            "last_seen_ts": 100020,
+            "current": {
+              "task_id": "T01",
+              "micro_id": "T01.M02"
+            },
+            "counts": {
+              "tasks_owned": 2,
+              "micros_done": 1,
+              "micros_total": 3
+            }
+          }
+        ],
+        "totals": {
+          "working": 1,
+          "waiting": 0,
+          "idle": 0,
+          "registered": 0,
+          "finished": 0,
+          "failed": 0,
+          "unknown": 0,
+          "total": 1
+        }
+      },
+      "amendment": "A-C2a: exclude author-only members (planner); lifecycle and folded assignments establish membership."
+    },
+    {
+      "name": "dependency_waiting_precedes_fresh_beat",
+      "room": "demo",
+      "now": 150000,
+      "events": [
+        {
+          "id": "e-0000000000000001",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 1,
+          "ts": 100000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "deployed",
+            "run_id": "r1",
+            "op_id": "life-0001",
+            "harness": "codex"
+          }
+        },
+        {
+          "id": "e-0000000000000002",
+          "room": "demo",
+          "agent": "planner",
+          "act": "op",
+          "text": "",
+          "lamport": 2,
+          "ts": 100001,
+          "op": {
+            "kind": "plan.open",
+            "title": "Inventory oracle",
+            "template_id": "blank",
+            "template_hash": "71ed1d88afdb9c4f86dd25ecf536ed32d45600e1e23df1fef9aa02ccecfd01ba",
+            "brief": {
+              "goal": "Verify lifecycle"
+            },
+            "phase": "plan"
+          }
+        },
+        {
+          "id": "e-0000000000000003",
+          "room": "demo",
+          "agent": "planner",
+          "act": "op",
+          "text": "",
+          "lamport": 3,
+          "ts": 100002,
+          "op": {
+            "kind": "task.add",
+            "title": "Check lifecycle",
+            "type": "task",
+            "phase": "plan",
+            "accept": "Recorded",
+            "assignee": "worker",
+            "microtasks": [
+              {
+                "text": "Verify",
+                "accept": "Recorded"
+              },
+              {
+                "text": "Second outcome",
+                "accept": "Recorded"
+              }
+            ]
+          }
+        },
+        {
+          "id": "e-0000000000000004",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 4,
+          "ts": 100003,
+          "op": {
+            "kind": "task.claim",
+            "task_id": "T01"
+          }
+        },
+        {
+          "id": "e-0000000000000005",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 5,
+          "ts": 100004,
+          "op": {
+            "kind": "micro.set",
+            "micro_id": "T01.M01",
+            "state": "done",
+            "outcome": "Recorded"
+          }
+        },
+        {
+          "id": "e-0000000000000006",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 6,
+          "ts": 100005,
+          "op": {
+            "kind": "micro.set",
+            "micro_id": "T01.M02",
+            "state": "active"
+          }
+        },
+        {
+          "id": "e-0000000000000007",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 7,
+          "ts": 100020,
+          "op": {
+            "kind": "activity.beat",
+            "task_id": "T01",
+            "micro_id": "T01.M02",
+            "run_id": "r1",
+            "op_id": "beat-0007"
+          }
+        },
+        {
+          "id": "e-0000000000000008",
+          "room": "demo",
+          "agent": "planner",
+          "act": "op",
+          "text": "",
+          "lamport": 8,
+          "ts": 100030,
+          "op": {
+            "kind": "task.add",
+            "title": "Check lifecycle",
+            "type": "task",
+            "phase": "plan",
+            "accept": "Recorded",
+            "microtasks": [
+              {
+                "text": "Verify",
+                "accept": "Recorded"
+              }
+            ]
+          }
+        },
+        {
+          "id": "e-0000000000000009",
+          "room": "demo",
+          "agent": "planner",
+          "act": "op",
+          "text": "",
+          "lamport": 9,
+          "ts": 100031,
+          "op": {
+            "kind": "task.set",
+            "task_id": "T01",
+            "base_rev": 6,
+            "deps": [
+              "T02"
+            ]
+          }
+        }
+      ],
+      "expected": {
+        "agents": [
+          {
+            "agent": "worker",
+            "state": "waiting",
+            "run_id": "r1",
+            "harness": "codex",
+            "parent": null,
+            "children": [],
+            "last_seen_lamport": 7,
+            "last_seen_ts": 100020,
+            "current": {
+              "task_id": "T01",
+              "micro_id": "T01.M02"
+            },
+            "counts": {
+              "tasks_owned": 1,
+              "micros_done": 1,
+              "micros_total": 2
+            }
+          }
+        ],
+        "totals": {
+          "working": 0,
+          "waiting": 1,
+          "idle": 0,
+          "registered": 0,
+          "finished": 0,
+          "failed": 0,
+          "unknown": 0,
+          "total": 1
+        }
+      },
+      "amendment": "A-C2a: exclude author-only members (planner); lifecycle and folded assignments establish membership."
+    },
+    {
+      "name": "future_beat_is_not_valid_evidence",
+      "room": "demo",
+      "now": 150000,
+      "events": [
+        {
+          "id": "e-0000000000000001",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 1,
+          "ts": 100000,
+          "op": {
+            "kind": "agent.lifecycle",
+            "state": "deployed",
+            "run_id": "r1",
+            "op_id": "life-0001",
+            "harness": "codex"
+          }
+        },
+        {
+          "id": "e-0000000000000002",
+          "room": "demo",
+          "agent": "planner",
+          "act": "op",
+          "text": "",
+          "lamport": 2,
+          "ts": 100001,
+          "op": {
+            "kind": "plan.open",
+            "title": "Inventory oracle",
+            "template_id": "blank",
+            "template_hash": "71ed1d88afdb9c4f86dd25ecf536ed32d45600e1e23df1fef9aa02ccecfd01ba",
+            "brief": {
+              "goal": "Verify lifecycle"
+            },
+            "phase": "plan"
+          }
+        },
+        {
+          "id": "e-0000000000000003",
+          "room": "demo",
+          "agent": "planner",
+          "act": "op",
+          "text": "",
+          "lamport": 3,
+          "ts": 100002,
+          "op": {
+            "kind": "task.add",
+            "title": "Check lifecycle",
+            "type": "task",
+            "phase": "plan",
+            "accept": "Recorded",
+            "assignee": "worker",
+            "microtasks": [
+              {
+                "text": "Verify",
+                "accept": "Recorded"
+              },
+              {
+                "text": "Second outcome",
+                "accept": "Recorded"
+              }
+            ]
+          }
+        },
+        {
+          "id": "e-0000000000000004",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 4,
+          "ts": 100003,
+          "op": {
+            "kind": "task.claim",
+            "task_id": "T01"
+          }
+        },
+        {
+          "id": "e-0000000000000005",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 5,
+          "ts": 100004,
+          "op": {
+            "kind": "micro.set",
+            "micro_id": "T01.M01",
+            "state": "done",
+            "outcome": "Recorded"
+          }
+        },
+        {
+          "id": "e-0000000000000006",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 6,
+          "ts": 100005,
+          "op": {
+            "kind": "micro.set",
+            "micro_id": "T01.M02",
+            "state": "active"
+          }
+        },
+        {
+          "id": "e-0000000000000007",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 7,
+          "ts": 200000,
+          "op": {
+            "kind": "activity.beat",
+            "task_id": "T01",
+            "micro_id": "T01.M02",
+            "run_id": "r1",
+            "op_id": "beat-0007"
+          }
+        }
+      ],
+      "expected": {
+        "agents": [],
+        "totals": {}
+      },
+      "state_only": {
+        "worker": {
+          "state": "unknown",
+          "run_id": "r1"
+        }
+      }
+    }
+  ]
+}

@@ -1,3 +1,6 @@
+// A-FB2: configured public values are bound to the selected Firebase project.
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { FIREBASE_PUBLIC_CONFIG, RECAPTCHA_SITE_KEY_PUBLIC, isPlaceholderConfig, isPlaceholderValue } from "../../../src/app/firebase-config.public";
 import { isLocalDevOrigin } from "../../../src/app/appcheck";
@@ -8,8 +11,15 @@ import { FIXTURE_TOKEN, REAL_CFG } from "./harness";
 
 describe("placeholder guard", () => {
   it("shipped public config is placeholders (D-2 project absent) and detected as such", () => {
-    expect(isPlaceholderConfig(FIREBASE_PUBLIC_CONFIG)).toBe(true);
-    expect(isPlaceholderValue(RECAPTCHA_SITE_KEY_PUBLIC)).toBe(true);
+    // A-FB2: permit the shipped placeholder state or a complete configured state.
+    const placeholder = isPlaceholderConfig(FIREBASE_PUBLIC_CONFIG);
+    expect(isPlaceholderValue(RECAPTCHA_SITE_KEY_PUBLIC)).toBe(placeholder);
+    if (placeholder) {
+      expect(Object.values(FIREBASE_PUBLIC_CONFIG).every(isPlaceholderValue)).toBe(true);
+    } else {
+      const binding = JSON.parse(readFileSync(resolve(__dirname, "../../../.firebaserc"), "utf8")) as { projects: { default: string } };
+      expect(FIREBASE_PUBLIC_CONFIG["projectId"]).toBe(binding.projects.default);
+    }
   });
   it("real-looking config passes", () => { expect(isPlaceholderConfig(REAL_CFG)).toBe(false); });
   it.each([

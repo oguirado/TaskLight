@@ -29,8 +29,9 @@ import {
 } from "./plan";
 import { renderMemoryView } from "./memory";
 import { renderSwarmView } from "./swarm";
+import type { AgentBoardViewModel } from "./swarm";
+import { renderNarrator } from "./narrator";
 import { renderAgentStrip } from "./agent_strip";
-import type { SwarmViewModel } from "../app/swarm_vm";
 
 // Local mount contracts leave the shared legacy store/view contracts intact.
 export type WallViewId = ViewId | "swarm";
@@ -47,7 +48,7 @@ export interface WorkspaceGuidanceVM {
 }
 export type WallMountVM = Omit<WallVM, "view"> & {
   view: WallViewId;
-  swarm?: SwarmViewModel;
+  swarm?: AgentBoardViewModel;
   availability?: string;
   workspaceGuidance?: WorkspaceGuidanceVM;
 };
@@ -251,7 +252,7 @@ const VIEWS: [WallViewId, string][] = [
   ["archive", "Archive"],
   ["memory", "Memory"],
 ];
-const DESTINATIONS: [WallViewId, string][] = [...VIEWS, ["swarm", "Swarm"]];
+const DESTINATIONS: [WallViewId, string][] = [...VIEWS, ["swarm", "Agents"]];
 
 function isOpenTask(t: unknown): boolean {
   if (!t || typeof t !== "object") return false;
@@ -346,6 +347,9 @@ export function mountWall(host: HTMLElement, vm: WallMountVM, handlers?: WallMou
   let wsHelpReturn: "new" | "guidance" = "new";
   let messagesOpen = false;
   let navigationOpen = false;
+  let moreOpen = true;
+  let narrationOpen = false;
+  const boardExpansions = new Map<string, Set<string>>();
   let messageTaskId: string | undefined;
   let selectedPhase: string | null = null;
   let destroyed = false;
@@ -384,6 +388,11 @@ export function mountWall(host: HTMLElement, vm: WallMountVM, handlers?: WallMou
   announcer.setAttribute("aria-live", "polite");
   announcer.setAttribute("role", "status");
   rail.appendChild(announcer);
+  const boardSummaryLive = el(doc, "p", "visually-hidden");
+  boardSummaryLive.id = `${instanceId}-agent-summary`;
+
+  boardSummaryLive.setAttribute("aria-atomic", "true");
+  rail.appendChild(boardSummaryLive);
   app.appendChild(rail);
   host.replaceChildren(app);
 
@@ -447,6 +456,9 @@ export function mountWall(host: HTMLElement, vm: WallMountVM, handlers?: WallMou
     | { kind: "workspace"; id: string }
     | { kind: "workspace-help"; control: "new" | "guidance" | "heading" | "close" }
     | { kind: "swarm"; scope: string; identity: SwarmTaskIdentity; control: "metadata" | "task" | "detail" | "close" }
+    | { kind: "board"; scope: string; id: string }
+    | { kind: "more" }
+    | { kind: "narration" }
     | { kind: "task-title"; scope: string; view: string; taskVmId: string }
     | { kind: "phase-reset"; phaseId: string | null }
     | { kind: "phase"; phaseId: string }
@@ -468,6 +480,9 @@ export function mountWall(host: HTMLElement, vm: WallMountVM, handlers?: WallMou
       if (elc.matches(".ws-close")) return { kind: "workspace-help", control: "close" };
       if (elc.matches('.view[role="tabpanel"]')) return { kind: "view-panel", id: elc.id };
       if (elc.matches("button[data-wsid]")) return { kind: "workspace", id: elc.getAttribute("data-wsid") ?? "" };
+      if (elc.matches(".swarm-lane, .swarm-task-bubble")) return { kind: "board", scope: swarmScope, id: elc.id };
+      if (elc.matches(".nav-more-toggle")) return { kind: "more" };
+      if (elc.matches(".nav-narration-toggle")) return { kind: "narration" };
       if (elc.matches(".swarm-metadata-toggle, .swarm-task-open")) {
         const identity = swarmIdentity(elc);
         if (identity) return { kind: "swarm", scope: swarmScope, identity,
@@ -511,6 +526,14 @@ export function mountWall(host: HTMLElement, vm: WallMountVM, handlers?: WallMou
         const selector = descriptor.control === "guidance" ? ".workspace-help" : descriptor.control === "new" ? ".ws-new"
           : descriptor.control === "heading" ? ".ws-help > h2" : ".ws-close";
         target = host.querySelector(selector);
+      } else if (descriptor.kind === "board") {
+        if (descriptor.scope !== swarmScope) return;
+        target = [...host.querySelectorAll<HTMLElement>(".swarm-lane, .swarm-task-bubble")]
+          .find(node => node.id === descriptor.id) ?? null;
+      } else if (descriptor.kind === "more") {
+        target = host.querySelector(".nav-more-toggle");
+      } else if (descriptor.kind === "narration") {
+        target = host.querySelector(".nav-narration-toggle");
       } else if (descriptor.kind === "swarm") {
         if (descriptor.scope !== swarmScope) return;
         const trigger = swarmTask(host, descriptor.identity);
@@ -560,7 +583,7 @@ export function mountWall(host: HTMLElement, vm: WallMountVM, handlers?: WallMou
         if (panel && doc.defaultView?.getComputedStyle(panel).display === "none") target = navigationToggle;
       }
       if (target && typeof (target as HTMLElement).focus === "function") {
-        (target as HTMLElement).focus({ preventScroll: descriptor.kind === "task-title" });
+        (target as HTMLElement).focus({ preventScroll: true }); // U166: restoring focus never moves the viewport
       }
     } catch { /* contained */ }
   }
@@ -650,6 +673,18 @@ export function mountWall(host: HTMLElement, vm: WallMountVM, handlers?: WallMou
     if (!btn || !host.contains(btn)) return;
     if (btn === navigationToggle) {
       setNavigationOpen(!navigationOpen);
+      return;
+    }
+    if (btn.classList.contains("nav-more-toggle")) {
+      moreOpen = !moreOpen;
+      btn.setAttribute("aria-expanded", String(moreOpen));
+      const panel = host.querySelector<HTMLElement>(".nav-secondary");
+      if (panel) panel.hidden = !moreOpen;
+      return;
+    }
+    if (btn.classList.contains("nav-narration-toggle")) {
+      narrationOpen = !narrationOpen;
+      render(currentVm);
       return;
     }
     if (btn.classList.contains("nav-item")) {
@@ -785,6 +820,10 @@ export function mountWall(host: HTMLElement, vm: WallMountVM, handlers?: WallMou
       .map(detail => detail.querySelector(".task-detail-toggle")?.getAttribute("data-task-vm-id")));
     const previousSwarm = host.querySelector<HTMLElement>(".swarm-view");
     const previousScope = swarmScope;
+    if (previousSwarm?.classList.contains("swarm-board")) {
+      boardExpansions.set(previousScope, new Set([...previousSwarm.querySelectorAll<HTMLButtonElement>(
+        '.swarm-task-bubble[aria-expanded="true"]')].map(button => button.id)));
+    }
     const openMetadata = new Set([...previousSwarm?.querySelectorAll('.swarm-metadata-toggle[aria-expanded="true"]') ?? []]
       .map(button => button.getAttribute("aria-controls")));
     const openTrigger = previousSwarm?.querySelector('.swarm-task-open[aria-expanded="true"]');
@@ -792,7 +831,7 @@ export function mountWall(host: HTMLElement, vm: WallMountVM, handlers?: WallMou
     // U51: keep the sheet-owned aria-expanded across re-renders of the model trigger.
     const prevExpanded = host.querySelector('button.status-line[aria-controls="model-sheet"]')?.getAttribute("aria-expanded") === "true";
     for (const child of Array.from(app.children)) if (child !== rail) child.remove();
-    for (const child of Array.from(rail.children)) if (child !== announcer) child.remove();
+    for (const child of Array.from(rail.children)) if (child !== announcer && child !== boardSummaryLive) child.remove();
     disposeSwarm(previousSwarm);
     const input = (rawVm && typeof rawVm === "object" ? rawVm : {}) as Partial<WallMountVM>;
     const workspaces: WorkspaceVM[] = Array.isArray(input.workspaces) ? (input.workspaces as WorkspaceVM[]) : [];
@@ -801,6 +840,8 @@ export function mountWall(host: HTMLElement, vm: WallMountVM, handlers?: WallMou
     const archive: ArchivedVM[] = Array.isArray(input.archive) ? (input.archive as ArchivedVM[]) : [];
     const workspaceId = asStr((input as { workspace?: unknown }).workspace);
     const view: WallViewId = isWallView(input.view) ? input.view : "wall";
+    boardSummaryLive.hidden = view !== "swarm";
+    if (view !== "swarm") boardSummaryLive.removeAttribute("aria-live");
     const planIn = (input as { plan?: unknown }).plan;
     const hasPlan = planIn !== undefined && planIn !== null;
     const planId = planIn && typeof planIn === "object" ? asStr((planIn as { id?: unknown }).id) : "";
@@ -863,41 +904,68 @@ export function mountWall(host: HTMLElement, vm: WallMountVM, handlers?: WallMou
     tablist.setAttribute("aria-label", "Primary views");
     tablist.setAttribute("aria-orientation", "vertical");
     nav.appendChild(tablist);
-    const visibleViews = VIEWS;
-    visibleViews.forEach(([vid, label], i) => {
+    const more = el(doc, "div", "nav-more");
+    const moreTrigger = el(doc, "button", "nav-more-toggle", "More");
+    moreTrigger.type = "button";
+    moreTrigger.setAttribute("aria-controls", `${instanceId}-more`);
+    moreTrigger.setAttribute("aria-expanded", String(moreOpen));
+    const secondary = el(doc, "div", "nav-secondary");
+    secondary.id = `${instanceId}-more`;
+    secondary.setAttribute("role", "group");
+    secondary.setAttribute("aria-label", "More");
+    secondary.hidden = !moreOpen;
+    const agentsNav = el(doc, "button", "nav-item", "Agents");
+    agentsNav.type = "button";
+    agentsNav.id = `${instanceId}-swarm-tab`;
+    agentsNav.setAttribute("aria-label", "Agents");
+    agentsNav.setAttribute("data-nav", "swarm");
+    agentsNav.setAttribute("aria-keyshortcuts", "6");
+    if (view === "swarm") agentsNav.setAttribute("aria-current", "page");
+    nav.prepend(agentsNav);
+    for (const [i, [vid, label]] of VIEWS.entries()) {
       const b = el(doc, "button", "nav-item");
-      b.setAttribute("type", "button");
+      b.type = "button";
       b.setAttribute("data-nav", vid);
+      b.setAttribute("aria-label", label);
       b.id = `${instanceId}-${vid}-tab`;
       b.setAttribute("role", "tab");
       b.setAttribute("aria-selected", String(vid === view));
       b.setAttribute("aria-controls", `${instanceId}-${vid}-panel`);
       b.tabIndex = vid === view || (view === "swarm" && vid === "wall") ? 0 : -1;
-      b.setAttribute("aria-keyshortcuts", String(i + 1));
+      const shortcut = i + 1;
+      b.setAttribute("aria-keyshortcuts", String(shortcut));
       if (vid === view) b.setAttribute("aria-current", "page");
       const ic = el(doc, "span", "nav-icon");
       ic.setAttribute("aria-hidden", "true");
       ic.setAttribute("data-icon", vid);
-      b.appendChild(ic);
-      b.appendChild(el(doc, "span", "nav-label", label));
-      const k = el(doc, "kbd", "nav-key", String(i + 1));
+      b.append(ic, el(doc, "span", "nav-label", label));
+      const k = el(doc, "kbd", "nav-key", String(shortcut));
       k.setAttribute("aria-hidden", "true");
-      b.appendChild(k);
-      tablist.appendChild(b);
-    });
-    navigation.appendChild(nav);
-    const secondary = el(doc, "nav", "nav-secondary");
-    secondary.setAttribute("aria-label", "More views");
-    const swarmNav = el(doc, "button", "nav-item", "Swarm");
-    swarmNav.type = "button";
-    swarmNav.setAttribute("data-nav", "swarm");
-    swarmNav.setAttribute("aria-keyshortcuts", "6");
-    if (view === "swarm") swarmNav.setAttribute("aria-current", "page");
-    const swarmKey = el(doc, "kbd", "nav-key", "6");
-    swarmKey.setAttribute("aria-hidden", "true");
-    swarmNav.appendChild(swarmKey);
-    secondary.appendChild(swarmNav);
-    navigation.appendChild(secondary);
+      b.append(k);
+      tablist.append(b);
+    }
+    more.append(moreTrigger, secondary);
+    secondary.append(tablist);
+    nav.append(more);
+    navigation.append(nav);
+    const narration = el(doc, "div", "nav-narration");
+    const narrationTrigger = el(doc, "button", "nav-narration-toggle", "Narration");
+    narrationTrigger.type = "button";
+    narrationTrigger.setAttribute("aria-expanded", String(narrationOpen));
+    const narrationPanel = el(doc, "div", "nav-narration-panel");
+    narrationPanel.id = `${instanceId}-narration`;
+    narrationPanel.hidden = !narrationOpen;
+    narrationTrigger.setAttribute("aria-controls", narrationPanel.id);
+    const showNarration = (): void => {
+      const narrationText = input.swarm?.sync_error !== undefined
+        ? `Can't read this workspace: ${input.swarm.sync_error}`
+        : input.swarm?.agents.map(agent => `${agent.agent}: ${("state" in agent ? agent.state : agent.activity)}.`).join(" ")
+          || "No agents in this room";
+      narrationPanel.replaceChildren(renderNarrator(doc, { kind: "rules", source: null, text: narrationText }, () => render(currentVm)));
+    };
+    if (narrationOpen) showNarration();
+    narration.append(narrationTrigger, narrationPanel);
+    secondary.append(narration);
     const keyboardHelp = el(doc, "p", "keyboard-help",
       "Keyboard: use arrow keys to move between primary views (one Tab stop). Tab moves between regions and their controls.");
     keyboardHelp.id = `${instanceId}-keyboard-help`;
@@ -1081,7 +1149,7 @@ export function mountWall(host: HTMLElement, vm: WallMountVM, handlers?: WallMou
     theme.setAttribute("type", "button");
     theme.setAttribute("aria-label", `Toggle theme: ${themeName}`);
     railStatus.appendChild(theme);
-    rail.appendChild(railStatus);
+    secondary.appendChild(railStatus);
 
     const main = el(doc, "main", "main");
     // topbar
@@ -1291,8 +1359,19 @@ export function mountWall(host: HTMLElement, vm: WallMountVM, handlers?: WallMou
       viewWrap.appendChild(renderAgentStrip(doc, input.swarm));
     }
     if (view === "swarm") {
-      if (input.swarm === undefined) throw new TypeError("Swarm view model required");
-      const swarmView = renderSwarmView(doc, input.swarm);
+      const swarmView = renderSwarmView(doc, input.swarm ?? { room: workspaceId, agents: [], progress: null,
+        refresh_at_ms: null, sync_error: "Inventory unavailable" } as AgentBoardViewModel);
+      const summary = swarmView.querySelector<HTMLElement>(".swarm-summary");
+      if (summary) {
+        boardSummaryLive.setAttribute("aria-live", "polite");
+        // A persistent live mirror announces the header once, even as content is rebuilt.
+        summary.removeAttribute("aria-live");
+        summary.setAttribute("aria-describedby", boardSummaryLive.id);
+        if (boardSummaryLive.textContent !== summary.textContent) boardSummaryLive.textContent = summary.textContent;
+      }
+      for (const button of swarmView.querySelectorAll<HTMLButtonElement>(".swarm-task-bubble")) {
+        if (boardExpansions.get(swarmScope)?.has(button.id)) button.click();
+      }
       if (previousScope === swarmScope) {
         for (const button of swarmView.querySelectorAll<HTMLButtonElement>(".swarm-metadata-toggle")) {
           if (openMetadata.has(button.getAttribute("aria-controls"))) button.click();
@@ -1712,9 +1791,13 @@ export function mountWall(host: HTMLElement, vm: WallMountVM, handlers?: WallMou
     if (pendingFocusView !== null) {
       const target = host.querySelector<HTMLElement>(`[role="tab"][data-nav="${pendingFocusView}"]`);
       const panel = target?.closest(".navigation-panel");
-      if (panel && doc.defaultView?.getComputedStyle(panel).display === "none") navigationToggle.focus();
-      else target?.focus();
+      if (panel && doc.defaultView?.getComputedStyle(panel).display === "none") navigationToggle.focus({ preventScroll: true });
+      else target?.focus({ preventScroll: true });
       pendingFocusView = null;
+    }
+    // Restore focus first so it cannot undo a view change's scroll reset.
+    if (previousTaskView !== null && previousTaskView !== view) {
+      (doc.scrollingElement ?? doc.documentElement).scrollTop = 0;
     }
     scheduleExpiry();
     try {

@@ -14,6 +14,8 @@ import tempfile
 import unittest
 
 from bridge.plan import check_conformance, fold_plan, load_template
+# A-U163: Transport views redact free text while owner replay stays raw.
+from bridge.wall.emit import sanitize_output
 
 
 HERE = Path(__file__).resolve().parent
@@ -37,7 +39,8 @@ def receipt_gate(case, home, view, check, count):
     catalog = templates()
     projection = fold_plan(events, templates=catalog)
     case.assertEqual(projection["rejected"], [], "journal contains rejected operations")
-    case.assertEqual(view, projection, "plan_get disagrees with journal replay")
+    # A-U163: Compare the redacted view, preserving the raw evidence checks below.
+    case.assertEqual(view, sanitize_output(projection), "plan_get disagrees with journal replay")
     expected_check = check_conformance(projection, catalog[projection["plan"]["template_id"]])
     case.assertEqual(check["conformance"], expected_check,
                      "plan_check disagrees with journal replay")

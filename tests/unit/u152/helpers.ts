@@ -2,9 +2,11 @@ import { afterEach, beforeEach, expect, vi } from "vitest";
 import { mountWall, type WallMountHandle, type WallMountHandlers, type WallMountVM, type WallViewId } from "../../../src/views";
 import { deriveSwarmViewModel } from "../../../src/app/swarm_vm";
 
+// A-V1: Agents comes first; numeric shortcuts keep their original destinations.
 export const DESTINATIONS = [
+  ["swarm", "Agents", "6"],
   ["wall", "Wall", "1"], ["agenda", "Agenda", "2"], ["diary", "Diary", "3"],
-  ["archive", "Archive", "4"], ["memory", "Memory", "5"], ["swarm", "Swarm", "6"],
+  ["archive", "Archive", "4"], ["memory", "Memory", "5"],
 ] as const;
 
 const handles: WallMountHandle[] = [];

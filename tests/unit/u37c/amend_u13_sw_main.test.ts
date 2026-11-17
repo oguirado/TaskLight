@@ -2,6 +2,8 @@
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+// A-FB2: configured manifest origins must match the selected public config and project.
+import { FIREBASE_PUBLIC_CONFIG, isPlaceholderConfig, isPlaceholderValue, RECAPTCHA_SITE_KEY_PUBLIC } from "../../../src/app/firebase-config.public";
 import { startSwMain } from "../../../extension/src/sw_main";
 import { FakeChrome, FakeClock, HOST } from "../u13/harness";
 import { ROOM, idOf, roomEvent, settle, type NativeRelayAmended } from "./harness";
@@ -104,13 +106,26 @@ describe("sw_main bootstrap", () => {
 const ROOT = resolve(__dirname, "../../../extension");
 const read = (f: string): Record<string, unknown> => JSON.parse(readFileSync(resolve(ROOT, f), "utf8")) as Record<string, unknown>;
 
+// A-FB2: retain exact match assertions in both shipped and configured states.
+function publicMatches(): string[] {
+  if (isPlaceholderConfig(FIREBASE_PUBLIC_CONFIG)) {
+    expect(isPlaceholderValue(RECAPTCHA_SITE_KEY_PUBLIC)).toBe(true);
+    return ["https://site.test/*"];
+  }
+  expect(isPlaceholderValue(RECAPTCHA_SITE_KEY_PUBLIC)).toBe(false);
+  const binding = JSON.parse(readFileSync(resolve(ROOT, "../.firebaserc"), "utf8")) as { projects: { default: string } };
+  expect(binding.projects.default).toBe(FIREBASE_PUBLIC_CONFIG["projectId"]);
+  return [`https://${binding.projects.default}.web.app/*`, `https://${binding.projects.default}.firebaseapp.com/*`];
+}
+
 describe("manifests", () => {
   it("manifest.json stays as is (spike permissions, https://site.test only, no localhost)", () => {
     const m = read("manifest.json");
     expect(m["manifest_version"]).toBe(3);
     expect(m["permissions"]).toEqual(["storage", "sidePanel", "tabs", "scripting", "nativeMessaging"]);
     expect(m["optional_host_permissions"]).toEqual(["https://*/*"]);
-    expect(m["externally_connectable"]).toEqual({ matches: ["https://site.test/*"] });
+    // A-FB2: configured origins are checked against .firebaserc.
+    expect(m["externally_connectable"]).toEqual({ matches: publicMatches() });
     expect(m["background"]).toEqual({ service_worker: "src/sw.js" });
     expect(JSON.stringify(m)).not.toContain("localhost");
   });
@@ -119,7 +134,8 @@ describe("manifests", () => {
     const base = read("manifest.json"); const dev = read("manifest.dev.json");
     const ec = dev["externally_connectable"] as { matches: string[] };
     expect(ec.matches).toContain("http://localhost/*");
-    expect(ec.matches).toContain("https://site.test/*");
+    // A-FB2: keep localhost while accepting the bound Firebase domains.
+    expect(ec.matches).toEqual([...publicMatches(), "http://localhost/*"]);
     expect(Object.keys(ec)).toEqual(["matches"]);
     const { externally_connectable: _a, key: _ka, ...restBase } = base; const { externally_connectable: _b, key: _kb, ...restDev } = dev;
     expect(restDev).toEqual(restBase);

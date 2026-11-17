@@ -1,5 +1,5 @@
 import { agentGroups, agentState, hasAgentRegistration } from "./agent_strip";
-import type { SwarmAgentVM, SwarmViewModel } from "../app/swarm_vm";
+import type { AgentInventoryRow, AgentInventoryTotals, SwarmAgentVM, SwarmViewModel } from "../app/swarm_vm";
 import type { PlanTask } from "../plan/types";
 
 function element<K extends keyof HTMLElementTagNameMap>(
@@ -164,8 +164,7 @@ type SwarmRenderOptions = { narrator?: HTMLElement };
  * Optional third argument: { narrator?: HTMLElement }. Keep the admitted
  * two-argument function type for callers that inspect its exact parameters.
  */
-export function renderSwarmView(doc: Document, vm: SwarmViewModel): HTMLElement {
-  const options = (arguments[2] as SwarmRenderOptions | undefined) ?? {};
+function renderLegacySwarmView(doc: Document, vm: SwarmViewModel, options: SwarmRenderOptions = {}): HTMLElement {
   const root = element(doc, "section", "swarm-view");
   root.setAttribute("aria-label", "Swarm");
   root.tabIndex = -1;
@@ -202,7 +201,7 @@ export function renderSwarmView(doc: Document, vm: SwarmViewModel): HTMLElement 
     openDetail?.remove();
     openDetail = null;
     trigger?.setAttribute("aria-expanded", "false");
-    if (restoreFocus) trigger?.focus();
+    if (restoreFocus) trigger?.focus({ preventScroll: true });
     trigger = null;
   };
   const handleDetailKey = (event: KeyboardEvent): void => {
@@ -246,7 +245,11 @@ export function renderSwarmView(doc: Document, vm: SwarmViewModel): HTMLElement 
             root.append(openDetail);
             doc.addEventListener("keydown", handleDetailKey);
             button.setAttribute("aria-expanded", "true");
-            openDetail.focus();
+            openDetail.focus({ preventScroll: true });
+            // Refreshes reopen details while detached and must retain scroll.
+            if (openDetail.isConnected && typeof openDetail.scrollIntoView === "function") {
+              openDetail.scrollIntoView({ block: "start", inline: "nearest", behavior: "instant" });
+            }
           };
           card.addEventListener("click", event => {
             const target = event.target as Element | null;
@@ -266,6 +269,233 @@ export function renderSwarmView(doc: Document, vm: SwarmViewModel): HTMLElement 
       group.append(grid);
       root.append(group);
     }
+  }
+  return root;
+}
+
+
+/** Additive inventory fields supplied by C2, without widening its legacy display contract. */
+export type AgentBoardViewModel = SwarmViewModel & Readonly<{
+  totals?: AgentInventoryTotals | undefined;
+  sync_error?: string;
+  unassigned?: readonly PlanTask[];
+}>;
+type InventoryAgent = SwarmAgentVM & Partial<AgentInventoryRow>;
+
+function bubbleIndicator(doc: Document, state: string, done: number, total: number, task: boolean): HTMLElement {
+  const node = element(doc, "span", `swarm-bubble ${task ? "swarm-bubble-task" : "swarm-bubble-micro"}`);
+  node.setAttribute("aria-hidden", "true");
+  node.dataset.state = state;
+  const complete = total > 0 && done === total;
+  node.dataset.complete = String(complete);
+  node.style.setProperty("--swarm-fill", `${total > 0 ? done / total * 100 : 0}%`);
+  if (complete) node.append(element(doc, "span", "swarm-bubble-mark", "✓"));
+  
+  return node;
+}
+
+function renderTaskBubble(doc: Document, room: string, task: PlanTask): HTMLElement {
+  const item = element(doc, "div", "swarm-task");
+  const done = task.microtasks.filter(micro => micro.state === "done").length;
+  const total = task.microtasks.length;
+  const key = encodeURIComponent(JSON.stringify([room, task.id]));
+  const button = element(doc, "button", "swarm-task-bubble");
+  button.type = "button";
+  button.id = `swarm-task-${key}`;
+  button.setAttribute("aria-label", `${task.title}, ${task.state}, ${done}/${total}`);
+  button.setAttribute("aria-expanded", "false");
+  button.setAttribute("aria-controls", `swarm-micros-${key}`);
+  button.append(bubbleIndicator(doc, task.state, done, total, true), element(doc, "span", "swarm-task-title", task.title));
+  const children = element(doc, "div", "swarm-microtasks");
+  children.id = `swarm-micros-${key}`;
+  children.hidden = true;
+  const setOpen = (open: boolean): void => {
+    children.replaceChildren();
+    if (open) {
+      for (const micro of task.microtasks) {
+        const row = element(doc, "div", "swarm-microtask");
+        row.append(bubbleIndicator(doc, micro.state, micro.state === "done" ? 1 : 0, 1, false));
+        const title = element(doc, "span", "swarm-microtask-title", micro.text);
+        title.setAttribute("aria-hidden", "true");
+        row.append(title, element(doc, "span", "swarm-sr-only",
+          `${micro.text}, ${micro.state}, ${micro.state === "done" ? 1 : 0}/1`));
+        children.append(row);
+      }
+      if (total === 0) children.append(element(doc, "p", "swarm-note", "No microtasks"));
+    }
+    children.hidden = !open;
+    button.setAttribute("aria-expanded", String(open));
+  };
+  let suppressSpaceClick = false;
+  button.addEventListener("pointerdown", () => { suppressSpaceClick = false; });
+  // V1q: browsers that cancel the Space-synthesized click must not leave the next click suppressed.
+  button.addEventListener("keyup", event => {
+    if (event.key === " ") doc.defaultView?.setTimeout(() => { suppressSpaceClick = false; }, 0);
+  });
+  button.addEventListener("click", () => {
+    if (suppressSpaceClick) {
+      suppressSpaceClick = false;
+      return;
+    }
+    setOpen(children.hidden === true);
+  });
+  button.addEventListener("keydown", event => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      if (event.key === " ") suppressSpaceClick = true;
+      setOpen(children.hidden === true);
+    }
+  });
+  item.addEventListener("keydown", event => {
+    if (event.key === "Escape" && !children.hidden) {
+      event.preventDefault();
+      event.stopPropagation();
+      setOpen(false);
+      button.focus({ preventScroll: true });
+    }
+  });
+  item.append(button, children);
+  return item;
+}
+
+/** The inventory is already ordered; parent links only determine DOM containment. */
+export function renderSwarmView(doc: Document, vm: SwarmViewModel): HTMLElement {
+  const snapshot = vm as AgentBoardViewModel;
+  const options = (arguments[2] as SwarmRenderOptions | undefined) ?? {};
+  // Existing integrations may still supply the older display-only snapshot.
+  if ((vm.agents.some(agent => !("state" in agent)) || vm.agents.length === 0 && snapshot.totals === undefined) && snapshot.sync_error === undefined) {
+    return renderLegacySwarmView(doc, vm, options);
+  }
+  const root = element(doc, "section", "swarm-view swarm-board");
+  root.setAttribute("aria-label", "Agents");
+  root.tabIndex = -1;
+  const header = element(doc, "header", "swarm-header");
+  const totals = snapshot.totals;
+  const summary = element(doc, "p", "swarm-summary", totals
+    ? `${totals.working} working · ${totals.waiting + totals.idle + totals.registered} waiting · ${totals.finished} finished`
+      + (totals.failed ? ` · ${totals.failed} failed` : "") + (totals.unknown ? ` · ${totals.unknown} unknown` : "")
+    : "Inventory unavailable");
+  summary.setAttribute("aria-live", "polite");
+  summary.setAttribute("aria-atomic", "true");
+  header.append(summary);
+  root.append(header, element(doc, "p", "swarm-room", `Room · ${vm.room}`));
+  if (snapshot.sync_error !== undefined) {
+    const error = element(doc, "p", "swarm-sync-error", `Can't read this workspace: ${snapshot.sync_error.trim() || "reason unknown"}`);
+    error.setAttribute("role", "alert");
+    root.append(error);
+  }
+  const lanes = element(doc, "div", "swarm-lanes");
+  lanes.setAttribute("role", "group");
+  lanes.setAttribute("aria-label", "Agent lanes");
+  if (snapshot.sync_error !== undefined) lanes.dataset.stale = "true";
+  root.append(lanes);
+  const byAgent = new Map(vm.agents.map(agent => [agent.agent, agent as InventoryAgent]));
+  const cards = new Map<string, HTMLElement>();
+  const childLists = new Map<string, HTMLElement>();
+  const tasks = new Map(vm.agents.flatMap(agent => agent.tasks.map(task => [task.id, task] as const)));
+  let openDetail: HTMLElement | null = null;
+  let detailTrigger: HTMLButtonElement | null = null;
+  const closeDetail = (restore = true): void => {
+    doc.removeEventListener("keydown", onDetailKey);
+    openDetail?.remove();
+    openDetail = null;
+    detailTrigger?.setAttribute("aria-expanded", "false");
+    if (restore && root.isConnected) detailTrigger?.focus({ preventScroll: true });
+    detailTrigger = null;
+  };
+  const onDetailKey = (event: KeyboardEvent): void => {
+    if (!root.isConnected) closeDetail(false);
+    else if (event.key === "Escape" && openDetail) { event.preventDefault(); closeDetail(); }
+  };
+  for (const agent of vm.agents as readonly InventoryAgent[]) {
+    const card = renderAgent(doc, agent, vm.progress === null);
+    card.classList.add("swarm-lane");
+    card.id = `swarm-lane-${encodeURIComponent(JSON.stringify([vm.room, agent.agent]))}`;
+    card.tabIndex = 0;
+    const heading = card.querySelector(".swarm-card-header")!;
+    if (agent.state === "failed" || agent.state === "unknown") {
+      heading.querySelector(".swarm-agent-name")!.after(
+        element(doc, "span", "swarm-agent-marker", agent.state === "failed" ? "×" : "?"));
+    }
+    const state = agent.state || "unknown";
+    const label = state === "unknown" && agent.activity === "unknown"
+      ? "Liveness unknown" : state[0]!.toUpperCase() + state.slice(1);
+    const deployment = agent.lifecycle === "deployed" && vm.progress === null ? " · Deployed · no plan yet" : "";
+    heading.append(element(doc, "span", "swarm-agent-harness", agent.harness ?? "Harness unknown"),
+      element(doc, "span", "swarm-inventory-state", label + deployment));
+    const work = card.querySelector(".swarm-work");
+    const metadata = card.querySelector(".swarm-metadata-content")!;
+    const legacyActivity = heading.querySelector(".swarm-activity");
+    if (legacyActivity) {
+      if (legacyActivity.textContent === label) legacyActivity.remove();
+      else metadata.prepend(legacyActivity);
+    }
+    const groupSummary = element(doc, "p", "swarm-note",
+      `${agent.swarm ?? "Ungrouped"} (${vm.agents.filter(row => row.swarm === agent.swarm).length})`);
+    metadata.append(groupSummary);
+    if (work) metadata.prepend(work);
+    const list = element(doc, "div", "swarm-task-list");
+    for (const task of agent.tasks) list.append(renderTaskBubble(doc, vm.room, task));
+    if (agent.tasks.length === 0) list.append(element(doc, "p", "swarm-note", "No tasks yet"));
+    card.insertBefore(list, card.querySelector(".swarm-metadata"));
+    // Keep the established read-only detail surface as secondary inspection.
+    const selected = agent.tasks.find(task => task.id === agent.current_task_id);
+    if (selected) {
+      const button = element(doc, "button", "swarm-task-open", `View task ${selected.id}`);
+      button.type = "button";
+      button.setAttribute("aria-expanded", "false");
+      const open = (): void => {
+        closeDetail(false);
+        detailTrigger = button;
+        openDetail = renderDetail(doc, agent, selected, tasks);
+        const close = element(doc, "button", "swarm-detail-close", "Close task details");
+        close.type = "button";
+        close.addEventListener("click", () => closeDetail());
+        openDetail.prepend(close);
+        root.append(openDetail);
+        button.setAttribute("aria-expanded", "true");
+        doc.addEventListener("keydown", onDetailKey);
+        openDetail.focus({ preventScroll: true });
+        if (openDetail.isConnected && typeof openDetail.scrollIntoView === "function") {
+          openDetail.scrollIntoView({ block: "start", inline: "nearest", behavior: "instant" });
+        }
+      };
+      button.addEventListener("click", open);
+      button.addEventListener("keydown", event => {
+        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); open(); }
+      });
+      card.insertBefore(button, card.querySelector(".swarm-metadata"));
+    }
+    cards.set(agent.agent, card);
+    const children = element(doc, "div", "swarm-children");
+    card.append(children);
+    childLists.set(agent.agent, children);
+  }
+  for (const agent of vm.agents as readonly InventoryAgent[]) {
+    const card = cards.get(agent.agent)!;
+    const parent = agent.parent?.agent;
+    // A malformed external cycle must not delete lanes or produce a DOM cycle.
+    const visited = new Set([agent.agent]);
+    let ancestor = parent;
+    while (ancestor && !visited.has(ancestor)) { visited.add(ancestor); ancestor = byAgent.get(ancestor)?.parent?.agent; }
+    const container = parent && ancestor === undefined && childLists.get(parent);
+    (container || lanes).append(card);
+  }
+  if (vm.agents.length === 0 && snapshot.sync_error === undefined) {
+    lanes.append(element(doc, "h3", "swarm-empty-title", "No agents in this room"),
+      element(doc, "p", "swarm-note", "Connect your harness and assign work"));
+  }
+  if (snapshot.unassigned?.length) {
+    const unassigned = element(doc, "section", "swarm-unassigned");
+    unassigned.append(element(doc, "h3", "swarm-section-title", "Unassigned work"));
+    for (const task of snapshot.unassigned) unassigned.append(renderTaskBubble(doc, vm.room, task));
+    lanes.append(unassigned);
+  }
+  if (options.narrator) {
+    const narrator = element(doc, "section", "swarm-narrator");
+    narrator.setAttribute("aria-label", "Swarm narrator");
+    narrator.append(options.narrator);
+    root.append(narrator);
   }
   return root;
 }

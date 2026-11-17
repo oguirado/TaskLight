@@ -64,12 +64,18 @@ export interface ActivityBeatOp extends PlanOpBase {
 }
 
 export type AgentLifecycle = "deployed" | "alive" | "finished" | "failed";
+export interface AgentResult {
+  verdict: "ADMIT" | "HOLD" | "NO_PUDE" | "OK" | "FAIL";
+  summary?: string; receipt?: string;
+  evidence?: readonly { path: string; sha256: string }[];
+}
 export interface AgentLifecycleOp extends PlanOpBase {
-  kind: "agent.lifecycle"; state: AgentLifecycle; run_id: string; op_id: string;
-  swarm?: string; harness?: string; reason?: string; base_rev?: never;
+  kind: "agent.lifecycle"; state: AgentLifecycle; run_id: string; op_id: string; result?: AgentResult;
+  swarm?: string; harness?: string; reason?: string; parent_agent?: string; parent_run_id?: string; base_rev?: never;
 }
 export interface AgentLifecycleRecord {
   lifecycle: AgentLifecycle; run_id: string; swarm?: string; harness?: string; reason?: string;
+  parent_agent?: string; parent_run_id?: string;
   deployed_ts: number; last_alive_ts?: number; ts: number; lamport: number;
   retired_run_ids: readonly string[];
 }

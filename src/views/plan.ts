@@ -507,7 +507,7 @@ export function renderPlanBand(doc: Document, plan: PlanVM, opts?: { onSelectPha
       const chip = el(doc, "button", "phase-chip", label);
       chip.setAttribute("type", "button");
       chip.setAttribute("data-phase-id", pid);
-      const selected = opts !== undefined && opts.selectedPhase === pid;
+      const selected = pid.length > 0 && opts !== undefined && opts.selectedPhase === pid; // U126f: id-less chips are never selected
       chip.setAttribute("aria-pressed", selected ? "true" : "false");
       chip.setAttribute("data-active", active ? "true" : "false");
       if (active) {
@@ -534,15 +534,20 @@ export function renderPlanBand(doc: Document, plan: PlanVM, opts?: { onSelectPha
       phasesWrap.appendChild(chip);
     }
     sec.appendChild(phasesWrap);
+    // U126f: resolve phases with the same string normalization as the chips; an empty id never matches.
+    const findPhase = (id: unknown): PlanPhaseVM | undefined => {
+      const k = asStr(id);
+      return k.length === 0 ? undefined : allPhases.find((ph) => asStr((ph as { id?: unknown }).id) === k);
+    };
     const labelFor = (id: unknown): string => {
-      const phase = allPhases.find((ph) => ph.id === id);
+      const phase = findPhase(id);
       return phase === undefined ? "Unknown" : asStr(phase.label);
     };
     sec.appendChild(el(doc, "p", "plan-current-phase", `Current phase: ${labelFor(raw.phaseId)}`));
     const selectedPhase = opts?.selectedPhase;
     sec.appendChild(el(doc, "p", "plan-phase-filter",
       `Phase filter: ${selectedPhase == null ? "All phases" : labelFor(selectedPhase)}`));
-    if (selectedPhase != null && !allPhases.some((ph) => ph.id === selectedPhase)) {
+    if (selectedPhase != null && findPhase(selectedPhase) === undefined) {
       sec.appendChild(el(doc, "p", "plan-phase-filter-note",
         "This phase filter is unavailable in the current plan. Use Show all phases to see available tasks."));
     }

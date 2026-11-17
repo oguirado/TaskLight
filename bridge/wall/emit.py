@@ -253,6 +253,53 @@ def redact(text, _disable=frozenset()):
     return out, total, classes
 
 
+_OUTPUT_IDENTITIES = frozenset({
+    "id", "event_id", "task_id", "micro_id", "op_id", "run_id",
+    "member_ids", "retired_run_ids",
+    "room", "agent", "assignee", "by", "to", "re", "silent",
+    "hash", "sha256", "request_sha256", "template_hash", "template_id", "lens_id",
+    "deps", "phase", "state", "explicit_state", "type", "kind", "act",
+    "code", "format", "section", "lifecycle",
+})
+
+
+# A-U163p: inside an `evidence` list, plain string items and these keys of item objects keep their bytes.
+_EVIDENCE_POINTERS = frozenset({"path", "uri", "url", "sha256"})
+_EVIDENCE_DISABLE = frozenset({"HIGH_ENTROPY"})
+
+
+def sanitize_output(value):
+    """Copy a folded output, redacting text with the relay's shared rules.
+
+    Protocol identities and mapping keys retain their original bytes. Briefs
+    and diagnostic details are free text, including any nested values. This
+    function never changes owner storage and propagates redactor failures;
+    callers must refuse output rather than fall back to the original value.
+    """
+    def visit(item, field=None, free_text=False, evidence=False):
+        if isinstance(item, dict):
+            return {key: visit(child, key, free_text or key in ("brief", "detail"),
+                               evidence and key in _EVIDENCE_POINTERS)
+                    for key, child in item.items()}
+        if isinstance(item, list):
+            # A-U163p: evidence references are pointers an agent must dereference to verify hashes.
+            return [visit(child, field, free_text, evidence or (field == "evidence" and not free_text))
+                    for child in item]
+        if isinstance(item, str):
+            if not free_text and field in _OUTPUT_IDENTITIES:
+                return item
+            # U163q: evidence pointers skip only the HIGH_ENTROPY class; every other class still applies.
+            text, _count, _classes = redact(item, _EVIDENCE_DISABLE) if (evidence and not free_text) else redact(item)
+            if not isinstance(text, str):
+                raise ValueError("output redaction failed")
+            return text
+        if item is None or isinstance(item, (bool, int, float)):
+            return item
+        raise TypeError("unsupported output value")
+
+    return visit(value)
+
+
 # --------------------------------------------------------------------------
 # Cap (B7): 2000 UTF-16 code units, cut at limit-1 + "…".
 # The cut never splits a surrogate pair or a redaction marker.

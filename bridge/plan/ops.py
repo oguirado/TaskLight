@@ -138,7 +138,7 @@ def validate_op_shape(op: object) -> dict:
     _check_op_id(op)
 
     if kind == "agent.lifecycle":
-        _check_unknown(op, {"kind", "state", "run_id", "swarm", "harness", "reason", "op_id"})
+        _check_unknown(op, {"kind", "state", "run_id", "swarm", "harness", "reason", "op_id", "parent_agent", "parent_run_id"})
         for req in ("state", "run_id", "op_id"):
             if req not in op:
                 raise _bad(f"missing {req}")
@@ -146,6 +146,12 @@ def validate_op_shape(op: object) -> dict:
             raise _bad("lifecycle state")
         if not isinstance(op["run_id"], str) or _RUN_ID_RE.fullmatch(op["run_id"]) is None:
             raise _bad("run_id")
+        if "parent_agent" in op and (not isinstance(op["parent_agent"], str)
+                or AGENT_RE.fullmatch(op["parent_agent"]) is None):
+            raise _bad("parent_agent")
+        if "parent_run_id" in op and (not isinstance(op["parent_run_id"], str)
+                or _RUN_ID_RE.fullmatch(op["parent_run_id"]) is None):
+            raise _bad("parent_run_id")
         for key in ("swarm", "harness", "reason"):
             if key not in op:
                 continue

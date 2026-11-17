@@ -10,6 +10,7 @@ type Probe = { ok: boolean; tests: number; failures: number; errors: number; rea
 // Adapt only this legacy subprocess fixture in memory; retain exact payload,
 // journal bytes, envelope and dispatch assertions without changing Python files.
 // A-U87r: SPEC_U121 M3 requires canonical batch.request_sha256 metadata.
+// A-U164: the legacy close fixture and its exact journal include real completion evidence.
 const lifecycleParity = String.raw`
 import hashlib, json, sys
 from bridge.tests.room.u87 import probe, test_contract as checks
@@ -20,12 +21,14 @@ def parity(self, name):
     if name != "plan_close":
         return legacy_parity(self, name)
     outcomes, journals, spies = [], [], []
+    proof = checks.ROOT / "bridge/tests/room/u87/test_contract.py"
+    evidence = [{"path": str(proof.resolve()), "sha256": hashlib.sha256(proof.read_bytes()).hexdigest()}]
     for adapter in ("cli", "mcp"):
         home = self.tmp / adapter
         with checks.deterministic(home):
             args = checks.fixture(home, name)
             completed = checks.call(adapter, "microtask_set", dict(
-                room="demo", agent="worker", id="T01.M01", state="done"))
+                room="demo", agent="worker", id="T01.M01", state="done", evidence=[str(proof)]))
             self.assertEqual(completed[0], 0, completed)
             with checks.dispatch_spy(name, args) as seen:
                 result = checks.call(adapter, name, args)
@@ -47,7 +50,7 @@ def parity(self, name):
     for event in events:
         event["batch"]["request_sha256"] = digest
     lines = [json.dumps(event, sort_keys=True, separators=(",", ":")) for event in events]
-    complete = dict(close, op=dict(kind="micro.set", micro_id="T01.M01", state="done"))
+    complete = dict(close, op=dict(kind="micro.set", micro_id="T01.M01", state="done", evidence=evidence))
     close = dict(close, id="e-0000000000000004", lamport=4)
     lines.extend(json.dumps(e, sort_keys=True, separators=(",", ":")) for e in (complete, close))
     expected["journals"][path] = "\n".join(lines) + "\n"

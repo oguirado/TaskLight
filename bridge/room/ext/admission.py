@@ -82,8 +82,10 @@ def post(room, agent, op, *, expected_opened_lamport=store._UNFENCED):
                 try:
                     projection = store.fold_plan(events, **templates)
                     admit_work({"agent": agent}, projection)
-                    store.apply_op_event(projection, event,
-                                         last_by_agent=store._op_max_activity(events), **templates)
+                    candidate, _ = store.apply_op_event(
+                        projection, event, last_by_agent=store._op_max_activity(events), **templates)
+                    store._admit_completion_evidence(
+                        projection, candidate, op, templates=templates.get("templates"))
                 except store.RoomError:
                     raise
                 except Exception as exc:

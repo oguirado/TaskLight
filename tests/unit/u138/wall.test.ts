@@ -61,21 +61,23 @@ function navigate(value: unknown): void {
   expect(observed.handlers?.onView).toBeTypeOf("function");
   Reflect.apply(observed.handlers!.onView!, undefined, [value]);
 }
-function expectLanding(root: HTMLElement): void { expect(selected(root)).toBe("wall"); }
+// A-V1: fresh and invalid initial views land on Agents.
+function expectLanding(root: HTMLElement, view = "wall"): void { expect(selected(root)).toBe(view); }
 
 describe("U138 A1 / M1 navigation", () => {
-  it("A1 fresh startup selects Wall with five ordered primary tabs and secondary Swarm", () => {
-    const h = start(); expectLanding(h.wallHost);
+  it("A1 fresh startup selects Agents before the ordered secondary views", () => {
+    const h = start(); expectLanding(h.wallHost, "swarm");
     const tabs = [...h.wallHost.querySelectorAll<HTMLElement>('[role="tablist"] [role="tab"]')];
     expect(tabs.map(accessibleName)).toEqual(DESTINATIONS.slice(0, 5));
     const secondary = control(h.wallHost, "Swarm"); expect(secondary.closest('[role="tablist"]')).toBeNull();
-    expect(tabs[4]!.compareDocumentPosition(secondary) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    // A-V1: the Agents destination now precedes the secondary Wall tabs.
+    expect(secondary.compareDocumentPosition(tabs[0]!) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
   });
   it.each(DESTINATIONS)("A1 explicit initialView %s is accepted by both validators", name => {
     const h = start({ initialView: name.toLowerCase() }); expect(selected(h.wallHost)).toBe(name.toLowerCase());
   });
   it.each([undefined, null, "", "invalid", "__proto__", "constructor", "toString", HOSTILE, 7, {}])(
-    "A1 invalid or absent initialView %j falls back to Wall", initialView => { expectLanding(start({ initialView }).wallHost); });
+    "A1 invalid or absent initialView %j falls back to Agents", initialView => { expectLanding(start({ initialView }).wallHost, "swarm"); });
   it.each(DESTINATIONS)("A1 %s click, shortcut and advertised shortcut agree", name => {
     const h = start({ initialView: "wall" }), index = DESTINATIONS.indexOf(name);
     let target = control(h.wallHost, name); expect(target.getAttribute("aria-keyshortcuts")).toBe(String(index + 1));

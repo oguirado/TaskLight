@@ -119,6 +119,10 @@ class WorkCase(unittest.TestCase):
         return self.post({"kind": "task.claim", "task_id": tid}, agent, room)["lamport"]
 
     def micro(self, mid="T01.M01", state="active", agent="alice", room="demo", **extra):
+        # A-U164: required-evidence completion fixtures retain real proof bytes.
+        if state == "done" and "evidence" not in extra:
+            extra["evidence"] = [{"path": str(self.proof.resolve()),
+                                  "sha256": hashlib.sha256(self.proof.read_bytes()).hexdigest()}]
         return self.post(dict(kind="micro.set", micro_id=mid, state=state, **extra), agent, room)
 
     def edit(self, tid="T01", room="demo", **extra):

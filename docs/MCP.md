@@ -7,7 +7,7 @@ The plan and memory protocol is described in [PLANNING](PLANNING.md), and the no
 
 TaskLight speaks the stdio MCP wire format: newline-delimited JSON-RPC
 2.0 with `protocolVersion` `"2024-11-05"`, `serverInfo`
-`{"name": "tasklight", "version": "0.2.0"}` and `capabilities`
+`{"name": "tasklight", "version": "0.3.0"}` and `capabilities`
 `{"tools": {}, "resources": {}, "prompts": {}}`. A generic MCP client
 registers the server like this:
 
@@ -28,7 +28,15 @@ historical wording, not a supported default.
 
 ## Tools
 
-30 tools are exposed [MEASURED: candidate `tools/list`, cross-checked against
+MCP tool results, resources, prompts and echoed diagnostics, CLI output, and
+Markdown exports redact free text with the Wall's shared redaction rules.
+Redaction happens after folding and before serialization or rendering; the
+owner's journal retains its raw bytes. Event hashes, ids, Lamport values,
+cursors, revisions and replay identities are preserved. Historical memory
+and local template text receive the same protection. A sanitizer failure
+refuses the output; the CLI exits nonzero, and exports write neither file.
+
+33 tools are exposed [MEASURED: candidate `tools/list`, cross-checked against
 `python3 -m bridge.room tools`, including registered extensions]. This is the
 sole documented tool total; rediscover it when the registry changes. One-line purposes:
 
@@ -79,6 +87,10 @@ Shared planning and memory:
 
 Extensions:
 
+- `wait_agents`: wait for all matching lifecycle events after a caller-owned cursor;
+  see [Waiting for agent results](WAIT_AGENTS.md).
+- `orchestrator_snapshot`: read compact current agents, attention, available work,
+  and completions; see [Orchestrator snapshots](ORCHESTRATOR.md).
 - `room_events`: read room journal events strictly after a Lamport cursor.
   - Arguments: `{room, agent, after_lamport, limit?, acts?, ops?, wait_ms?}` (`room`, `agent`, and integer `after_lamport >= 0` required; `limit` `1..500`, default `100`; `wait_ms` `0..30000`, default `0`; `acts` and `ops` are optional string arrays matching `event.act` and `event.op.kind` respectively, where omitted arrays impose no filter, empty arrays match nothing, items within an array combine with OR, and `acts` + `ops` combine with AND; unknown keys rejected). `agent` identifies the caller and is not an author filter.
   - Result (wrapped in `{"untrusted": ...}`): `{"events": [{"id", "room", "agent", "act", "text", "ts", "lamport", "op"?}], "next_after": int, "head": int, "has_more": bool, "resync": bool}` in ascending Lamport order. When `after_lamport > head`, returns immediately (even with `wait_ms > 0`) with `events: []`, `next_after: head`, `has_more: false`, and `resync: true`. Otherwise `next_after` is the last returned Lamport when `has_more` is `true`, or `head` when `false`.
@@ -143,7 +155,7 @@ Extensions:
   `run_id` bypasses a supplied stale generation: it returns `stale_rev` with
   no append. Both identity fields are bound into `op_id` replay.
 - `agent_lifecycle` is registered:
-  `{room,agent,state,run_id,swarm?,harness?,reason?,op_id?}` returns
+  `{room,agent,state,run_id,swarm?,harness?,reason?,parent_agent?,parent_run_id?,op_id?}` returns
   `{"untrusted":{"ok":true,"lamport":…}}`.
   `state` is `deployed|alive|finished|failed`. Harness hooks record lifecycle
   without model calls; executors never self-announce deployment or exit.
@@ -435,10 +447,11 @@ Legacy tool errors use short codes: `bad_args`, `bad_room`,
 `bad_agent`, `bad_act`, `text_too_long`, `bad_plan`, `bad_step`,
 `bad_evidence`, `bad_re`, `room_full`, `internal`.
 
-Eleven v2 tool errors cover planning state and conflicts:
+Planning tool errors cover planning state and conflicts:
 `no_plan`, `plan_exists`, `unknown_template`, `bad_template`,
 `bad_op`, `not_found`, `stale_rev`, `dep_cycle`, `claimed_by_other`,
-`limit_exceeded` and `not_conformant`.
+`limit_exceeded` and `not_conformant`. Completion admission also returns
+`missing_evidence` and `template_unavailable`.
 
 ## Idempotency, revisions and the untrusted envelope
 
@@ -489,3 +502,60 @@ Every complete v2 data payload is wrapped in an untrusted envelope:
 outside the envelope. Prompt arguments and memory content are placed
 in escaped passive-data fences so an MCP client renders them as data,
 never as instructions.
+
+
+## Agent inventory
+
+`agents_list {room, now?}` reads the room independently of `plan_get`. `now` is
+an optional finite, nonnegative epoch timestamp in milliseconds; omission uses
+the server clock. The CLI uses the same registry and returns the same JSON:
+
+```sh
+python3 -m bridge.room call agents_list --json '{"room":"demo","now":150000}'
+```
+
+The result is wrapped in `{"untrusted": ...}` and contains `agents` and `totals`.
+Each row contains `agent`, `state`, nullable current `run_id` and `harness`,
+`parent` (`{agent,run_id}` or null), sorted `children`, `last_seen_lamport`,
+`last_seen_ts`, `current` (`{task_id,micro_id}` or null), and `counts`
+(`{tasks_owned,micros_done,micros_total}`). Membership includes admitted journal
+authors of every act, lifecycle records, and task assignees/claimants. Being a
+message recipient alone never registers an agent. Taskless agents remain visible.
+Roots and nested siblings follow first-seen Lamport order, with slug tie breaks;
+unresolved parents are preserved without synthesizing parent members.
+
+State precedence is explicit `failed`/`finished`, then `unknown` for missing or
+invalid current-run evidence, a sync gap, or evidence older than 90 seconds,
+then dependency `waiting`, `working` with a fresh accepted beat, fresh alive
+`idle`, and deployed `registered`. Redeployment resets the current run; ignored
+beats cannot refresh it, and staleness never implies completion. `totals` has
+`working`, `waiting`, `idle`, `registered`, `finished`, `failed`, `unknown` and
+`total`; the state counts sum to `total`. Inventory reads never change journal
+bytes. MCP and CLI apply the shared Wall `sanitize_output` at serialization,
+including harness text, and fail closed if sanitization fails.
+
+### Required completion evidence (0.3.0)
+
+New writes cannot mark a microtask `done` when its task type has
+`template.task_types[].evidence_required: true` without usable evidence on
+that same microtask. Evidence submitted in the write or already stored counts;
+empty arrays, empty strings and whitespace-only paths do not. Other task types
+may complete without evidence. Outcome text and sibling evidence do not count.
+
+The shared admission check runs under the journal write lock, after receipt
+lookup, for single operations and every batch member, including non-strict
+batches, MCP tools and CLI calls. Clearing evidence on a done microtask,
+retyping completed or partly completed work to a required-evidence type, or
+removing an override that exposes completion must satisfy the same rule.
+Rejection appends nothing and leaves revisions and Lamport unchanged.
+
+The error code is `missing_evidence`, with message
+`Evidence required to complete <micro_id>.` If the plan's template cannot be
+resolved, completion fails closed with `template_unavailable`, even with
+submitted evidence. Restore the template before retrying. Exact admitted
+retries return their original receipts before this check. Historical journals
+retain their fold, receipts and progress; `plan_check` still diagnoses missing
+evidence on completed tasks' completed microtasks. The browser diagnoses these
+historical events without rejecting them. This shares the unreleased MCP
+`0.3.0` version with output redaction.
+

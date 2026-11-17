@@ -1,6 +1,43 @@
 import copy
 
 
+def has_evidence(evidence) -> bool:
+    """Recognize nonblank paths in wire records and historical string lists."""
+    if not isinstance(evidence, list):
+        return False
+    for item in evidence:
+        path = item.get("path") if isinstance(item, dict) else item
+        if isinstance(path, str) and path.strip():
+            return True
+    return False
+
+
+def completion_candidates(before: dict, after: dict, op: dict) -> list:
+    """Select newly asserted or exposed completions, leaving history alone.
+
+    Admission checks every completed microtask on retyping or removing a task
+    override, including partially completed tasks. Diagnostics intentionally
+    retain their narrower completed-task scope.
+    """
+    if op.get("kind") not in ("micro.set", "task.set"):
+        return []
+    previous = {task["id"]: task for task in before.get("tasks", [])}
+    candidates = []
+    for task in after.get("tasks", []):
+        prior = previous.get(task["id"], {})
+        exposed = (task.get("type") != prior.get("type")
+                   or (task.get("state") == "done" and prior.get("state") != "done")
+                   or (prior.get("explicit_state") in ("blocked", "cancelled")
+                       and task.get("explicit_state") is None))
+        for micro in task.get("microtasks", []):
+            if micro.get("state") == "done" and (
+                    exposed or (op.get("kind") == "micro.set"
+                                and op.get("micro_id") == micro["id"]
+                                and op.get("state") == "done")):
+                candidates.append((task, micro))
+    return candidates
+
+
 def check_conformance(projection: dict, template: dict) -> dict:
     # Pure, deterministic; does not mutate inputs
     findings = []
@@ -64,7 +101,7 @@ def check_conformance(projection: dict, template: dict) -> dict:
                 for m in micros:
                     if isinstance(m, dict) and m.get("state") == "done":
                         ev = m.get("evidence", [])
-                        if not isinstance(ev, list) or len(ev) == 0:
+                        if not has_evidence(ev):
                             mid = m.get("id", "")
                             add("missing_evidence", f"tasks.{tid}.microtasks.{mid}.evidence", f"Missing evidence for done micro {mid}")
         micros = task.get("microtasks", []) if isinstance(task.get("microtasks"), list) else []

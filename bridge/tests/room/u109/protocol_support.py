@@ -160,6 +160,9 @@ class ProtocolCase(unittest.TestCase):
         return self.call('task_claim', task_id=tid, agent=agent)
 
     def micro(self, state, mid='T01.M01', agent='alice', **kw):
+        # A-U164: successful required-evidence completions use the existing proof.
+        if state == 'done' and 'evidence' not in kw and kw.get('code') is None:
+            kw['evidence'] = [str(self.proof)]
         return self.call('microtask_set', id=mid, state=state, agent=agent, **kw)
 
     def edit(self, tid='T01', **kw):

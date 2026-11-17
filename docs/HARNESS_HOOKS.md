@@ -23,6 +23,12 @@ syntax. Room slugs permit lowercase letters, digits and hyphens; agent slugs
 also permit dots and underscores. Run IDs permit letters, digits, underscores
 and hyphens, with at most 64 characters.
 
+Optional `parent_agent` uses the same agent slug syntax; optional
+`parent_run_id` uses the run ID syntax. Each field may be supplied independently.
+The child remains `agent`; unresolved parents are retained without registering
+that parent. Self-parenting and parent cycles are rejected with `bad_args`.
+Both hook entry points preserve these fields in the journal and on replay.
+
 Input is limited to 65,536 bytes, including whitespace. Duplicate JSON keys,
 unknown fields, invalid UTF-8, lone surrogates, malformed JSON and trailing
 objects are rejected before dispatch. Payloads cannot specify filesystem paths.
@@ -31,9 +37,9 @@ identity fallbacks and process exit never supply lifecycle identity.
 
 `CW_HOME` selects the existing room configuration root, as for other room
 commands. With it unset, the existing configuration default applies. The target
-room must already exist under that root's `rooms` directory. A missing room is
-silently skipped; a lifecycle invocation never creates a room or plan. Provision
-the room separately before registering deployment.
+room is created under that root's `rooms` directory on the first lifecycle
+invocation, including its parent metadata. No plan is created; deployment and
+agent discovery work independently of planning.
 
 Without `--lifecycle`, the existing adapter continues its todo mirroring. Its
 todo transitions never record deployment, liveness or termination. Lifecycle
@@ -70,8 +76,9 @@ JSON
 A wrapper must serialize actual harness-supplied event, room, agent and run IDs
 as JSON and pass the bytes to either command's stdin. Persist that exact object
 outside the hook until recording and cleanup have been independently verified.
-Do not invent a new event ID for a retry. Native lifecycle event names and
-mappings are AUSENTE; native wiring belongs to U137. Capsule checks for the
+Do not invent a new event ID for a retry. U137 tracks the native wiring
+boundary: absent hook events never establish completion. For automatic Claude
+Code lifecycle recording, use the native adapter below. Capsule checks for the
 read-only wall belong to U114.
 
 ## Replay and failure cleanup
@@ -143,3 +150,64 @@ The legacy default todo mode retains its existing timing behavior.
 Identity is caller-asserted. Harness-recorded is not authenticated, and this
 entry is not an authorization or executor-cancellation mechanism. It records
 literal metadata about a run; it neither talks to agents nor controls terminals.
+
+## Claude Code native adapter
+
+Enable automatic session and sub-agent registration without agent cooperation:
+
+1. Install TaskLight in the Python environment used by Claude Code, or ensure
+   `bridge` is importable from every project in which the hook runs.
+2. Select a room explicitly with `TASKLIGHT_ROOM=demo` in Claude Code's
+   environment, or create `.tasklight.json` containing `{"room":"demo"}` in
+   the project. The nearest file wins, searching the payload's `cwd` and up to
+   seven parents. An invalid explicit selection is skipped without a fallback.
+3. Set `CW_HOME` to the same configuration root as the MCP server and wall.
+   The shared lifecycle handler creates the room on first use; no plan is needed.
+4. Run `python3 -m bridge.room.hook_claude_native --print-settings` and merge
+   its `hooks` object into your Claude Code `settings.json`, preserving existing
+   settings. Every generated entry is an asynchronous command with matcher `*`.
+   The adapter never edits settings itself.
+5. Start a Claude Code session, then launch a sub-agent and check the agent
+   inventory. Sessions use harness `claude-code`; sub-agents carry both
+   `parent_agent` and `parent_run_id` links to the session.
+
+| Claude Code event | Lifecycle |
+| --- | --- |
+| `SessionStart` | Session `deployed` |
+| `UserPromptSubmit`, `PreToolUse` | Acting agent `alive`, throttled together |
+| `Stop` | Acting agent `alive`; the session remains open |
+| `StopFailure` | Acting agent `failed` |
+| `SessionEnd` | Session `finished` |
+| `SubagentStart` | Sub-agent `deployed`, linked to the session |
+| `SubagentStop` | Sub-agent `finished` |
+
+The acting agent is the sub-agent when `agent_id` and `agent_type` are present;
+otherwise it is the session. Session slugs are `cc-` plus the first ten SHA-256
+hex characters of `session_id`. Child slugs use the normalized `agent_type`
+(up to 24 characters) and the first eight SHA-256 hex characters of `agent_id`.
+Run IDs are stable hashes, with child runs scoped to their session. Retry IDs
+include the hook name, hashed native identities and tool-use identity; events
+without a tool-use ID use a process ordinal and canonical input fingerprint.
+The ordinal is zero for the single stdin event, preserving exact replay.
+Only digests cross the lifecycle boundary. Repeated identical payloads deduplicate
+across processes, including after the heartbeat window expires.
+
+Prompt/tool heartbeat dispatches are limited to one per agent/run per 15 seconds,
+using small, locked timestamp files under the room's `runtime` directory. Ignored
+heartbeats do not advance that timestamp, and a failed dispatch does not consume
+the window. `Stop` bypasses this adapter throttle. The shared lifecycle handler's
+existing 30-second alive journal throttle still applies. Only documented
+`SessionEnd` reasons (`clear`, `resume`, `logout`, `prompt_input_exit`, `other`)
+are retained, always within 64 characters; other values are omitted.
+
+Raw session IDs (`session_id`), raw agent IDs (`agent_id`), prompts, `tool_input`,
+`tool_response`, transcript paths (including `agent_transcript_path`) and
+`last_assistant_message` are **never recorded** in the room, runtime files or
+logs. The adapter sends only hashed identity, lifecycle state, harness, parent
+links and an allowed terminal reason through the existing lifecycle dispatch.
+It reads one UTF-8 JSON object, at most 65,536 bytes. Unknown events, malformed
+input, missing configuration and store errors return silently with exit status
+zero and empty stdout. Only the explicit `--print-settings` mode prints JSON;
+it does not read stdin or require a room. A successful process exit alone does
+not prove persistence. Native hooks report observed events; a missing hook or
+an unobserved crash does not establish completion.

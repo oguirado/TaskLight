@@ -24,7 +24,8 @@
 
 .swarm-view:focus-visible,
 .swarm-view :focus-visible {
-  outline: 2px solid var(--c-focus);
+  outline: 2px solid currentColor;
+  outline-color: var(--c-focus);
   outline-offset: 2px;
 }
 
@@ -254,7 +255,7 @@
   .swarm-view *,
   .swarm-view *::before,
   .swarm-view *::after {
-    animation: none;
+    animation: none 0s;
     transition: none;
   }
 }
@@ -385,4 +386,204 @@
   .swarm-card > .swarm-work {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+
+/* Agents is the primary board; all paint comes from the shared theme. */
+.swarm-summary {
+  font-weight: var(--fw-semibold);
+  min-inline-size: 0;
+}
+.swarm-lanes,
+.swarm-task-list,
+.swarm-children,
+.swarm-unassigned {
+  display: grid;
+  gap: var(--sp-3);
+  min-inline-size: 0;
+}
+.swarm-children {
+  padding-inline-start: 12px; /* optical: specified agent-tree indentation at this breakpoint */
+}
+.swarm-children:empty {
+  display: none;
+}
+.swarm-lanes[data-stale="true"] {
+  opacity: 0.55;
+}
+.swarm-sync-error {
+  padding: var(--sp-3);
+  border: 1px solid var(--c-st-blocked);
+  border-radius: var(--r-2);
+  color: var(--c-text-1);
+  background: var(--c-surface-2);
+}
+.swarm-board .swarm-card-header {
+  justify-content: start;
+}
+.swarm-agent-harness,
+.swarm-inventory-state {
+  color: var(--c-text-2);
+  font-size: var(--fs-2);
+}
+.swarm-agent-marker {
+  color: var(--c-st-blocked);
+  font-weight: var(--fw-semibold);
+}
+.swarm-task {
+  min-inline-size: 0;
+}
+.swarm-task-bubble {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-block-size: 44px;
+  inline-size: 100%;
+  min-inline-size: 0;
+  padding: var(--sp-2);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-2);
+  background: var(--c-surface-1);
+  color: var(--c-text-1);
+  font: inherit;
+  text-align: start;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.swarm-task-bubble:focus-visible {
+  outline: 2px solid currentColor;
+  outline-color: var(--c-focus);
+  outline-offset: 2px;
+}
+.swarm-bubble {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  color: var(--c-st-pending);
+}
+.swarm-bubble-task {
+  inline-size: 24px;
+  block-size: 24px;
+  background-image: conic-gradient(var(--c-st-done) var(--swarm-fill), var(--c-surface-1) 0);
+}
+.swarm-bubble-micro {
+  inline-size: 16px;
+  block-size: 16px;
+  background-color: var(--c-surface-1);
+}
+.swarm-bubble[data-state="active"] {
+  color: var(--c-st-running);
+}
+.swarm-bubble[data-state="done"] {
+  color: var(--c-st-done);
+}
+.swarm-bubble[data-state="blocked"] {
+  color: var(--c-st-blocked);
+}
+.swarm-bubble-micro[data-state="active"]::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border: 3px solid transparent;
+  border-block-start-color: var(--c-st-running);
+  border-inline-end-color: var(--c-st-running);
+  border-radius: 50%;
+  transform: rotate(35deg);
+}
+.swarm-bubble-micro[data-state="done"] {
+  background-color: var(--c-st-done);
+}
+.swarm-bubble-micro[data-state="blocked"]::after {
+  content: "Ⅱ";
+  font-size: 11px;
+}
+.swarm-bubble-mark {
+  color: var(--c-text-1);
+  position: relative;
+  font-size: 11px;
+  font-weight: var(--fw-semibold);
+  line-height: 1;
+}
+.swarm-microtasks {
+  padding-inline-start: var(--sp-4);
+}
+.swarm-microtask {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-block-size: 44px;
+  min-inline-size: 0;
+}
+.swarm-sr-only {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.swarm-task-title,
+.swarm-microtask-title {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+.nav-more {
+  min-inline-size: 0;
+}
+.nav-more > .nav-more-toggle,
+.nav-narration-toggle {
+  min-block-size: 44px;
+  padding: var(--sp-2) var(--sp-3);
+  color: var(--c-text-2);
+  cursor: pointer;
+}
+.nav-more:focus-within {
+  outline-color: var(--c-focus);
+}
+@keyframes swarm-arc {
+  to { transform: rotate(395deg); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .swarm-bubble-micro[data-state="active"]::before {
+    animation: swarm-arc 1.2s linear infinite;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .swarm-bubble-micro[data-state="active"]::before {
+    animation: none 0s;
+  }
+}
+@media (min-width: 48rem) {
+  .swarm-children {
+    padding-inline-start: 16px; /* optical: specified agent-tree indentation at this breakpoint */
+  }
+}
+@media (min-width: 80rem) {
+  .swarm-children {
+    padding-inline-start: 24px; /* optical: specified agent-tree indentation at this breakpoint */
+  }
+  .swarm-board .swarm-lane {
+    grid-template-columns: minmax(0, 240px) minmax(0, 1fr);
+  }
+  .swarm-board .swarm-card-header {
+    grid-column: 1;
+    grid-row: 1 / span 3;
+    align-content: start;
+  }
+  .swarm-board .swarm-task-list,
+  .swarm-board .swarm-task-open,
+  .swarm-board .swarm-metadata {
+    grid-column: 2;
+  }
+  .swarm-board .swarm-children {
+    grid-column: 1 / -1;
+  }
+}
+/* Bound indentation on narrow displays even with very deep agent trees. */
+.swarm-children .swarm-children .swarm-children .swarm-children {
+  padding-inline-start: 0;
 }

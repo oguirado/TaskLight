@@ -122,9 +122,10 @@ describe("B3 views and navigation", () => {
   it("keeps ordered shortcuts, a roving tab stop and resolving panel relationships", () => {
     const { host } = mount();
     const buttons = qa<HTMLButtonElement>(host, ".navigation-panel button[data-nav]");
-    expect(buttons.map(button => button.dataset.nav)).toEqual(["wall", "agenda", "diary", "archive", "memory", "swarm"]);
-    expect(buttons.map(button => button.getAttribute("aria-keyshortcuts"))).toEqual(["1", "2", "3", "4", "5", "6"]);
-    const tabs = buttons.slice(0, 5);
+    // A-V1: Agents is first and the existing shortcuts stay attached to their destinations.
+    expect(buttons.map(button => button.dataset.nav)).toEqual(["swarm", "wall", "agenda", "diary", "archive", "memory"]);
+    expect(buttons.map(button => button.getAttribute("aria-keyshortcuts"))).toEqual(["6", "1", "2", "3", "4", "5"]);
+    const tabs = buttons.slice(1);
     expect(tabs.filter(button => button.tabIndex === 0)).toEqual([tabs[0]]);
     expect(host.querySelector("nav.nav")?.getAttribute("role")).toBeNull();
     expect(host.querySelector('[role="tablist"]')?.getAttribute("aria-orientation")).toBe("vertical");
@@ -137,9 +138,9 @@ describe("B3 views and navigation", () => {
       expect(panel.getAttribute("aria-labelledby")).toBe(button.id);
       expect(panel.hidden).toBe(button.dataset.nav !== "wall");
     }
-    expect(buttons[5]!.closest('[role="tablist"]')).toBeNull();
-    expect(buttons[5]!.getAttribute("aria-selected")).toBeNull();
-    expect(buttons[5]!.tabIndex).toBe(0);
+    expect(buttons[0]!.closest('[role="tablist"]')).toBeNull();
+    expect(buttons[0]!.getAttribute("aria-selected")).toBeNull();
+    expect(buttons[0]!.tabIndex).toBe(0);
   });
 
   // A-U152: each compact disclosure controls only its own complete navigation.
@@ -160,7 +161,8 @@ describe("B3 views and navigation", () => {
   // A-R40: restore five primary tabs and keep Swarm secondary, U138 M1.
   it("renders five primary nav buttons with data-nav, aria-keyshortcuts 1-5 and kbd.nav-key", () => {
     const { host } = mount();
-    const items = qa<HTMLButtonElement>(host, "nav.nav button.nav-item");
+    // A-V1: the five Wall destinations are now secondary tabs inside More.
+    const items = qa<HTMLButtonElement>(host, '[role="tablist"] button.nav-item');
     expect(items.map((b) => attr(b, "data-nav"))).toEqual(["wall", "agenda", "diary", "archive", "memory"]);
     expect(items.map((b) => attr(b, "aria-keyshortcuts"))).toEqual(["1", "2", "3", "4", "5"]);
     expect(items.map((b) => txt(q(b, "kbd.nav-key")))).toEqual(["1", "2", "3", "4", "5"]);

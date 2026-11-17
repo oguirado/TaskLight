@@ -21,7 +21,8 @@ class ContractAndReference(unittest.TestCase):
         for fn, names in ((reducer.apply_op_event, ("state", "event", "templates", "last_by_agent")),
                           (reducer.fold_plan, ("events", "templates"))):
             signature = inspect.signature(fn)
-            self.assertEqual(tuple(signature.parameters), names)
+            # A-C2c: private keyword-only hooks (leading underscore, SPEC_C2 inventory) are not public signature.
+            self.assertEqual(tuple(n for n in signature.parameters if not n.startswith("_")), names)
             for name in names:
                 if name in ("templates", "last_by_agent"):
                     self.assertIs(signature.parameters[name].kind, inspect.Parameter.KEYWORD_ONLY)

@@ -11,6 +11,7 @@ import sys
 from bridge.room import app
 from bridge.room import store
 from bridge.room.store import RoomError
+from bridge.wall.emit import sanitize_output
 
 
 def _home():
@@ -20,7 +21,9 @@ def _home():
     return None
 
 
-def _emit(obj):
+def _emit(obj, *, sanitized=False):
+    if not sanitized:
+        obj = sanitize_output(obj)
     sys.stdout.write(json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n")
     sys.stdout.flush()
 
@@ -29,7 +32,10 @@ def _refuse(code, detail=None):
     payload = {"ok": False, "code": code}
     if detail is not None:
         payload["detail"] = detail
-    _emit(payload)
+    try:
+        _emit(payload)
+    except Exception:
+        _emit({"ok": False, "code": "internal"}, sanitized=True)
     return 2
 
 
@@ -45,17 +51,23 @@ def _missing(room):
 
 class _JsonParser(argparse.ArgumentParser):
     def error(self, message):
+        message = sanitize_output(message)
         _emit({"ok": False, "code": "bad_args"})
         self.print_usage(sys.stderr)
         self.exit(2, f"{self.prog}: error: {message}\n")
 
 
 def main(argv=None):
+    argv = list(sys.argv[1:]) if argv is None else list(argv)
+    if argv and argv[0] == "run":
+        # A supervised command owns its streams and exit status; it must not
+        # enter the JSON response/error handling used by the room commands.
+        from bridge.room.ext.supervise import main as supervise
+        return supervise(argv[1:])
     try:
         pin = app.session_pin_from_env()
     except RoomError as e:
         return _refuse(e.code, str(e))
-    argv = list(sys.argv[1:]) if argv is None else argv
     if not argv:
         _emit({"ok": False, "code": "bad_args"})
         return 2
@@ -206,7 +218,9 @@ def main(argv=None):
             except Exception:
                 _emit({"ok": False, "code": "internal"})
                 return 3
-            _emit(payload)
+            # agents_list shares MCP dispatch and this read-time sanitizer.
+            # room_export already redacts before rendering Markdown.
+            _emit(payload, sanitized=(tool_name == "room_export"))
             return 0
         else:
             _emit({"ok": False, "code": "bad_args"})
@@ -218,7 +232,7 @@ def main(argv=None):
     except Exception:
         # Never crash with non-JSON; map to generic refusal.
         try:
-            _emit({"ok": False, "code": "bad_args"})
+            _emit({"ok": False, "code": "bad_args"}, sanitized=True)
         except Exception:
             pass
         return 2

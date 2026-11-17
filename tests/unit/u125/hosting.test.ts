@@ -138,6 +138,8 @@ describe("U125 hosted wiring and epoch-sensitive replay", () => {
   });
   it("A5 a gap-held refreshWall cannot hide a link-only disconnect or delete saved progress", async () => {
     const data = dataFixture(); data.open(); data.legacy(); await boot(data);
+    // A-V1: saved plan-title assertions below inspect the secondary Wall.
+    document.querySelector<HTMLButtonElement>('button[data-nav="wall"]')!.click();
     H.state = { kind: "linked", nonce: "session-a" }; await hello(); await synced();
     H.link!.onRoomGap!({ t: "room_gap", v: 1, room: "demo", from_lamport: 20, to_lamport: 21, reason: "sanitize_failed" });
     await flush(); expect(H.review.mock.calls.length).toBeGreaterThan(0);

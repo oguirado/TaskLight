@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
+import { firebaseConfigIsReal } from "./firebase_gate.mjs";
 
 const hostingRoot = dirname(fileURLToPath(import.meta.url));
 
@@ -12,7 +13,7 @@ const shippedConfig = readFileSync(
   join(hostingRoot, "..", "src", "app", "firebase-config.public.ts"),
   "utf8",
 );
-const firebaseReal = !shippedConfig.includes("PLACEHOLDER_");
+const firebaseReal = firebaseConfigIsReal(shippedConfig);
 
 // Root is the hosting directory so index.html stays the entry and dist is hosting/dist.
 // Cache lives inside hosting so builds never touch a shared read-only node_modules.

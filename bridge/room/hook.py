@@ -14,7 +14,8 @@ import sys
 _INPUT_MAX = 65536
 _SECONDS = 2.0
 _REQUIRED = {"event_id", "room", "agent", "state", "run_id"}
-_OPTIONAL = {"swarm": 128, "harness": 128, "reason": 512}
+_OPTIONAL = {"swarm": 128, "harness": 128, "reason": 512,
+             "parent_agent": 48, "parent_run_id": 64}
 _STATES = {"deployed", "alive", "finished", "failed"}
 
 

@@ -610,7 +610,10 @@ class RegressionOracle(BaseCase):
     def test_a7_missing_modules_skip_and_internal_dependency_propagates(self):
         from bridge.room import ext
         # A-U132c: retain U110 send and include U132 lifecycle and U119 acquire.
-        self.assertEqual(ext.EXT_MODULES, ("events", "activity", "export", "send", "lifecycle", "acquire"))
+        # A-C3c: retain the exact ordered inventory with the snapshot extension.
+        # A-C6: retain the exact module inventory with the stateless waiter.
+        self.assertEqual(ext.EXT_MODULES, ("events", "activity", "export", "send", "lifecycle", "acquire",
+                                           "orchestrator_snapshot", "waiter"))
         with patch.object(ext, "EXT_MODULES", ("u87_intentionally_missing",)):
             self.assertEqual(ext.load(), ext.EXT_TOOLS)
         real_import = importlib.import_module

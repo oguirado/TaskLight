@@ -137,7 +137,8 @@ class ContractCase(unittest.TestCase):
 class IdentityOracle(ContractCase):
     def test_01_initialize(self):
         r = self.result('initialize')
-        self.assertEqual(r['serverInfo'], {'name': 'tasklight', 'version': '0.2.0'})
+        # A-U163: Output redaction bumps the minor version; protocol stays fixed.
+        self.assertEqual(r['serverInfo'], {'name': 'tasklight', 'version': '0.3.0'})
         self.assertEqual(r['protocolVersion'], '2024-11-05')
         self.assertEqual(r['capabilities'], {'tools': {}, 'resources': {}, 'prompts': {}})
 

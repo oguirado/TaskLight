@@ -61,7 +61,10 @@ class Protocol(SendCase):
     def test_a1_repeated_load_and_send_reload_do_not_duplicate_tools(self):
         before = copy.deepcopy(app.list_tools())
         # A-U132c: lifecycle and U119 acquisition extend the ordered loader contract.
-        self.assertEqual(ext.EXT_MODULES, ("events", "activity", "export", "send", "lifecycle", "acquire"))
+        # A-C3c: retain the exact ordered inventory with the snapshot extension.
+        # A-C6: retain the exact module inventory with the stateless waiter.
+        self.assertEqual(ext.EXT_MODULES, ("events", "activity", "export", "send", "lifecycle", "acquire",
+                                           "orchestrator_snapshot", "waiter"))
         for _ in range(3):
             ext.load()
             importlib.reload(send)

@@ -123,7 +123,9 @@ class NextWorkOracle(unittest.TestCase):
         self.update("T04", state="blocked")
         # A-U109c: (a) only the assignee may complete a microtask, M3.
         self.tool("task_claim", room="demo", agent="owner", task_id="T05")
-        self.tool("microtask_set", room="demo", agent="owner", id="T05.M01", state="done")
+        # A-U164: completed required-evidence work references this exercised test.
+        self.tool("microtask_set", room="demo", agent="owner", id="T05.M01", state="done",
+                  evidence=[str(Path(__file__).resolve())])
         self.update("T06", state="cancelled")
         # A-U109c: (a) active work belongs to the querying owner; release resets it, M3/M5.
         self.tool("microtask_set", room="demo", agent="worker", id="T02.M02", state="active")
@@ -137,5 +139,7 @@ class NextWorkOracle(unittest.TestCase):
         self.create([task("downstream", deps=["prerequisite"]), task("free"), task("prerequisite")])
         # A-U109c: (a) completing the prerequisite requires a legitimate claim, M3.
         self.tool("task_claim", room="demo", agent="owner", task_id="T03")
-        self.tool("microtask_set", room="demo", agent="owner", id="T03.M01", state="done")
+        # A-U164: completed required-evidence work references this exercised test.
+        self.tool("microtask_set", room="demo", agent="owner", id="T03.M01", state="done",
+                  evidence=[str(Path(__file__).resolve())])
         self.assertEqual([m["id"] for m in self.next_work()], ["T02.M01", "T01.M01"])

@@ -187,13 +187,18 @@ export function checkConformance(proj: PlanProjection, template?: PlanningTempla
           const acc = t["accept"];
           if (typeof acc !== "string" || acc === "") add("missing_accept", `tasks.${tid}.accept`, `Missing accept for ${tid}`);
         }
-        if (tdef["evidence_required"] === true) {
+        if (t["state"] === "done" && tdef["evidence_required"] === true) {
           const micros = Array.isArray(t["microtasks"]) ? (t["microtasks"] as unknown[]) : [];
           for (const m of micros) {
             if (!m || typeof m !== "object") continue;
             const mr = m as Record<string, unknown>;
+            if (mr["state"] !== "done") continue;
             const ev = mr["evidence"];
-            if (!Array.isArray(ev) || ev.length === 0) {
+            const hasEvidence = Array.isArray(ev) && ev.some(item => {
+              const path = typeof item === "string" ? item : isPlainObjectExport(item) ? item["path"] : undefined;
+              return typeof path === "string" && path.trim().length > 0;
+            });
+            if (!hasEvidence) {
               const mid = typeof mr["id"] === "string" ? (mr["id"] as string) : "";
               add("missing_evidence", `tasks.${tid}.microtasks.${mid}.evidence`, `Missing evidence for ${mid}`);
             }
@@ -505,6 +510,13 @@ function applyOpInternal(
     const records = base.agent_lifecycle ?? {};
     const record = Object.prototype.hasOwnProperty.call(records, agent) ? records[agent] as AgentLifecycleRecord : undefined;
     if (kind === "agent.lifecycle") {
+      let parent = op["parent_agent"] as string | undefined;
+      const visited = new Set([agent]);
+      while (parent !== undefined) {
+        if (visited.has(parent)) return fail("bad_op", "lifecycle parent cycle");
+        visited.add(parent);
+        parent = Object.prototype.hasOwnProperty.call(records, parent) ? records[parent]?.parent_agent : undefined;
+      }
       const runId = op["run_id"] as string;
       const lifecycle = op["state"] as AgentLifecycle;
       const retired = record ? [...record.retired_run_ids] : [];
@@ -521,7 +533,7 @@ function applyOpInternal(
         noop = terminal || ts < record.ts || (record.last_alive_ts !== undefined && ts - record.last_alive_ts < 30000);
       } else if (lifecycle === "deployed" || terminal) {
         if (terminal && lifecycle !== record.lifecycle) return fail("not_conformant", detail + ": terminal run");
-        if (["swarm", "harness", "reason"].some(key => Object.prototype.hasOwnProperty.call(op, key) &&
+        if (["swarm", "harness", "reason", "parent_agent", "parent_run_id"].some(key => Object.prototype.hasOwnProperty.call(op, key) &&
             op[key] !== (record as unknown as Record<string, unknown>)[key])) {
           return fail("not_conformant", detail + ": conflicting repeat");
         }
@@ -542,7 +554,7 @@ function applyOpInternal(
         if (record && !retired.includes(record.run_id)) retired.push(record.run_id);
         next = { lifecycle, run_id: runId, deployed_ts: ts, ts, lamport, retired_run_ids: retired };
       }
-      for (const key of ["swarm", "harness", "reason"] as const) {
+      for (const key of ["swarm", "harness", "reason", "parent_agent", "parent_run_id"] as const) {
         if (Object.prototype.hasOwnProperty.call(op, key)) next[key] = op[key] as string;
       }
       if (lifecycle === "alive") next.last_alive_ts = ts;
@@ -943,6 +955,41 @@ export type PlanTemplateResolver = (templateId: string, templateHash: string) =>
 
 // A supplied template retains the original single-template contract. A resolver
 // selects templates at admitted generation boundaries within the same replay.
+// Replay provenance is derived, transient data: it never changes serialized
+// projections. Consumers can inspect admitted evidence without folding again.
+type InventoryEvidence = Readonly<{ admitted: ReadonlySet<string>; effective: ReadonlySet<string> }>;
+const inventoryEvidence = new WeakMap<PlanProjection, InventoryEvidence>();
+// The store defensively clones projections. A bounded content cache lets those
+// copies retain replay provenance without adding fields to legacy JSON. Source
+// event identities prevent an unrelated, similarly shaped room borrowing it.
+const inventoryCopies: { key: string; evidence: InventoryEvidence; sources: ReadonlyMap<string, string | undefined> }[] = [];
+function inventoryEventIdentity(event: unknown): string | undefined {
+  try {
+    return JSON.stringify(["id", "room", "agent", "lamport", "ts", "op"].map(key => safeField(event, key).value));
+  } catch { return undefined; }
+}
+export function inventoryEvidenceFor(projection: PlanProjection | null,
+  events?: readonly unknown[],
+): InventoryEvidence | undefined {
+  if (projection === null) return undefined;
+  const direct = inventoryEvidence.get(projection);
+  if (direct !== undefined) return direct;
+  const operations = events?.filter(event => safeField(event, "act").value === "op") ?? [];
+  if (operations.length === 0) return undefined;
+  try {
+    const key = JSON.stringify(projection);
+    for (let i = inventoryCopies.length - 1; i >= 0; i--) {
+      const copy = inventoryCopies[i]!;
+      if (copy.key === key && operations.every(event => {
+        const id = safeField(event, "id").value;
+        const identity = inventoryEventIdentity(event);
+        return typeof id === "string" && identity !== undefined && copy.sources.get(id) === identity;
+      })) return copy.evidence;
+    }
+  } catch { /* An uncached compatibility snapshot supplies only its own metadata. */ }
+  return undefined;
+}
+
 export function foldPlan(events: unknown, template?: PlanningTemplate | PlanTemplateResolver): PlanFoldResult {
   try {
     if (!Array.isArray(events)) {
@@ -1069,12 +1116,15 @@ export function foldPlan(events: unknown, template?: PlanningTemplate | PlanTemp
     // admitted. Explicit single-template callers keep their original context.
     let activeTemplate = typeof template === "function" ? undefined : template;
     const lastByAgent = new Map<string, number>();
+    const admitted = new Set<string>();
+    const effective = new Set<string>();
     for (const e of deduped) {
       const er = e.raw;
       const actG = safeField(er, "act");
       const act = actG.has ? actG.value : undefined;
       if (act !== "op") {
         safeUpdateActivity(lastByAgent, er);
+        admitted.add(e.id); effective.add(e.id);
         continue;
       }
       // Snapshot activity before apply
@@ -1109,6 +1159,13 @@ export function foldPlan(events: unknown, template?: PlanningTemplate | PlanTemp
       }
       if (result.ok) {
         state = result.projection;
+        admitted.add(e.id);
+        const kind = safeField(op, "kind").value;
+        const agent = safeField(er, "agent").value as string;
+        if (result.replayed !== true && (kind === "agent.lifecycle"
+          ? state.agent_lifecycle?.[agent]?.lamport === e.lamport
+          : kind !== "activity.beat" || state.tasks.some(task => task.microtasks.some(micro =>
+            micro.live?.beat_lamport === e.lamport && micro.live.agent === agent)))) effective.add(e.id);
         // Rejected and op_id-replayed openings cannot replace the admitted context.
         if (opening && result.replayed !== true) activeTemplate = eventTemplate;
         if ((result as { replayed?: boolean }).replayed === true) replayedN += 1;
@@ -1133,6 +1190,14 @@ export function foldPlan(events: unknown, template?: PlanningTemplate | PlanTemp
     if (state.agent_lifecycle && Object.keys(state.agent_lifecycle).length === 0) delete state.agent_lifecycle;
     // Final recompute to ensure derived fresh (preserves rejected/watermark)
     try { recompute(state); } catch { /* ignore */ }
+    const evidence = { admitted, effective };
+    inventoryEvidence.set(state, evidence);
+    try {
+      const sources = new Map(deduped.filter(event => safeField(event.raw, "act").value === "op")
+        .map(event => [event.id, inventoryEventIdentity(event.raw)]));
+      inventoryCopies.push({ key: JSON.stringify(state), evidence, sources });
+      if (inventoryCopies.length > 8) inventoryCopies.shift();
+    } catch { /* Provenance caching cannot change the canonical fold result. */ }
     return { projection: state, stats: { applied, replayed: replayedN, rejected: rejectedN, invalid, errors } };
   } catch {
     try { return { projection: emptyProjection(), stats: { applied: 0, replayed: 0, rejected: 0, invalid: 0, errors: [] } }; }

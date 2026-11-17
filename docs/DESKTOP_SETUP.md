@@ -94,6 +94,14 @@ The snippets below follow each client's documented MCP format at the time of wri
 claude mcp add tasklight -e CW_HOME=<cw-home> -- <python-executable> <repo>/bridge/room/mcp.py
 ```
 
+For automatic Claude Code session and sub-agent visibility, enable the
+[Claude Code native adapter](HARNESS_HOOKS.md#claude-code-native-adapter): run
+`python3 -m bridge.room.hook_claude_native --print-settings`, merge the emitted
+`hooks` into Claude Code's settings, and select a room with `TASKLIGHT_ROOM` or
+`.tasklight.json`, using the same `CW_HOME` as the wall. Lifecycle hooks create
+rooms as needed and hash native identities; prompts, tool input/output,
+transcript paths and assistant messages are never recorded.
+
 **Codex CLI** (`~/.codex/config.toml`):
 
 ```toml

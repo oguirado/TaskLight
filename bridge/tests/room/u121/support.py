@@ -122,8 +122,14 @@ class RoomCase(unittest.TestCase):
     def heartbeat(self, text="é progress"):
         return store.post(ROOM, AGENT, "heartbeat", text, home=self.home, clock=lambda: TS)
 
+    def completion_op(self):
+        # A-U164: capacity/replay fixtures complete work with real test evidence.
+        proof = Path(__file__).resolve()
+        return dict(kind="micro.set", micro_id="T01.M01", state="done", outcome="Verified",
+                    evidence=[{"path": str(proof), "sha256": hashlib.sha256(proof.read_bytes()).hexdigest()}])
+
     def completion(self):
-        return self.post(dict(kind="micro.set", micro_id="T01.M01", state="done", outcome="Verified"))
+        return self.post(self.completion_op())
 
     def refuse(self, call, code="bad_op", detail=None):
         before = self.snapshot()

@@ -332,7 +332,9 @@ class ProtocolOracle(CursorCase):
         reply, = self.rpc({"method": "tools/list"})
         tools = reply["result"]["tools"]
         # A-U132c: the integrated lifecycle and work tools are each discovered once.
-        for name in ("agent_lifecycle", "work_acquire", "work_report"):
+        # A-C3c: the snapshot tool is also discovered exactly once.
+        # A-C6: wait_agents is advertised exactly once alongside existing tools.
+        for name in ("agent_lifecycle", "work_acquire", "work_report", "orchestrator_snapshot", "wait_agents"):
             self.assertEqual(len([tool for tool in tools if tool["name"] == name]), 1)
         matches = [tool for tool in tools if tool["name"] == "room_events"]
         self.assertEqual(len(matches), 1)
@@ -356,7 +358,10 @@ class ProtocolOracle(CursorCase):
             self.assertEqual(props[name]["type"], "array")
             self.assertEqual(props[name]["items"]["type"], "string")
         # A-U132c: retain U110 send and include U132 lifecycle and U119 acquire.
-        self.assertEqual(ext.EXT_MODULES, ("events", "activity", "export", "send", "lifecycle", "acquire"))
+        # A-C3c: retain the exact ordered inventory with the snapshot extension.
+        # A-C6: retain the exact module inventory with the stateless waiter.
+        self.assertEqual(ext.EXT_MODULES, ("events", "activity", "export", "send", "lifecycle", "acquire",
+                                           "orchestrator_snapshot", "waiter"))
         ext.load()
         ext.load()
         self.assertEqual(len([t for t in ext.EXT_TOOLS if t["name"] == "room_events"]), 1)

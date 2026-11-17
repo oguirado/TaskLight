@@ -1,6 +1,9 @@
 """Harness-recorded lifecycle, serialized by the room journal's own lock."""
+import copy
+import importlib
 import json
 import os
+import re
 import secrets
 import tempfile
 
@@ -12,9 +15,99 @@ from bridge.plan.ops import LIFECYCLE_REASON_MAX, validate_op_shape
 from bridge.room import _lock, store
 
 
+RESULT_VERDICTS = ("ADMIT", "HOLD", "NO_PUDE", "OK", "FAIL")
+RESULT_SCHEMA = {
+    "type": "object", "additionalProperties": False,
+    "required": ["verdict"],
+    "properties": {
+        "verdict": {"type": "string", "enum": list(RESULT_VERDICTS)},
+        "summary": {"type": "string", "maxLength": 2000},
+        "receipt": {"type": "string", "maxLength": 512},
+        "evidence": {"type": "array", "maxItems": 32, "items": {
+            "type": "object", "additionalProperties": False,
+            "required": ["path", "sha256"], "properties": {
+                "path": {"type": "string", "maxLength": 512},
+                "sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"},
+            },
+        }},
+    },
+}
+
+
+def validate_result(value):
+    """Validate passive terminal data without applying the legacy op byte cap."""
+    def text(item, maximum):
+        return (isinstance(item, str) and len(item) <= maximum
+                and not any(0xd800 <= ord(ch) <= 0xdfff for ch in item))
+
+    if (not isinstance(value, dict)
+            or set(value) - {"verdict", "summary", "receipt", "evidence"}
+            or "verdict" not in value
+            or not isinstance(value["verdict"], str)
+            or value["verdict"] not in RESULT_VERDICTS
+            or ("summary" in value and not text(value["summary"], 2000))
+            or ("receipt" in value and not text(value["receipt"], 512))
+            or ("evidence" in value and (not isinstance(value["evidence"], list)
+                                        or len(value["evidence"]) > 32))):
+        raise PlanError("bad_args", "invalid lifecycle result")
+    for item in value.get("evidence", []):
+        if (not isinstance(item, dict) or set(item) != {"path", "sha256"}
+                or not text(item["path"], 512) or not isinstance(item["sha256"], str)
+                or re.fullmatch(r"[0-9a-fA-F]{64}", item["sha256"]) is None):
+            raise PlanError("bad_args", "invalid lifecycle result evidence")
+    return copy.deepcopy(value)
+
+
+# The planning modules are outside this extension's write surface. Adapt their
+# shared validator at the room extension seam, including its already imported
+# public aliases, so admission and journal replay use the identical contract.
+# Legacy operations delegate unchanged. Result size is bounded independently.
+from bridge import plan as _plan
+from bridge.plan import ops as _ops
+_fold = importlib.import_module("bridge.plan.fold")
+_legacy_validate_op_shape = getattr(validate_op_shape, "_legacy_validator", validate_op_shape)
+
+
+def validate_op_shape(op):
+    if not isinstance(op, dict) or op.get("kind") != "agent.lifecycle" or "result" not in op:
+        return _legacy_validate_op_shape(op)
+    if op.get("state") not in ("finished", "failed"):
+        raise PlanError("bad_args", "result requires a terminal lifecycle state")
+    result = validate_result(op["result"])
+    base = _legacy_validate_op_shape({key: value for key, value in op.items() if key != "result"})
+    base["result"] = result
+    return base
+
+
+validate_op_shape._legacy_validator = _legacy_validate_op_shape
+_ops.validate_op_shape = _plan.validate_op_shape = _fold.validate_op_shape = store.validate_op_shape = validate_op_shape
+
+
+# The store also enforces the legacy op byte cap while reading the journal.
+# Validate bounded result data separately, then reuse its complete envelope
+# checks on a detached legacy op. Never remove result bytes from stored events.
+_legacy_event_validator = getattr(store._is_valid_event, "_legacy_validator", store._is_valid_event)
+
+
+def _valid_result_event(event):
+    op = event.get("op") if isinstance(event, dict) else None
+    if not isinstance(op, dict) or op.get("kind") != "agent.lifecycle" or "result" not in op:
+        return _legacy_event_validator(event)
+    try:
+        validate_op_shape(op)
+    except (PlanError, ValueError, TypeError, RecursionError):
+        return False
+    base = {key: value for key, value in op.items() if key != "result"}
+    return _legacy_event_validator(dict(event, op=base))
+
+
+_valid_result_event._legacy_validator = _legacy_event_validator
+store._is_valid_event = _valid_result_event
+
+
 def agent_lifecycle(args: dict) -> dict:
     required = {"room", "agent", "state", "run_id"}
-    allowed = required | {"swarm", "harness", "reason", "op_id"}
+    allowed = required | {"swarm", "harness", "reason", "op_id", "parent_agent", "parent_run_id", "result"}
     if not isinstance(args, dict) or set(args) - allowed or not required <= set(args):
         raise store.RoomError("bad_args", "invalid lifecycle arguments")
     room, agent = args["room"], args["agent"]
@@ -178,12 +271,18 @@ register({
             "agent": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,47}$"},
             "state": {"type": "string", "enum": ["deployed", "alive", "finished", "failed"]},
             "run_id": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"},
+            "parent_agent": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,47}$"},
+            "parent_run_id": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"},
             "swarm": {"type": "string", "minLength": 1, "maxLength": TITLE_MAX},
             "harness": {"type": "string", "minLength": 1, "maxLength": TITLE_MAX},
             "reason": {"type": "string", "maxLength": LIFECYCLE_REASON_MAX},
             "op_id": {"type": "string", "pattern": "^[A-Za-z0-9_-]{8,64}$"},
+            "result": RESULT_SCHEMA,
         },
         "required": ["room", "agent", "state", "run_id"],
         "additionalProperties": False,
     },
 }, agent_lifecycle)
+
+# Inventory is the read companion to lifecycle, including for app-only callers.
+from . import inventory as _inventory

@@ -320,10 +320,12 @@ class Contract(unittest.TestCase):
         # A-U109c: (a) done, blocked and prerequisite writes all require claims, M3.
         for task_id in ('T01', 'T05', 'T06'):
             self.ok('task_claim', task_id=task_id)
-        self.ok('microtask_set', id='T05.M01', state='done')
+        # A-U164: readiness fixtures must supply evidence for completed work.
+        self.ok('microtask_set', id='T05.M01', state='done', evidence=[str(Path(__file__).resolve())])
         self.ok('microtask_set', id='T06.M01', state='blocked')
         self.assertEqual([m['id'] for m in self.ok('next_work')['items']], ['T01.M01'])
-        self.ok('microtask_set', id='T01.M01', state='done')
+        # A-U164: readiness fixtures must supply evidence for completed work.
+        self.ok('microtask_set', id='T01.M01', state='done', evidence=[str(Path(__file__).resolve())])
         self.assertEqual([m['id'] for m in self.ok('next_work')['items']], ['T02.M01'])
         self.assertEqual(self.ok('next_work', limit=0), {'items': []})
 

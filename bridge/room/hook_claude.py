@@ -1,6 +1,7 @@
 """Claude Code PostToolUse hook helper: mirrors todos into room plan/step."""
 
-# Route the explicit lifecycle entry before importing todo-only dependencies.
+# Route lifecycle (including optional parent fields) through the shared parser
+# before importing todo-only dependencies.
 import sys
 
 if __name__ == "__main__" and sys.argv[1:] == ["--lifecycle"]:

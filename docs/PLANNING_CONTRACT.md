@@ -8,6 +8,8 @@ The contract governs the lifecycle of the active plan and the project memory sto
 
 ## 2. Roles and authority order
 
+MCP, CLI and Markdown exports redact free text with the Wall's shared rules at read time; the owner's journal stays raw and event identities, revisions and replay remain unchanged.
+
 ### 2.1 Roles
 
 - **Human operator:** Defines goals, issues binding rulings, answers blocking questions, fixes priority conflicts, and approves external or sensitive actions.
@@ -41,7 +43,7 @@ All v2 payloads arrive wrapped in `{"untrusted": payload}` and passive-data fenc
 
 1. **Granularity (MUST):** Plans MUST respect the template's `granularity` (for `autonomous-software`: at most 40 tasks, 2 to 8 microtasks per task). Each microtask is one verifiable outcome (`text` <= 80 chars, `accept` <= 160 chars). Concurrent tasks MUST declare write-disjoint file surfaces.
 2. **Checkable acceptance criteria and fail-first oracles (MUST):** Every task and microtask MUST define a concrete, testable `accept` criterion. Under `autonomous-software`, agents MUST author automated tests in the `oracle` phase and observe them failing before writing product code in `build`.
-3. **Evidence on completion (MUST):** Calling `microtask_set` to mark a microtask `done` MUST include 1 to 8 real absolute file paths in `evidence` (pointing to modified code, test files, or saved check logs). Agents MUST NOT invent paths, claim unrun checks passed, or weaken failing assertions.
+3. **Evidence on completion (MUST):** For template task types with `evidence_required: true`, new writes marking a microtask `done` MUST provide real file-path `evidence` or retain usable evidence already stored on that same microtask. Empty arrays, empty strings and whitespace-only paths do not count. Optional-evidence types are unchanged. MCP `0.3.0` enforces this under the write lock after replay lookup, including batches, evidence removal on done work, retyping and removing overrides that expose completion. Rejection returns `missing_evidence` with `Evidence required to complete <micro_id>.`, or `template_unavailable` if the plan template cannot be resolved, without changing the journal, revisions or Lamport. Historical folds and admitted retry receipts remain unchanged; `plan_check` still diagnoses historical missing evidence on completed tasks' completed microtasks. Agents MUST NOT invent paths, claim unrun checks passed, or weaken failing assertions.
 4. **Acyclic dependencies (MUST):** Task `deps[]` (maximum 8 per task) MUST form a directed acyclic graph (`dep_cycle` errors MUST be cleared). A dependency is satisfied only when its target task is `done` or `cancelled`.
 5. **Single owner per task (MUST):** Each task has at most one assignee. Agents MUST call `task_claim` before modifying files on a task's surface. `task_update` updates state (`blocked`, `cancelled`, or `null`), `reason`, and `estimate`, and NEVER assigns ownership.
 6. **Takeover etiquette (MUST):** If `task_claim` fails with `claimed_by_other`, an agent MUST NOT force a takeover until the current assignee has been silent for more than 600,000 ms. Before calling `task_claim` with `takeover: true`, the agent MUST inspect `read_inbox` and post a takeover notice via `post_status`.

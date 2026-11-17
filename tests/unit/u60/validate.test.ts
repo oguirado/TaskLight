@@ -76,7 +76,8 @@ describe("T2 conformance diagnostics outside projection", () => {
     ["micro count below minimum", p => ({...p, tasks: p.tasks.map(t => ({...t, microtasks: []}))})],
     ["micro count above template maximum", p => p],
     ["required accept", p => ({...p, tasks: p.tasks.map(t => ({...t, accept: ""}))})],
-    ["required evidence", p => ({...p, tasks: p.tasks.map(t => ({...t, microtasks: t.microtasks.map(m => ({...m, evidence: []}))}))})],
+    // A-U164: missing evidence diagnoses completed tasks' completed microtasks.
+    ["required evidence", p => ({...p, tasks: p.tasks.map(t => ({...t, state: "done", microtasks: t.microtasks.map(m => ({...m, state: "done", evidence: []}))}))})],
     ["unknown plan phase", p => ({...p, plan: {...p.plan!, phase: "unknown"}})],
     ["unknown task phase", p => ({...p, tasks: p.tasks.map(t => ({...t, phase: "unknown"}))})],
     ["unknown type", p => ({...p, tasks: p.tasks.map(t => ({...t, type: "unknown"}))})],

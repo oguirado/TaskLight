@@ -18,6 +18,7 @@ import time
 try:
     from bridge.plan import apply_op_event, check_conformance, fold_plan, validate_op_shape
     from bridge.plan.errors import PlanError
+    from bridge.plan.conformance import completion_candidates, has_evidence
 except Exception:  # pragma: no cover
     apply_op_event = fold_plan = validate_op_shape = check_conformance = None
     PlanError = Exception
@@ -727,6 +728,30 @@ def _tpl_kw(home=None, templates=None, needed=(), *, strict=False):
     return {"templates": runtime}
 
 
+def _admit_completion_evidence(before, after, op, *, templates=None, home=None):
+    """Check a new operation under the writer lock, after receipt lookup.
+
+    This is deliberately separate from the reducer: historical completions and
+    their receipts keep their original meaning, including invalid evidence.
+    """
+    candidates = completion_candidates(before, after, op)
+    if not candidates:
+        return
+    plan = after.get("plan") or {}
+    available = _load_templates(home) if templates is None else templates
+    template = available.get(plan.get("template_id"))
+    if (not isinstance(template, dict)
+            or template.get("hash") != plan.get("template_hash")):
+        raise RoomError("template_unavailable", "Completion template unavailable.")
+    types = {item["id"]: item for item in template.get("task_types", [])}
+    for task, micro in candidates:
+        definition = types.get(task.get("type"))
+        if definition is None:
+            raise RoomError("template_unavailable", "Completion task type unavailable.")
+        if definition.get("evidence_required") is True and not has_evidence(micro.get("evidence")):
+            raise RoomError("missing_evidence", "Evidence required to complete " + micro["id"] + ".")
+
+
 def _plan_template_ids(events):
     ids = []
     for e in events or []:
@@ -1152,7 +1177,9 @@ def post(room, agent, act, text, *, re=None, to=None, evidence=(), plan=None, st
                 try:
                     state = fold_plan(parsed, **tpl_kw)
                     last_by = _op_max_activity(parsed)
-                    apply_op_event(state, event, last_by_agent=last_by, **tpl_kw)
+                    candidate, _ = apply_op_event(state, event, last_by_agent=last_by, **tpl_kw)
+                    _admit_completion_evidence(state, candidate, op,
+                                               templates=tpl_kw.get("templates"), home=home)
                 except RoomError:
                     raise
                 except Exception as e:
@@ -1306,7 +1333,15 @@ def post_ops(room, agent, ops, *, strict=False, home=None, clock=None, templates
             for o in ops:
                 if o.get("kind") == "plan.open" and isinstance(o.get("template_id"), str):
                     needed.append(o["template_id"])
-            tpl_kw = _tpl_kw(home, templates, needed, strict=strict)
+            try:
+                tpl_kw = _tpl_kw(home, templates, needed, strict=strict)
+            except RoomError as exc:
+                if not strict or exc.code != "unknown_template":
+                    raise
+                # Simulate only: a completion must report template_unavailable
+                # before strict conformance's generic unknown_template error.
+                # Non-completion batches still fail the strict gate below.
+                tpl_kw = {}
             prior_state = fold_plan(parsed, **tpl_kw)
             if admit is not None:
                 admit(prior_state)
@@ -1507,7 +1542,10 @@ def post_ops(room, agent, ops, *, strict=False, home=None, clock=None, templates
                     "op": cand,
                 }
                 try:
-                    state, _ = apply_op_event(copy.deepcopy(state), cand_event, last_by_agent=last_by, **tpl_kw)
+                    candidate, _ = apply_op_event(copy.deepcopy(state), cand_event, last_by_agent=last_by, **tpl_kw)
+                    _admit_completion_evidence(state, candidate, cand,
+                                               templates=tpl_kw.get("templates"), home=home)
+                    state = candidate
                 except RoomError:
                     raise
                 except Exception as e:

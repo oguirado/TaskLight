@@ -62,6 +62,12 @@ describe("M2/A1 live discovery documentation", () => {
   });
 
   it("documents the complete discovered inventory including registered extensions", () => {
+    // A-C3c: include the snapshot tool exactly once and link its contract guide.
+    expect(live.tools.filter((tool: { name: string }) => tool.name === "orchestrator_snapshot")).toHaveLength(1);
+    expect(text("docs/MCP.md")).toContain("[Orchestrator snapshots](ORCHESTRATOR.md)");
+    // A-C6: include the waiter exactly once and link its dedicated contract guide.
+    expect(live.tools.filter((tool: { name: string }) => tool.name === "wait_agents")).toHaveLength(1);
+    expect(text("docs/MCP.md")).toContain("[Waiting for agent results](WAIT_AGENTS.md)");
     const missing = live.tools.map((tool: { name: string }) => tool.name)
       .filter((name: string) => !text("docs/MCP.md").includes(name));
     expect(missing).toEqual([]);

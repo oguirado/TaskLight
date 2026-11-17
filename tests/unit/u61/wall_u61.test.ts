@@ -35,7 +35,8 @@ function latest(): ExtendedVM { expect(mount.vms.length).toBeGreaterThan(0); ret
 describe("O11 wall integration with fake renderer and clock ports", () => {
   it("O11 reads store.plans and sends v2 and legacy content to mountWall", async () => {
     const h = setup(); legacyEvents().forEach(e => h.store.ingest(e));
-    wall = startAgentWall(h.deps); await settle();
+    // A-V1: workspace filtering is a Wall assertion; select that secondary view explicitly.
+    wall = startAgentWall({ ...h.deps, initialView: "wall" }); await settle();
     expect(h.getPlans).toHaveBeenCalled(); expect(latest().plan?.title).toBe("Plan");
     // A-U91c: U91 M7 workspace isolation — the wall shows the displayed workspace ("oracle"); the "legacy" room's tasks stay in their own workspace.
     expect(latest().tasks.map(t => t.title)).toEqual(expect.arrayContaining(["Action"]));

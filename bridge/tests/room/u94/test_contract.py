@@ -83,7 +83,8 @@ with patch.object(socket, 'socket', side_effect=AssertionError('network forbidde
                     self.assertEqual(node.level, 1)
                     self.assertIn(node.module, (None,))
                 elif node.module and node.module.startswith("bridge"):
-                    self.assertTrue(node.module in ("bridge.room", "bridge.room.store", "bridge.room.ext")
+                    # A-U163: exports apply the Wall's shared sanitizer (SPEC_U163 M1), imported from bridge.wall.emit.
+                    self.assertTrue(node.module in ("bridge.room", "bridge.room.store", "bridge.room.ext", "bridge.wall.emit")
                                     or node.module.startswith("bridge.plan"))
                     if node.module == "bridge.room":
                         self.assertEqual({a.name for a in node.names}, {"store"})

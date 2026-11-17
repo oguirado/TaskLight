@@ -8,6 +8,24 @@ described in [MCP](MCP.md) under the rules in
 shared plans and coarse microtasks. Room storage is local to the host; model
 access remains subject to room privacy policy.
 
+
+## Required completion evidence (0.3.0)
+
+When a template task type has `evidence_required: true`, new writes must leave
+usable evidence on each microtask they complete. Submitted or already stored
+evidence on that microtask counts; empty lists and blank paths do not. Retyping
+completed or partly completed work, clearing evidence on done microtasks and
+removing overrides that expose completion follow the same admission rule.
+Optional-evidence types are unaffected.
+
+Single and batch writes are checked under the journal write lock after replay
+lookup. Rejection returns `missing_evidence` with
+`Evidence required to complete <micro_id>.`, or `template_unavailable` when the
+plan template cannot be resolved, and leaves the journal, revisions and Lamport
+unchanged. Historical events and exact admitted retries keep their original
+meaning. `plan_check` diagnoses completed tasks' completed microtasks; the
+browser does not reject historical completions. This ships in MCP `0.3.0`.
+
 ## Planning templates (`planning-template/v1`)
 
 A planning template is a JSON document with version field `v` validated

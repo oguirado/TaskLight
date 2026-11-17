@@ -102,7 +102,8 @@ function fixture() {
     vi.clearAllTimers();
   });
   const start = (extra: Partial<AgentWallDeps> = {}) => {
-    wall = startAgentWall({ wallHost, chatHost, store: f.store, clock: testClock, userAgent: "wall-user",
+    // A-V1: preserve the Wall-specific read-port assertions under an explicit view.
+    wall = startAgentWall({ initialView: "wall", wallHost, chatHost, store: f.store, clock: testClock, userAgent: "wall-user",
       link: {
         post: () => probe.run("link.post", async () => ({ ok: true as const, id: "e-000000000000ffff", lamport: 1 })),
         state: () => probe.run("link.state", () => ({ kind: "linked" as const, nonce: "fixture" })),

@@ -89,7 +89,9 @@ for key, value in (("id", []), ("outcome", 1), ("outcome", None), ("took", 1), (
     report_case("wrong_type_" + key + "_" + type(value).__name__, nested(key, value), "bad_args")
 report_case("oversized_outcome", nested("outcome", "x" * (OUTCOME_MAX + 1)), "limit_exceeded")
 report_case("oversized_took", nested("took", "x" * (TOOK_MAX + 1)), "limit_exceeded")
-for name, value in (("empty_evidence", []), ("null_evidence", None), ("object_evidence", {}),
+# A-U164r1: empty completion evidence reaches required-evidence admission.
+report_case("empty_evidence", nested("evidence", []), "missing_evidence")
+for name, value in (("null_evidence", None), ("object_evidence", {}),
                     ("tuple_evidence", ()),
                     ("string_evidence", "proof.txt"), ("relative_evidence", ["proof.txt"]),
                     ("traversal_evidence", ["../x"]), ("number_evidence", [7]),

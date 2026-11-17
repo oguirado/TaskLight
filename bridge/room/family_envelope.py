@@ -139,10 +139,14 @@ def validate(raw, endpoint, filename_id):
     if kind == "capabilities":
         _require(not payload, "invalid capabilities payload")
     elif kind in LIFECYCLE:
-        _require(not set(payload) - {"swarm", "harness", "reason"},
+        _require(not set(payload) - {"swarm", "harness", "reason", "parent_agent", "parent_run_id"},
                  "invalid lifecycle payload")
         _require(all(isinstance(item, str) for item in payload.values()),
                  "invalid lifecycle payload")
+        if "parent_agent" in payload:
+            _identity(payload["parent_agent"], store._check_agent)
+        if "parent_run_id" in payload:
+            _require(_name(payload["parent_run_id"], RUN_RE), "invalid parent run identity")
     elif kind == "events.read":
         _require("after" in value, "missing cursor")
         _require(not set(payload) - {"limit", "acts", "ops"}, "invalid read payload")
