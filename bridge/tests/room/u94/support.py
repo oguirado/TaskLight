@@ -101,7 +101,9 @@ class Case(unittest.TestCase):
         self.stack.enter_context(patch.dict(os.environ, {"CW_HOME": str(self.home),
                                                          "HOME": str(self.tmp / "user")}))
         self.stack.enter_context(patch.object(time, "time", return_value=BASE_TS / 1000))
-        self.stack.enter_context(patch.object(time, "sleep", side_effect=AssertionError("sleep forbidden")))
+        # Scope the prohibition to the store, preserving subprocess.wait's clock.
+        store_clock = self.stack.enter_context(patch.object(store, "time", wraps=time))
+        store_clock.sleep.side_effect = AssertionError("sleep forbidden")
         self.stack.enter_context(patch.object(socket, "socket", side_effect=AssertionError("network forbidden")))
 
     def seed(self, values=None, tail=b""):

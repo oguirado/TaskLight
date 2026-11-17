@@ -211,3 +211,74 @@ zero and empty stdout. Only the explicit `--print-settings` mode prints JSON;
 it does not read stdin or require a room. A successful process exit alone does
 not prove persistence. Native hooks report observed events; a missing hook or
 an unobserved crash does not establish completion.
+
+## Codex native adapter
+
+Install TaskLight in the Python environment used by Codex, or make `bridge`
+importable from every project in which the hook runs. Select the room with
+`TASKLIGHT_ROOM=demo` in Codex's environment, or a `.tasklight.json` containing
+`{"room":"demo"}` in the project. Discovery checks the payload's `cwd` and up
+to seven parents. The nearest configuration is authoritative, including when
+invalid; an invalid explicit environment selection also has no fallback. Set
+`CW_HOME` to the configuration root used by the MCP server and wall. The shared
+lifecycle handler creates the room on first use; no plan is needed.
+
+Generate the Codex `hooks.json` document with:
+
+```sh
+python3 -m bridge.room.hook_codex_native --print-settings
+```
+
+Merge its `hooks` object into user `~/.codex/hooks.json` or trusted project
+`.codex/hooks.json`, preserving existing hooks. The command only prints settings;
+it neither reads stdin nor installs configuration. Non-managed hooks require
+hash-specific review and trust through `/hooks`; changing a hook invalidates
+that trust. Automation that independently vets its hooks can use
+`--dangerously-bypass-hook-trust` for that invocation. Project trust is a
+separate requirement. Commands run in the session's working directory, so the
+same Python environment must be able to import TaskLight there.
+
+| Codex event | Lifecycle |
+| --- | --- |
+| `SessionStart` | Session `deployed` |
+| `SessionEnd` | Session `finished`, retaining reason `other` when present |
+| `SubagentStart` | Sub-agent `deployed`, linked to the session |
+| `SubagentStop` | Sub-agent `finished` |
+| `Stop` | Session `alive`; the session remains open |
+| `Interrupt` | Session `alive`; the session remains open |
+| `UserPromptSubmit`, `PreToolUse` | Acting agent `alive`, throttled together |
+
+`PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact` and unknown
+events are ignored, including child `PreCompact` events. Generated handlers
+are asynchronous with timeout 10 seconds, except `SessionEnd` and `Interrupt`,
+which are synchronous with timeout 3 seconds and omit `async`. No matcher is
+needed. A `SessionEnd` reason of `other` records an observed session end; it
+does not establish successful task completion.
+
+Sessions use harness `codex`, agent `cx-` plus the first ten SHA-256 hex
+characters of `session_id`, and run `cx-` plus the first sixteen. Child agents
+use the normalized `agent_type` prefix (up to 24 lowercase ASCII letters,
+digits and hyphens, with `agent` as fallback) followed by the first eight digest
+characters of `agent_id`. Child runs are `cx-` plus the first sixteen child
+digest characters, a hyphen, and the first ten session digest characters.
+`SubagentStart` includes `parent_agent` and `parent_run_id` for that session.
+On prompt and pre-tool events, a present `agent_id` identifies the child even
+when `agent_type` is omitted. Locked runtime metadata retains the child's first
+successfully registered identity across later missing or changed type metadata.
+
+Prompt/tool heartbeats share one dispatch per agent/run per 15 seconds in each
+room. The timestamp advances only after a successful lifecycle receipt;
+`Stop` and `Interrupt` bypass this adapter throttle. The shared lifecycle
+handler's existing alive journal throttle still applies. Runtime files contain
+only the hashed identity and heartbeat timestamp. Native IDs, prompts, tool
+inputs or outputs, model, transcript paths and `cwd` never enter room records.
+Only hashed identities, state, harness, parent links and the allowed reason
+cross the existing lifecycle dispatch boundary; the adapter never opens or
+appends the room journal itself.
+
+The adapter accepts at most 65,536 UTF-8 JSON bytes, including whitespace.
+Malformed input, duplicate keys, non-finite constants, invalid identities,
+missing configuration and storage failures return silently with exit status
+zero and empty stdout/stderr. Only `--print-settings` prints output. Exit status
+alone does not prove persistence: check the agent inventory independently.
+Missing hooks and unobserved crashes do not establish completion.

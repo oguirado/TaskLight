@@ -1,7 +1,7 @@
 import type {
   PlanningTemplate, PlanProjection, PlanTask, TaskStatus, PlanConformance,
   PlanApplyResult, PlanFoldResult, PlanOpEvent, PlanOpErrorCode, PlanMicrotask,
-  AgentLifecycle, AgentLifecycleRecord,
+  AgentLifecycle, AgentLifecycleRecord, UnitDecision,
 } from "./types";
 import { PLAN_LIMITS, AGENT_RE } from "./limits";
 import { opEventErrorCode, isPlainObjectExport, isJsonSafe, collectionHasDangerous, safeField, hasDangerousOwnKey } from "./validate";
@@ -32,6 +32,19 @@ function cloneDeep<T>(v: T): T {
     }
   }
   return out as T;
+}
+
+// Operation retries compare JSON values independently of object key order.
+function sameJson(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return Array.isArray(a) && Array.isArray(b) && a.length === b.length
+      && a.every((value, i) => sameJson(value, b[i]));
+  }
+  const left = a as Record<string, unknown>, right = b as Record<string, unknown>;
+  return Object.keys(left).length === Object.keys(right).length
+    && Object.keys(left).every(key => Object.prototype.hasOwnProperty.call(right, key) && sameJson(left[key], right[key]));
 }
 
 // Keep the optional empty default available to readers without changing
@@ -487,10 +500,10 @@ function applyOpInternal(
   const replayKey = opId === undefined ? undefined : JSON.stringify([agent, opId]);
   if (replayKey !== undefined && Object.prototype.hasOwnProperty.call(base.replayed_ops, replayKey)) {
     const cached = base.replayed_ops[replayKey] as Record<string, unknown>;
-    if (kind === "agent.lifecycle" || safeField(cached, "kind").value === "agent.lifecycle") {
-      const stored = safeField(cached, "op").value as Record<string, unknown> | undefined;
-      if (!stored || Object.keys(stored).length !== Object.keys(op).length ||
-          !Object.keys(op).every(key => Object.prototype.hasOwnProperty.call(stored, key) && stored[key] === op[key])) {
+    if (kind === "agent.lifecycle" || kind === "unit.decision"
+      || ["agent.lifecycle", "unit.decision"].includes(safeField(cached, "kind").value as string)) {
+      const stored = safeField(cached, "op").value;
+      if (!stored || !sameJson(stored, op)) {
         return { ok: false, code: "bad_op", detail: "op_id conflict", projection: base };
       }
     }
@@ -691,6 +704,31 @@ function applyOpInternal(
       if (opId !== undefined) (base.replayed_ops as Record<string, unknown>)[JSON.stringify([agent, opId])] = { kind, op_id: opId };
       return { ok: true, projection: base, replayed: false };
     }
+    if (kind === "unit.decision") {
+      const task = base.tasks.find(task => task.id === op["task_id"]);
+      if (!task) return fail("bad_op", "unknown decision task");
+      if (Object.prototype.hasOwnProperty.call(op, "micro_id")
+        && !task.microtasks.some(micro => micro.id === op["micro_id"])) return fail("bad_op", "unknown decision microtask");
+      const resultAgent = op["result_agent"] ?? op["agent"];
+      const resultRunId = op["result_run_id"] ?? op["run_id"];
+      if (resultAgent !== undefined) {
+        const found = Object.entries(base.replayed_ops).some(([key, value]) => {
+          const receipt = value as Record<string, unknown>;
+          if (receipt["kind"] !== "agent.lifecycle" || receipt["noop"]) return false;
+          const source = receipt["op"] as Record<string, unknown> | undefined;
+          return source !== undefined && source["run_id"] === resultRunId
+            && (source["state"] === "finished" || source["state"] === "failed")
+            && Object.prototype.hasOwnProperty.call(source, "result") && JSON.parse(key)[0] === resultAgent;
+        });
+        if (!found) return fail("bad_op", "unknown result reference");
+      }
+      const decision = { ...cloneDeep(op), lamport } as unknown as UnitDecision;
+      // Replace nested containers so prior projections and rollback stay intact.
+      const updated = { ...task, decisions: [...(task.decisions ?? []), decision].slice(-PLAN_LIMITS.DECISION_HISTORY_MAX), last_decision: decision };
+      base.tasks = base.tasks.map(task => task.id === updated.id ? updated : task);
+      if (replayKey !== undefined) (base.replayed_ops as Record<string, unknown>)[replayKey] = { kind, op_id: opId, op: cloneDeep(op) };
+      return { ok: true, projection: base, replayed: false };
+    }
     if (kind === "task.add") {
       if (Object.prototype.hasOwnProperty.call(op, "base_rev") && (op["base_rev"] as number) !== (plan["rev"] as number)) return fail("stale_rev");
       if (template !== undefined) {
@@ -744,7 +782,10 @@ function applyOpInternal(
       const task = findTask(tasks, op["task_id"] as string);
       if (!task) return fail("not_found");
       if ((op["base_rev"] as number) !== (task["rev"] as number)) return fail("stale_rev", "stale task rev");
-      if (op["state"] === "cancelled" && task["assignee"] != null && task["assignee"] !== agent) return fail("claimed_by_other", "claimed");
+      if (op["state"] === "cancelled" && task["assignee"] != null && task["assignee"] !== agent) {
+        const owner = base.agent_lifecycle?.[task["assignee"] as string];
+        if (owner?.lifecycle !== "finished" && owner?.lifecycle !== "failed") return fail("claimed_by_other", "claimed");
+      }
       if (template !== undefined && Object.prototype.hasOwnProperty.call(op, "phase")) {
         const pids = phaseIdsFor(template);
         if (pids && !pids.has(op["phase"] as string)) return fail("bad_op");

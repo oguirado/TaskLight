@@ -8,6 +8,7 @@ from .limits import (
     ACCEPT_MAX,
     AGENT_RE,
     DEPS_MAX,
+    DECISION_PATH_MAX,
     ESTIMATE_MAX,
     EVIDENCE_MAX,
     MICRO_ID_RE,
@@ -31,6 +32,64 @@ _SAFE_MAX = 9007199254740991
 _RUN_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 LIFECYCLE_REASON_MAX = 512
 LIFECYCLE_STATES = frozenset({"deployed", "alive", "finished", "failed"})
+RESULT_VERDICTS = ("ADMIT", "HOLD", "NO_PUDE", "OK", "FAIL")
+
+
+def validate_result(value):
+    """Validate passive terminal data without applying the legacy op byte cap."""
+    def text(item, maximum):
+        return (isinstance(item, str) and len(item) <= maximum
+                and not any(0xd800 <= ord(ch) <= 0xdfff for ch in item))
+
+    def fail(message):
+        raise PlanError("bad_args", message)
+
+    if not isinstance(value, dict):
+        fail("result must be object")
+    if set(value) - {"verdict", "summary", "receipt", "evidence"}:
+        fail("result contains unknown args; allowed: verdict, summary, receipt, evidence")
+    if "verdict" not in value:
+        fail("result.verdict is required")
+    if not isinstance(value["verdict"], str) or value["verdict"] not in RESULT_VERDICTS:
+        fail("result.verdict must be ADMIT, HOLD, NO_PUDE, OK or FAIL")
+    for key, maximum in (("summary", 2000), ("receipt", 512)):
+        if key in value and not text(value[key], maximum):
+            fail(f"result.{key} must be a valid UTF-8 string of 0-{maximum} chars")
+    if "evidence" in value and (not isinstance(value["evidence"], list) or len(value["evidence"]) > 32):
+        fail("result.evidence must be an array of 0-32 entries")
+    for index, item in enumerate(value.get("evidence", [])):
+        label = f"result.evidence[{index}]"
+        if not isinstance(item, dict) or set(item) != {"path", "sha256"}:
+            fail(label + " must be object with only required keys path, sha256")
+        if not text(item["path"], 512):
+            fail(label + ".path must be a valid UTF-8 string of 0-512 chars")
+        if not isinstance(item["sha256"], str) or re.fullmatch(r"[0-9a-fA-F]{64}", item["sha256"]) is None:
+            fail(label + ".sha256 must be 64 hexadecimal chars")
+    return copy.deepcopy(value)
+
+
+
+def check_arguments(args, allowed, required=(), *, code="bad_args", label="args",
+                    error=PlanError, redact_name=None):
+    """Validate structural arguments without echoing rejected values or pointers."""
+    if not isinstance(args, dict):
+        raise error(code, label + " must be object")
+    for key in args:
+        if key not in allowed:
+            name = "(unsafe name omitted)"
+            if isinstance(key, str):
+                if re.fullmatch(r"[a-z][a-z0-9_]{0,31}", key):
+                    name = repr(key)
+                elif redact_name is not None:
+                    # Keep established sanitizer markers, never surrounding data.
+                    scrubbed = redact_name(key)
+                    if isinstance(scrubbed, str) and re.fullmatch(
+                            r"[a-z][a-z0-9_]{0,31}=\[REDACTED:[A-Z_]{1,32}\]", scrubbed):
+                        name = repr(scrubbed)
+            raise error(code, label + " contains unknown arg " + name)
+    missing = [key for key in required if key not in args]
+    if missing:
+        raise error(code, label + " required keys: " + ", ".join(sorted(missing)))
 
 
 def _bad(msg: str = "") -> PlanError:
@@ -90,11 +149,11 @@ def _check_slug(s):
         raise _bad("slug format")
 
 
-def _check_str_len(s, lo: int, hi: int):
+def _check_str_len(s, lo: int, hi: int, name="string"):
     if not isinstance(s, str):
-        raise _bad("string type")
+        raise _bad(f"{name} must be a string of {lo}-{hi} chars")
     if not (lo <= len(s) <= hi):
-        raise _bad("string length")
+        raise _bad(f"{name} must be {lo}-{hi} chars")
 
 
 def _check_base_rev(v, lo: int):
@@ -108,13 +167,14 @@ def _check_op_id(op: dict):
     if "op_id" in op:
         v = op["op_id"]
         if not isinstance(v, str) or OP_ID_RE.fullmatch(v) is None:
-            raise _bad("op_id")
+            raise _bad("op_id must be 8-64 chars of A-Z a-z 0-9 _ -")
 
 
 def _check_unknown(op: dict, allowed):
     for k in op.keys():
         if k not in allowed:
-            raise _bad(f"unknown key {k!r}")
+            name = repr(k) if re.fullmatch(r"[a-z][a-z0-9_]{0,31}", k) else "(unsafe name omitted)"
+            raise _bad("unknown key " + name)
 
 
 def _canonical_bytes(op: dict) -> int:
@@ -126,6 +186,15 @@ def _canonical_bytes(op: dict) -> int:
 
 
 def validate_op_shape(op: object) -> dict:
+    # Terminal results have their own limits; preserve the legacy byte cap
+    # and error precedence for the remaining operation envelope.
+    if isinstance(op, dict) and op.get("kind") == "agent.lifecycle" and "result" in op:
+        if op.get("state") not in ("finished", "failed"):
+            raise PlanError("bad_args", "result requires state finished or failed")
+        result = validate_result(op["result"])
+        base = validate_op_shape({key: value for key, value in op.items() if key != "result"})
+        base["result"] = result
+        return base
     if not isinstance(op, dict):
         raise _bad("op must be object")
     _check_json_safe(op)
@@ -163,6 +232,43 @@ def validate_op_shape(op: object) -> dict:
                 raise _bad(f"{key} controls or surrogate")
             if key != "reason" and not any(not (ch.isspace() or ch == "\ufeff") for ch in value):
                 raise _bad(f"{key} blank")
+
+    elif kind == "unit.decision":
+        _check_unknown(op, {"kind", "op_id", "task_id", "micro_id", "verdict", "reason",
+                            "evidence", "agent", "run_id", "result_agent", "result_run_id"})
+        for req in ("op_id", "task_id", "verdict", "reason"):
+            if req not in op:
+                raise _bad(f"{req} is required")
+        if not isinstance(op["task_id"], str) or TASK_ID_RE.fullmatch(op["task_id"]) is None:
+            raise _bad("task_id must be T01-T40")
+        if "micro_id" in op and (not isinstance(op["micro_id"], str)
+                or MICRO_ID_RE.fullmatch(op["micro_id"]) is None):
+            raise _bad("micro_id must be T01-T40 followed by .M01-.M12")
+        if not isinstance(op["verdict"], str) or op["verdict"] not in ("ADMIT", "HOLD", "REJECT"):
+            raise _bad("verdict must be ADMIT, HOLD or REJECT")
+        _check_str_len(op["reason"], 1, REASON_MAX, "reason")
+        if any(key in op for key in ("agent", "run_id")) and any(
+                key in op for key in ("result_agent", "result_run_id")):
+            raise _bad("run_id cannot be combined with result_agent or result_run_id")
+        for agent_key, run_key in (("agent", "run_id"), ("result_agent", "result_run_id")):
+            if (agent_key in op) != (run_key in op):
+                raise _bad(f"{agent_key} and {run_key} must occur together")
+            if agent_key in op:
+                if not isinstance(op[agent_key], str) or AGENT_RE.fullmatch(op[agent_key]) is None:
+                    raise _bad(f"{agent_key} must be 1-48 chars of a-z 0-9 . _ -; first char a-z or 0-9")
+                if not isinstance(op[run_key], str) or _RUN_ID_RE.fullmatch(op[run_key]) is None:
+                    raise _bad(f"{run_key} must be 1-64 chars of A-Z a-z 0-9 _ -")
+        if "evidence" in op:
+            evidence = op["evidence"]
+            if not isinstance(evidence, list) or not 1 <= len(evidence) <= EVIDENCE_MAX:
+                raise _bad("evidence must be an array of 1-8 entries")
+            for index, item in enumerate(evidence):
+                label = f"evidence[{index}]"
+                if not isinstance(item, dict) or set(item) != {"path", "sha256"}:
+                    raise _bad(label + " must be object with only required keys path, sha256")
+                _check_str_len(item["path"], 1, DECISION_PATH_MAX, label + ".path")
+                if not isinstance(item["sha256"], str) or SHA256_RE.fullmatch(item["sha256"]) is None:
+                    raise _bad(label + ".sha256 must be 64 lowercase hex chars")
 
     elif kind == "activity.beat":
         _check_unknown(op, {"kind", "task_id", "micro_id", "run_id", "note", "op_id"})

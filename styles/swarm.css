@@ -587,3 +587,30 @@
 .swarm-children .swarm-children .swarm-children .swarm-children {
   padding-inline-start: 0;
 }
+
+/* Result and decision verdicts remain readable without colour. */
+.swarm-result {
+  padding: var(--sp-2) var(--sp-3);
+}
+.swarm-verdict {
+  display: inline-block;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  padding: var(--sp-1) var(--sp-2);
+  font-weight: var(--fw-semibold);
+}
+.swarm-verdict[data-verdict="ADMIT"],
+.swarm-verdict[data-verdict="OK"] {
+  background-color: var(--c-st-done);
+  color: var(--c-text-1);
+}
+.swarm-verdict[data-verdict="HOLD"],
+.swarm-verdict[data-verdict="NO_PUDE"],
+.swarm-verdict[data-verdict="FAIL"],
+.swarm-verdict[data-verdict="REJECT"] {
+  border-style: dashed;
+}
+.swarm-result-summary {
+  color: var(--c-text-2);
+  overflow-wrap: anywhere;
+}

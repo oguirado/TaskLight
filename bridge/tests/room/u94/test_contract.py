@@ -34,7 +34,7 @@ class Discovery(Case):
             for field in required:
                 self.assertEqual(schema["properties"][field]["type"], "string")
             if name == "room_export":
-                self.assertEqual(set(schema["properties"]["what"]["enum"]), {"plan", "memory"})
+                self.assertEqual(set(schema["properties"]["what"]["enum"]), {"plan", "memory", "integration"})  # A-C7: new tool unit_decide
             else:
                 limit = schema["properties"]["limit"]
                 self.assertEqual((limit["type"], limit["minimum"], limit["maximum"], limit["default"]),
@@ -73,6 +73,16 @@ with patch.object(socket, 'socket', side_effect=AssertionError('network forbidde
             if fence is not None:
                 self.assertNotIn('expected_opened_lamport', actual['inputSchema'].get('required', []))
                 self.assertEqual((fence.get('type'), fence.get('minimum')), ('integer', 1))
+            # A-C9: re-pin only the clarified plan metadata and optional template envelope.
+            tool = copy.deepcopy(tool)
+            if tool["name"] in ("list_templates", "get_template"):
+                tool["inputSchema"]["properties"].update(room={"type": "string"}, agent={"type": "string"})
+            if tool["name"] == "plan_create":
+                tool["description"] = ("Create a plan from a template; tasks is a list of objects with required key, title, type and phase. "
+                                       "plan_get returns a list of task records with id; callers can key by task id. Success returns created: true, plan_id, opened_lamport and conformance, "
+                                       "even with findings. strict rejection keeps its error code and says created: false in detail.")
+            if tool["name"] == "plan_get":
+                tool["description"] = "Read the active plan projection; tasks is a list of records with id, which callers can key by task id. plan_create takes tasks as a list with required key."
             self.assertEqual(actual, tool)
 
     def test_m1_extension_import_boundary(self):

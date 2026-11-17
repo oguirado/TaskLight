@@ -373,7 +373,7 @@ export function validateTemplate(raw: unknown):
 const OP_KINDS: ReadonlySet<string> = new Set([
   "plan.open", "plan.close", "plan.phase",
   "task.add", "task.set", "task.claim", "task.release",
-  "micro.add", "micro.set", "memory.set", "activity.beat", "agent.lifecycle",
+  "micro.add", "micro.set", "memory.set", "activity.beat", "agent.lifecycle", "unit.decision",
 ]);
 
 function strLenCheck(v: unknown, lo: number, hi: number): PlanOpErrorCode | null {
@@ -464,6 +464,31 @@ export function validateOpShapeCode(op: Record<string, unknown>): PlanOpErrorCod
           if (point < 0x20 || (point >= 0x7f && point <= 0x9f) || (point >= 0xd800 && point <= 0xdfff)) return "bad_op";
         }
         if (key !== "reason" && !(value as string).trim()) return "bad_op";
+      }
+      return null;
+    }
+    if (kind === "unit.decision") {
+      const e = unknown(new Set(["kind", "op_id", "task_id", "micro_id", "verdict", "reason", "evidence", "agent", "run_id", "result_agent", "result_run_id"]));
+      if (e) return e;
+      if (!fullMatch(OP_ID_RE, op["op_id"]) || !fullMatch(TASK_ID_RE, op["task_id"])) return "bad_op";
+      if (hasOwn(op, "micro_id") && !fullMatch(MICRO_ID_RE, op["micro_id"])) return "bad_op";
+      if (typeof op["verdict"] !== "string" || !["ADMIT", "HOLD", "REJECT"].includes(op["verdict"])) return "bad_op";
+      const reason = strLenCheck(op["reason"], 1, PLAN_LIMITS.DECISION_REASON_MAX); if (reason) return reason;
+      if ((hasOwn(op, "agent") || hasOwn(op, "run_id"))
+        && (hasOwn(op, "result_agent") || hasOwn(op, "result_run_id"))) return "bad_op";
+      for (const [agentKey, runKey] of [["agent", "run_id"], ["result_agent", "result_run_id"]] as const) {
+        if (hasOwn(op, agentKey) !== hasOwn(op, runKey)) return "bad_op";
+        if (hasOwn(op, agentKey) && (!fullMatch(AGENT_RE, op[agentKey])
+          || !fullMatch(/^[A-Za-z0-9_-]{1,64}$/, op[runKey]))) return "bad_op";
+      }
+      if (hasOwn(op, "evidence")) {
+        const evidence = op["evidence"];
+        if (!Array.isArray(evidence) || evidence.length < 1 || evidence.length > PLAN_LIMITS.MICRO_EVIDENCE_MAX) return "bad_op";
+        for (const item of evidence) {
+          if (!isPlainObject(item) || Object.keys(item).length !== 2 || !hasOwn(item, "path") || !hasOwn(item, "sha256")) return "bad_op";
+          const path = strLenCheck(item["path"], 1, PLAN_LIMITS.DECISION_PATH_MAX); if (path) return path;
+          if (!fullMatch(SHA256_RE, item["sha256"])) return "bad_op";
+        }
       }
       return null;
     }

@@ -26,8 +26,15 @@ class DiscoveryOracle(FutureCase):
         self.assertEqual(set(payload), {"tools"})
         baseline = json.loads((APP.parent.parent / "tests/room/u87/expected.json").read_text())["_tools"]
         core = [t for t in payload["tools"] if t["name"] in TOOLS]
+        # A-C9: pin the clarified creation-status and task-shape descriptions.
+        descriptions = {
+            "plan_create": ("Create a plan from a template; tasks is a list of objects with required key, title, type and phase. "
+                            "plan_get returns a list of task records with id; callers can key by task id. Success returns created: true, plan_id, opened_lamport and conformance, "
+                            "even with findings. strict rejection keeps its error code and says created: false in detail."),
+            "plan_get": "Read the active plan projection; tasks is a list of records with id, which callers can key by task id. plan_create takes tasks as a list with required key.",
+        }
         self.assertEqual([(t["name"], t["description"]) for t in core],
-                         [(t["name"], t["description"]) for t in baseline])
+                         [(t["name"], descriptions.get(t["name"], t["description"])) for t in baseline])
         self.assertEqual(core[:6], baseline[:6], "legacy descriptors must remain exact")
         self.assertTrue(raw.endswith("\n"))
         self.assertEqual(tree_bytes(self.home), before)
@@ -158,6 +165,8 @@ class ParityOracle(FutureCase):
                 json.dumps(event, sort_keys=True, separators=(",", ":"),
                            ensure_ascii=False) + "\n" for event in events)
         self.assertEqual(list(pending), [])
+        if name == "plan_create":  # A-C9: creation reply now pins explicit status and the original plan fence.
+            expected["payload"]["untrusted"].update(created=True, opened_lamport=1)
         self.assertEqual(outcomes[0][1], expected["payload"], "pre-U87 successful payload changed")
         self.assertEqual({p: b.decode() for p, b in journals[0].items()}, expected["journals"],
                          "pre-U87 committed journal changed")
@@ -613,7 +622,7 @@ class RegressionOracle(BaseCase):
         # A-C3c: retain the exact ordered inventory with the snapshot extension.
         # A-C6: retain the exact module inventory with the stateless waiter.
         self.assertEqual(ext.EXT_MODULES, ("events", "activity", "export", "send", "lifecycle", "acquire",
-                                           "orchestrator_snapshot", "waiter"))
+                                           "orchestrator_snapshot", "waiter", "decision"))  # A-C7: new tool unit_decide
         with patch.object(ext, "EXT_MODULES", ("u87_intentionally_missing",)):
             self.assertEqual(ext.load(), ext.EXT_TOOLS)
         real_import = importlib.import_module

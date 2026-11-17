@@ -1,4 +1,4 @@
-import type { AgentLifecycleRecord, PlanMicrotask, PlanProjection, PlanTask } from "../plan/types";
+import type { AgentLifecycleRecord, AgentResult, PlanMicrotask, PlanProjection, PlanTask } from "../plan/types";
 import type { RoomEvent } from "../agents/types";
 import { deriveActivity } from "./activity";
 import { inventoryEvidenceFor } from "../plan/reducer";
@@ -16,6 +16,8 @@ type LifecycleProjection = PlanProjection & Readonly<{
 export type AgentInventoryState = "working" | "waiting" | "idle" | "registered" | "finished" | "failed" | "unknown";
 export type AgentInventoryRow = Readonly<{
   agent: string; state: AgentInventoryState; run_id: string | null; harness: string | null;
+  last_result?: Readonly<{ verdict: AgentResult["verdict"]; summary: string | null; receipt: string | null;
+    evidence?: readonly { path: string; sha256: string }[] }> | null;
   parent: Readonly<{ agent: string; run_id: string | null }> | null;
   children: readonly string[]; last_seen_lamport: number | null; last_seen_ts: number | null;
   current: Readonly<{ task_id: string; micro_id: string | null }> | null;
@@ -213,6 +215,7 @@ function deriveInventory(input: Parameters<typeof deriveSwarmViewModel>[0],
   const first = new Map<string, number>();
   const last = new Map<string, { lamport: number; ts: number }>();
   const deployments = new Map<string, number>();
+  const results = new Map<string, { run_id: string; result: AgentResult }>();
   const beats = new Map<string, { run_id: string; ts: number }>();
   const rejected = new Set(input.projection?.rejected.map(event => event.id) ?? []);
   const member = (agent: unknown, lamport: number, compatibility = false) => {
@@ -254,7 +257,14 @@ function deriveInventory(input: Parameters<typeof deriveSwarmViewModel>[0],
       if (op?.["kind"] === "agent.lifecycle" || op?.["kind"] === "task.claim") member(agent, lamport);
       if (op?.["kind"] === "task.add") member(op["assignee"], lamport);
     }
-    if (op?.["kind"] === "agent.lifecycle" && op["state"] === "deployed") deployments.set(agent, lamport);
+    if (op?.["kind"] === "agent.lifecycle") {
+      if (op["state"] === "deployed") {
+        deployments.set(agent, lamport);
+        results.delete(agent);
+      } else if ((op["state"] === "finished" || op["state"] === "failed") && op["result"] !== undefined) {
+        results.set(agent, { run_id: op["run_id"] as string, result: op["result"] as AgentResult });
+      }
+    }
     if (op?.["kind"] === "activity.beat" && typeof op["run_id"] === "string") {
       beats.set(agent, { run_id: op["run_id"], ts });
     }
@@ -306,7 +316,14 @@ function deriveInventory(input: Parameters<typeof deriveSwarmViewModel>[0],
       const expiry = Math.min(ts, evidenceTs) + FRESHNESS_MS + 1;
       if (Number.isFinite(expiry) && (refreshAt === null || expiry < refreshAt)) refreshAt = expiry;
     }
-    rows.set(agent, { agent, state, run_id: runId, harness: record?.harness ?? null,
+    const source = results.get(agent);
+    const result = source?.run_id === runId ? source.result : undefined;
+    const lastResult: AgentInventoryRow["last_result"] = result ? {
+      verdict: result.verdict, summary: result.summary === undefined ? null : Array.from(result.summary).slice(0, 200).join(""),
+      receipt: result.receipt ?? null,
+      ...(result.evidence === undefined ? {} : { evidence: result.evidence.slice(0, 8).map(item => ({ ...item })) }),
+    } : null;
+    rows.set(agent, { agent, state, run_id: runId, harness: record?.harness ?? null, last_result: lastResult,
       parent: record?.parent_agent === undefined ? null
         : { agent: record.parent_agent, run_id: record.parent_run_id ?? null }, children: [],
       last_seen_lamport: lamport, last_seen_ts: ts,

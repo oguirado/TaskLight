@@ -18,7 +18,9 @@ The child writes its result JSON before exiting. The supervisor reads the file
 after exit and attaches a valid result to `finished` or `failed`. Result files
 may contain at most 65,536 bytes, including JSON whitespace; the reader checks
 one extra byte to detect overflow before decoding UTF-8 or parsing JSON.
-A missing, invalid, or oversized file produces one stderr diagnostic; it does
+Only regular files are accepted; FIFOs and other non-regular files are
+rejected without waiting for a writer. A missing, invalid, non-regular, or
+oversized file produces one stderr diagnostic; it does
 not prevent the terminal event or change the child's exit code. Without
 `--result-file`, behavior is
 unchanged. Child output, command arguments, and environment stay outside the
@@ -70,8 +72,9 @@ between calls are returned by the next call using the previous cursor.
 
 Arguments are `{room, agents?, parent?, states?, since_lamport?, timeout_s?}`.
 Only `room` is required; unknown keys are rejected. `agents` is an exact list of
-agent slugs, `parent` selects direct children, and filters intersect. Empty
-`agents` or `states` arrays match nothing. `states` defaults to
+agent slugs, `parent` selects direct children, and filters intersect. Explicitly
+empty `agents` or `states` arrays are rejected immediately with `bad_args` on
+both MCP and CLI. Omit the filter to use its default. `states` defaults to
 `["finished", "failed"]`; explicit states may also include `deployed` and `alive`.
 `since_lamport` defaults to zero and is an exclusive nonnegative safe integer.
 `timeout_s` defaults to 60 seconds, with an inclusive range of 1 through 600.
@@ -83,6 +86,16 @@ The parent link is `{agent, run_id}` or null and includes metadata inherited
 from deployment. The cursor covers the journal snapshot inspected by that call,
 including nonmatching events. Journal read errors fail rather than appearing as
 a healthy empty room.
+
+## Journal replay cost
+
+The waiter reads and folds the full journal on every observed journal change,
+including unrelated chat and activity events. Replay sorts, deduplicates, and
+visits the journal's events, so busy, large rooms incur repeated snapshot work.
+An unchanged journal stamp avoids another read and fold. No lifecycle-only
+shortcut is applied: activity and operation admission can influence later
+lifecycle replay. Matching rows and the cursor continue to describe the same
+journal snapshot.
 
 ## Terminal result
 

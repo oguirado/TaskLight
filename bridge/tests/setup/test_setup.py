@@ -493,7 +493,7 @@ class SetupOracle(unittest.TestCase):
         self.assertEqual(command[2:], ['--config', 'tools/demo/vite.demo.config.ts',
                                      '--host', '127.0.0.1', '--port', '5173', '--strictPort'])
         self.assertEqual((Path(kw.get('cwd', self.cwd)) / command[1]).resolve(),
-                         REPO / 'node_modules/vite/bin/vite.js')
+                         (REPO / 'node_modules/vite/bin/vite.js').resolve())  # A-DEBT: bridge/tasklight_setup.py:903 launches the Vite entry point through node_modules; compare canonical paths on both sides.
         self.assertEqual(kw['env']['VITE_EXTENSION_ORIGINS'], 'chrome-extension://' + DEV_ID)
         self.assertTrue(self.probes)
 

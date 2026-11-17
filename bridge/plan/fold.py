@@ -4,7 +4,7 @@ import math
 from typing import Iterable, Mapping
 
 from .errors import PlanError
-from .limits import AGENT_RE
+from .limits import AGENT_RE, DECISION_HISTORY_MAX
 from .ops import validate_op_shape
 
 _SAFE_MAX = 9007199254740991
@@ -358,7 +358,7 @@ def _apply_op_event(new, event, op, *, templates=None, last_by_agent=None):
         replay_key = json.dumps([agent, op_id], separators=(",", ":"))
         if replay_key in new.get("replayed_ops", {}):
             cached = copy.deepcopy(new["replayed_ops"][replay_key])
-            if kind == "agent.lifecycle" or (isinstance(cached, dict) and cached.get("kind") == "agent.lifecycle"):
+            if kind in ("agent.lifecycle", "unit.decision") or (isinstance(cached, dict) and cached.get("kind") in ("agent.lifecycle", "unit.decision")):
                 if not isinstance(cached, dict) or cached.get("op") != op:
                     raise PlanError("bad_op", "op_id conflict")
             # Update last_lamport for replayed
@@ -524,6 +524,35 @@ def _apply_op_event(new, event, op, *, templates=None, last_by_agent=None):
         result = {"kind": kind, "op_id": op_id}
         _recompute(new)
 
+    elif kind == "unit.decision":
+        require_active()
+        task = _find_task(new, op["task_id"])
+        if task is None:
+            raise PlanError("bad_op", "unknown decision task")
+        if "micro_id" in op and not any(m["id"] == op["micro_id"] for m in task["microtasks"]):
+            raise PlanError("bad_op", "unknown decision microtask")
+        result_agent = op.get("result_agent", op.get("agent"))
+        result_run_id = op.get("result_run_id", op.get("run_id"))
+        if result_agent is not None:
+            # Resolve any admitted terminal result, including a previous run.
+            # Replay receipts are durable and retain the original lifecycle op.
+            found = False
+            for key, receipt in new["replayed_ops"].items():
+                if not isinstance(receipt, dict) or receipt.get("kind") != "agent.lifecycle" or receipt.get("noop"):
+                    continue
+                source = receipt.get("op", {})
+                if (source.get("run_id") == result_run_id
+                        and source.get("state") in ("finished", "failed") and "result" in source
+                        and json.loads(key)[0] == result_agent):
+                    found = True
+                    break
+            if not found:
+                raise PlanError("bad_op", "unknown result reference")
+        decision = dict(copy.deepcopy(op), lamport=lamport)
+        _set(new, task, "decisions", (task.get("decisions", []) + [decision])[-DECISION_HISTORY_MAX:])
+        _set(new, task, "last_decision", decision)
+        result = {"kind": kind, "op_id": op_id, "op": copy.deepcopy(op)}
+
     elif kind == "task.add":
         act = require_active()
         if "base_rev" in op and op["base_rev"] != act.get("rev"):
@@ -600,7 +629,9 @@ def _apply_op_event(new, event, op, *, templates=None, last_by_agent=None):
         if op["base_rev"] != task.get("rev"):
             raise PlanError("stale_rev", "stale task rev")
         if op.get("state") == "cancelled" and task.get("assignee") not in (None, agent):
-            raise PlanError("claimed_by_other", "claimed")
+            owner = new.get("agent_lifecycle", {}).get(task["assignee"], {})
+            if owner.get("lifecycle") not in ("finished", "failed"):
+                raise PlanError("claimed_by_other", "claimed")
         tpl = _template_for_plan(new, templates)
         if tpl is not None and "phase" in op:
             _check_phase_in_template(op["phase"], tpl)

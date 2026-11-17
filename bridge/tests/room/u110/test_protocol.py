@@ -64,7 +64,7 @@ class Protocol(SendCase):
         # A-C3c: retain the exact ordered inventory with the snapshot extension.
         # A-C6: retain the exact module inventory with the stateless waiter.
         self.assertEqual(ext.EXT_MODULES, ("events", "activity", "export", "send", "lifecycle", "acquire",
-                                           "orchestrator_snapshot", "waiter"))
+                                           "orchestrator_snapshot", "waiter", "decision"))  # A-C7: new tool unit_decide
         for _ in range(3):
             ext.load()
             importlib.reload(send)

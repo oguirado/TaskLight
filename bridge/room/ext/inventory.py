@@ -1,7 +1,9 @@
 """Read-only agent inventory, independent of the presence of a plan."""
 import math
+import os
 import re
 
+from bridge.plan.ops import check_arguments
 from bridge.plan.fold import fold_plan
 from bridge.plan.limits import AGENT_RE
 from bridge.room import store
@@ -149,6 +151,8 @@ def derive_inventory(room, events, now, *, templates=None, connected=True):
                         "summary": summary[:200] if isinstance(summary, str) else None,
                         "receipt": result.get("receipt")}
                        if result is not None and result_run == run_id else None)
+        if last_result is not None and "evidence" in result:
+            last_result["evidence"] = [dict(item) for item in result["evidence"][:8]]
         rows[agent] = {
             "agent": agent, "state": state, "run_id": run_id,
             "harness": record.get("harness"), "last_result": last_result,
@@ -188,14 +192,19 @@ def derive_inventory(room, events, now, *, templates=None, connected=True):
 
 
 def agents_list(args):
-    if (not isinstance(args, dict) or "room" not in args
-            or set(args) - {"room", "now"}):
-        raise store.RoomError("bad_args", "room and optional now required")
+    check_arguments(args, {"room", "now"}, ("room",), error=store.RoomError)
     store._check_room(args["room"])
     now = args.get("now", store.time.time() * 1000)
     if not _number(now):
         raise store.RoomError("bad_args", "now must be finite nonnegative epoch milliseconds")
-    events, malformed = store.read(args["room"])
+    try:
+        os.stat(store._room_dir(None, args["room"]))
+    except FileNotFoundError:
+        # Preserve the empty inventory of a room that has never been created.
+        return derive_inventory(args["room"], [], now)
+    except OSError:
+        raise store.RoomError("room_read_failed", "Room data could not be read.") from None
+    events, malformed = store.read_checked(args["room"])
     return derive_inventory(args["room"], events, now, connected=not malformed,
                             **store._tpl_kw(needed=store._plan_template_ids(events)))
 

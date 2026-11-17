@@ -1,4 +1,5 @@
 """Typed messages for harness-to-agent and agent-to-agent coordination."""
+from bridge.plan.ops import check_arguments
 from bridge.room import store
 from bridge.room.ext import EXT_DISPATCH, register
 
@@ -41,13 +42,11 @@ TOOL = {
 
 def room_send(args: dict) -> dict:
     """Validate a typed coordination request and return its durable receipt."""
-    if not isinstance(args, dict):
-        raise store.RoomError("bad_args", "args must be object")
     schema = TOOL["inputSchema"]
-    if set(args) - set(schema["properties"]) or set(schema["required"]) - set(args):
-        raise store.RoomError("bad_args", "unknown or missing fields")
-    if any(key in args and args[key] is None for key in ("re", "evidence", "op_id")):
-        raise store.RoomError("bad_args", "optional fields cannot be null")
+    check_arguments(args, schema["properties"], schema["required"], error=store.RoomError)
+    for key in ("re", "evidence", "op_id"):
+        if key in args and args[key] is None:
+            raise store.RoomError("bad_args", key + " must be omitted instead of null")
     store._check_room(args["room"])
     store._check_agent(args["agent"])
     store._check_agent(args["to"])

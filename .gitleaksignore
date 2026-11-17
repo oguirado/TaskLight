@@ -5,3 +5,5 @@ c28aa27464ac43b3ccdead6a6e201e6fdb4e157c:tests/unit/u08/helpers.ts:jwt:13
 c28aa27464ac43b3ccdead6a6e201e6fdb4e157c:tests/unit/u22/harness.ts:generic-api-key:9
 # sha256 digest in a test fixture beginning with "eaaa" matches the square-access-token rule; not a secret
 410ff2976a3a1006af885b4307551af716922d5e:bridge/tests/plan/u122/reference.json:square-access-token:10
+3a946ee62beacfb7de598640078af4ac87f398ae:bridge/tests/room/u163q/test_evidence_scope.py:generic-api-key:18
+3a946ee62beacfb7de598640078af4ac87f398ae:bridge/tests/room/u163/test_invariants.py:jwt:287

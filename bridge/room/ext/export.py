@@ -1,8 +1,10 @@
 """U94: room export and memory history tools plus fd-safe file exporter."""
 import errno
+import json
 import os
 import secrets
 import stat
+from bridge.plan.ops import check_arguments
 from collections import deque
 from contextlib import contextmanager
 
@@ -26,10 +28,8 @@ def _check_keys(args, allowed, required):
         _bad("args must be object")
     for key in required:
         if key not in args:
-            _bad("missing %s" % key)
-    for key in args:
-        if key not in allowed:
-            _bad("unknown key %r" % (key,))
+            _bad("%s is required" % key)
+    check_arguments(args, allowed, error=store.RoomError)
 
 
 def _check_room_agent(args):
@@ -37,25 +37,103 @@ def _check_room_agent(args):
     store._check_agent(args.get("agent"))
 
 
-def _read_events(room):
+def _legacy_result_event(event):
+    # Read compatibility is confined to an export snapshot; neither admission
+    # nor the owner journal changes when an old optional summary is discarded.
+    op = event.get("op") if isinstance(event, dict) else None
+    result = op.get("result") if isinstance(op, dict) else None
+    if (isinstance(op, dict) and op.get("kind") == "agent.lifecycle"
+            and op.get("state") in ("finished", "failed")
+            and isinstance(result, dict) and "summary" in result
+            and not isinstance(result["summary"], str)):
+        result = {key: value for key, value in result.items() if key != "summary"}
+        return {**event, "op": {**op, "result": result}}
+    return event
+
+
+def _read_events(room, *, legacy_results=False):
     try:
-        events, _malformed = store.read(room)
+        events, malformed = store.read(room)
+        if legacy_results and malformed:
+            # The normal reader excludes malformed records before the fold.
+            # Revalidate legacy summaries while retaining its torn-tail rule
+            # and all other event and operation validation.
+            with open(store._events_path(None, room), "rb") as stream:
+                data = stream.read()
+            events = []
+            for raw in data.split(b"\n")[:-1]:
+                try:
+                    event = _legacy_result_event(json.loads(raw.decode("utf-8")))
+                except (UnicodeError, ValueError, RecursionError):
+                    continue
+                if isinstance(event, dict) and store._is_valid_event(event):
+                    events.append(event)
+    except (FileNotFoundError, NotADirectoryError, IsADirectoryError):
+        return []
     except OSError as exc:
         _fail(exc)
     return events
+
+
+def _integration(events):
+    compatible = [_legacy_result_event(event) for event in events]
+    rows = []
+
+    def observe(event, state, disposition):
+        if (event.get("act") != "op" or disposition is None
+                or any(disposition.get(key) for key in ("replayed", "noop", "ignored"))):
+            return
+        op = event["op"]
+        if (op["kind"] == "agent.lifecycle" and op["state"] in ("finished", "failed")
+                and "result" in op):
+            result = op["result"]
+            rows.append({"kind": "Result", "lamport": event["lamport"],
+                         "agent": event["agent"], "run_id": op["run_id"], "state": op["state"],
+                         "verdict": result["verdict"],
+                         "summary": result.get("summary") if isinstance(result.get("summary"), str) else "",
+                         "receipt": result.get("receipt", "")})
+        elif op["kind"] == "unit.decision":
+            task = next(task for task in state["tasks"] if task["id"] == op["task_id"])
+            micro = next((m["text"] for m in task["microtasks"] if m["id"] == op.get("micro_id")), "")
+            rows.append({"kind": "Decision", "lamport": event["lamport"],
+                         "title": task["title"], "micro": micro, "verdict": op["verdict"],
+                         "reason": op["reason"], "evidence_count": len(op.get("evidence", [])),
+                         "agent": op.get("result_agent", op.get("agent", "")),
+                         "run_id": op.get("result_run_id", op.get("run_id", ""))})
+
+    projection = fold_plan(compatible, _observe=observe)
+    # Sanitize structured fields before Markdown assembly so protocol pointers
+    # keep the same treatment as lifecycle results. Failures propagate here,
+    # outside the fold observer's rejection handling.
+    rows = sanitize_output(rows)
+    lines = ["# Integration log", ""]
+    for row in rows:
+        # Redact complete fields before truncation can hide a secret suffix.
+        if row["kind"] == "Result":
+            row["summary"] = row["summary"][:200]
+        # Each admitted record occupies one line with escaped cell delimiters.
+        values = (" ".join(str(value).splitlines()).replace("\\", "\\\\").replace("|", "\\|")
+                  for value in row.values())
+        lines.append("- " + " | ".join(values))
+    if not rows:
+        lines.append("No results or decisions yet.")
+    return {"format": "markdown", "text": "\n".join(lines) + "\n",
+            "rev": projection["last_lamport"]}
 
 
 def room_export(args: dict) -> dict:
     if isinstance(args, dict):
         for key in ("room", "agent", "what"):
             if key not in args:
-                _bad("missing %s" % key)
+                _bad("%s is required" % key)
         _check_room_agent(args)
     _check_keys(args, _EXPORT_ALLOWED, ("room", "agent", "what"))
     what = args["what"]
-    if what != "plan" and what != "memory":
-        _bad("invalid what")
-    events = _read_events(args["room"])
+    if what not in ("plan", "memory", "integration"):
+        _bad("what must be plan, memory or integration")
+    events = _read_events(args["room"], legacy_results=what == "integration")
+    if what == "integration":
+        return _integration(events)
     projection = sanitize_output(fold_plan(events))
     if what == "plan":
         text = render_plan_md(projection)
@@ -105,16 +183,16 @@ def memory_history(args: dict) -> dict:
     if isinstance(args, dict):
         for key in ("room", "agent", "section"):
             if key not in args:
-                _bad("missing %s" % key)
+                _bad("%s is required" % key)
         _check_room_agent(args)
     _check_keys(args, _HISTORY_ALLOWED, ("room", "agent", "section"))
     section = args["section"]
     if not isinstance(section, str) or store.ROOM_RE.fullmatch(section) is None:
-        _bad("invalid section")
+        _bad("section must be 1-48 chars of a-z 0-9 -; first char a-z or 0-9")
     if "limit" in args:
         limit = args["limit"]
         if isinstance(limit, bool) or not isinstance(limit, int) or not (1 <= limit <= 500):
-            _bad("invalid limit")
+            _bad("limit must be an integer in 1-500")
     else:
         limit = 100
     events = _read_events(args["room"])
@@ -124,37 +202,37 @@ def memory_history(args: dict) -> dict:
 
 def _segments_for_out(out, canonical):
     if not isinstance(out, str):
-        _bad("invalid out")
+        _bad("out must name a directory beneath root without parent traversal, NUL or symlink components")
     if out == "" or "\x00" in out:
-        _bad("invalid out")
+        _bad("out must name a directory beneath root without parent traversal, NUL or symlink components")
     if ".." in out.split("/"):
-        _bad("invalid out")
+        _bad("out must name a directory beneath root without parent traversal, NUL or symlink components")
     if os.path.isabs(out):
         norm = os.path.normpath(out)
         try:
             common = os.path.commonpath([canonical, norm])
         except ValueError:
-            _bad("invalid out")
+            _bad("out must name a directory beneath root without parent traversal, NUL or symlink components")
         if common != canonical:
-            _bad("invalid out")
+            _bad("out must name a directory beneath root without parent traversal, NUL or symlink components")
         rel = os.path.relpath(norm, canonical)
         if rel == ".":
             return []
         if rel.startswith(".." + os.sep) or rel == "..":
-            _bad("invalid out")
+            _bad("out must name a directory beneath root without parent traversal, NUL or symlink components")
         return rel.split(os.sep)
     norm = os.path.normpath(out)
     if norm == ".":
         return []
     if norm == ".." or norm.startswith(".." + os.sep):
-        _bad("invalid out")
+        _bad("out must name a directory beneath root without parent traversal, NUL or symlink components")
     joined = os.path.normpath(os.path.join(canonical, norm))
     try:
         common = os.path.commonpath([canonical, joined])
     except ValueError:
-        _bad("invalid out")
+        _bad("out must name a directory beneath root without parent traversal, NUL or symlink components")
     if common != canonical:
-        _bad("invalid out")
+        _bad("out must name a directory beneath root without parent traversal, NUL or symlink components")
     return norm.split(os.sep)
 
 
@@ -192,7 +270,7 @@ def _open_dir(name, parent_fd, create):
             raise
     except OSError as exc:
         if _is_path_error(exc):
-            _bad("invalid out")
+            _bad("out must name a directory beneath root without parent traversal, NUL or symlink components")
         _fail(exc)
     try:
         os.mkdir(name, 0o755, dir_fd=parent_fd)
@@ -200,13 +278,13 @@ def _open_dir(name, parent_fd, create):
         pass
     except OSError as exc:
         if _is_path_error(exc):
-            _bad("invalid out")
+            _bad("out must name a directory beneath root without parent traversal, NUL or symlink components")
         _fail(exc)
     try:
         return os.open(name, os.O_DIRECTORY | os.O_NOFOLLOW | os.O_RDONLY, dir_fd=parent_fd)
     except OSError as exc:
         if _is_path_error(exc):
-            _bad("invalid out")
+            _bad("out must name a directory beneath root without parent traversal, NUL or symlink components")
         _fail(exc)
 
 
@@ -217,10 +295,10 @@ def _stat_output(name, dir_fd):
         return None
     except OSError as exc:
         if _is_path_error(exc):
-            _bad("invalid out")
+            _bad("out must name a directory beneath root without parent traversal, NUL or symlink components")
         _fail(exc)
     if stat.S_ISLNK(result.st_mode) or not stat.S_ISREG(result.st_mode):
-        _bad("invalid out")
+        _bad("out must name a directory beneath root without parent traversal, NUL or symlink components")
     return result
 
 
@@ -231,12 +309,12 @@ def _read_output(name, dir_fd):
         return None
     except OSError as exc:
         if _is_path_error(exc):
-            _bad("invalid out")
+            _bad("out must name a directory beneath root without parent traversal, NUL or symlink components")
         _fail(exc)
     try:
         with _closing(fd):
             if not stat.S_ISREG(os.fstat(fd).st_mode):
-                _bad("invalid out")
+                _bad("out must name a directory beneath root without parent traversal, NUL or symlink components")
             chunks = []
             while True:
                 chunk = os.read(fd, 65536)
@@ -302,7 +380,7 @@ def export_room(room: str, out: str) -> dict:
             home_fd = os.open(canonical, os.O_DIRECTORY | os.O_NOFOLLOW | os.O_RDONLY)
         except OSError as exc:
             if _is_path_error(exc):
-                _bad("invalid out")
+                _bad("out must name a directory beneath root without parent traversal, NUL or symlink components")
             _fail(exc)
         fds.append(home_fd)
         current = home_fd
@@ -310,7 +388,7 @@ def export_room(room: str, out: str) -> dict:
             if segment in ("", "."):
                 continue
             if segment == "..":
-                _bad("invalid out")
+                _bad("out must name a directory beneath root without parent traversal, NUL or symlink components")
             current = _open_dir(segment, current, True)
             fds.append(current)
         target_fd = current
@@ -370,7 +448,7 @@ register({
     "inputSchema": {
         "type": "object", "additionalProperties": False,
         "properties": {"room": {"type": "string"}, "agent": {"type": "string"},
-                       "what": {"type": "string", "enum": ["plan", "memory"]}},
+                       "what": {"type": "string", "enum": ["plan", "memory", "integration"]}},
         "required": ["room", "agent", "what"],
     },
 }, room_export)

@@ -14,6 +14,7 @@ import re
 import time
 
 from bridge.plan.conformance import check_conformance
+from bridge.plan.ops import check_arguments
 from bridge.plan.fold import fold_plan
 from bridge.plan.limits import ACCEPT_MAX, DEPS_MAX, ESTIMATE_MAX, MICRO_MAX, TASKS_MAX, TASK_TEXT_MAX, TITLE_MAX
 from bridge.plan.template import load_template
@@ -249,10 +250,12 @@ TOOLS = [
 
 NEW_TOOLS = [
     {"name": "list_templates", "description": "List planning templates.",
-     "inputSchema": _schema({}, [])},
+     "inputSchema": _schema({"room": _s("string"), "agent": _s("string")}, [])},
     {"name": "get_template", "description": "Fetch one planning template.",
-     "inputSchema": _schema({"template_id": _s("string")}, ["template_id"])},
-    {"name": "plan_create", "description": "Create a plan from a template.",
+     "inputSchema": _schema({"template_id": _s("string"), "room": _s("string"), "agent": _s("string")}, ["template_id"])},
+    {"name": "plan_create", "description": ("Create a plan from a template; tasks is a list of objects with required key, title, type and phase. "
+                         "plan_get returns a list of task records with id; callers can key by task id. Success returns created: true, plan_id, opened_lamport and conformance, "
+                         "even with findings. strict rejection keeps its error code and says created: false in detail."),
      "inputSchema": _schema({"room": _s("string"), "agent": _s("string"),
                             "template_id": _s("string"),
                             "title": _field_schema(_TASK_FIELDS["title"]),
@@ -262,7 +265,7 @@ NEW_TOOLS = [
                             "op_id": _s("string"), "strict": _s("boolean")},
                           ["room", "agent", "template_id", "title", "brief", "tasks"],
                           additional=False)},
-    {"name": "plan_get", "description": "Read the active plan projection.",
+    {"name": "plan_get", "description": "Read the active plan projection; tasks is a list of records with id, which callers can key by task id. plan_create takes tasks as a list with required key.",
      "inputSchema": _schema({"room": _s("string"), "agent": _s("string"),
                             "since_rev": _s("integer")}, ["room"])},
     {"name": "plan_check", "description": "Check plan conformance.",
@@ -391,20 +394,19 @@ def _check_agent_opt(args):
     return _check_agent_req(args)
 
 def _check_allowed(args, allowed):
-    for k in args:
-        if k not in allowed:
-            raise RoomError("bad_op", "unknown arg %r" % (k,))
+    from bridge.wall.emit import sanitize_output
+    check_arguments(args, allowed, code="bad_op", error=RoomError, redact_name=sanitize_output)
+
 
 def _check_required(args, required):
-    for k in required:
-        if k not in args:
-            raise RoomError("bad_op", "missing %s" % k)
+    check_arguments(args, set(args), required, code="bad_op", error=RoomError)
+
 
 def _check_op_id(args):
     if "op_id" in args:
         v = args["op_id"]
         if not isinstance(v, str) or _OP_ID_RE.fullmatch(v) is None:
-            raise RoomError("bad_op", "bad op_id")
+            raise RoomError("bad_op", "op_id must be 8-64 chars of A-Z a-z 0-9 _ -")
         return v
     return None
 
@@ -433,11 +435,20 @@ def _templates():
     tpls = store._load_templates(None)
     return tpls if isinstance(tpls, dict) else {}
 
-def _fold(room, upto=None):
-    events, _m = store._read_all(None, room)
+def _fold(room, upto=None, *, checked=False):
+    events, _m = store.read_checked(room) if checked else store._read_all(None, room)
     if upto is not None:
         events = [e for e in events if isinstance(e.get("lamport"), int) and not isinstance(e.get("lamport"), bool) and e["lamport"] <= upto]
-    tpls = _templates()
+    if checked:
+        needed = store._plan_template_ids(events)
+        try:
+            tpls = _templates() if needed else {}
+        except Exception:
+            raise RoomError("template_unavailable", "A required template is unavailable.") from None
+        if any(tid not in tpls for tid in needed):
+            raise RoomError("template_unavailable", "A required template is unavailable.")
+    else:
+        tpls = _templates()
     kw = {"templates": tpls} if tpls else {}
     try:
         return fold_plan(events, **kw)
@@ -579,14 +590,14 @@ def _v2_payload(data):
     return {"untrusted": data}
 
 def _do_list_templates(args):
-    _check_allowed(args, set())
+    _check_allowed(args, {"room", "agent"})
     tpls = _templates()
     items = [{"id": k, "name": v.get("name"), "v": v.get("v"), "hash": v.get("hash")}
              for k, v in sorted(tpls.items())]
     return {"templates": items}
 
 def _do_get_template(args):
-    _check_allowed(args, {"template_id"})
+    _check_allowed(args, {"template_id", "room", "agent"})
     _check_required(args, ["template_id"])
     tpl = _template_by_id(args["template_id"])
     return {"template": copy.deepcopy(tpl)}
@@ -607,8 +618,8 @@ def _validate_field(value, field, context, prefix=""):
     if "string" in types:
         if not isinstance(value, str):
             raise RoomError("bad_op", type_label + " must be string")
-        if "maxLength" in schema:
-            _check_len_le(value, schema["maxLength"])
+        if "maxLength" in schema and _len_gt(value, schema["maxLength"]):
+            raise RoomError("limit_exceeded", label + " must be at most %s chars" % schema["maxLength"])
         if len(value) < schema.get("minLength", 0):
             raise RoomError("bad_op", label + " empty")
     elif "array" in types:
@@ -630,12 +641,8 @@ def _validate_fields(value, fields, context, label="", closed=True):
     if not isinstance(value, dict):
         raise RoomError("bad_op", label + " must be object")
     if closed:
-        for key in value:
-            if key not in fields:
-                raise RoomError("bad_op", "unknown %s key %r" % (label, key))
-    for name in _required_fields(fields, context):
-        if name not in value:
-            raise RoomError("bad_op", (label + " missing " if label else "missing ") + name)
+        check_arguments(value, fields, code="bad_op", label=label, error=RoomError)
+    check_arguments(value, set(value), _required_fields(fields, context), code="bad_op", label=label, error=RoomError)
     for name, field in fields.items():
         if name in value:
             _validate_field(value[name], dict(field, name=name), context,
@@ -675,27 +682,31 @@ def _do_plan_create(args):
     strict = args.get("strict", False)
     if not isinstance(strict, bool):
         raise RoomError("bad_op", "strict must be boolean")
-    for t in tasks_in:
-        _validate_task_input(t, True)
+    for index, t in enumerate(tasks_in):
+        try:
+            _validate_task_input(t, True)
+        except RoomError as exc:
+            detail = str(exc).removeprefix(exc.code + ": ")
+            raise RoomError(exc.code, f"tasks[{index}]: {detail}") from None
     _tpl_phases = tpl.get("phases") if isinstance(tpl, dict) else None
     _phase_ids = {p.get("id") for p in _tpl_phases if isinstance(p, dict) and isinstance(p.get("id"), str)} if isinstance(_tpl_phases, list) else set()
     _tpl_types = tpl.get("task_types") if isinstance(tpl, dict) else None
     _type_ids = {t2.get("id") for t2 in _tpl_types if isinstance(t2, dict) and isinstance(t2.get("id"), str)} if isinstance(_tpl_types, list) else set()
-    for t in tasks_in:
+    for index, t in enumerate(tasks_in):
         if _phase_ids and t["phase"] not in _phase_ids:
-            raise RoomError("bad_op", "unknown phase")
+            raise RoomError("bad_op", f"tasks[{index}].phase must name a phase in the selected template")
         if _type_ids and t["type"] not in _type_ids:
-            raise RoomError("bad_op", "unknown type")
+            raise RoomError("bad_op", f"tasks[{index}].type must name a task type in the selected template")
     keys = [t["key"] for t in tasks_in]
     if len(set(keys)) != len(keys):
-        raise RoomError("bad_op", "duplicate key")
+        raise RoomError("bad_op", "tasks.key must be unique within the tasks list")
     keyset = set(keys)
-    for t in tasks_in:
+    for index, t in enumerate(tasks_in):
         for d in t.get("deps", []):
             if d not in keyset:
-                raise RoomError("not_found", "missing dep %s" % d)
+                raise RoomError("not_found", f"tasks[{index}].deps must reference keys in the tasks list")
             if d == t["key"]:
-                raise RoomError("dep_cycle", "self dep")
+                raise RoomError("dep_cycle", f"tasks[{index}].deps must not reference its own key")
     state = {}
     def visit(k):
         s = state.get(k, 0)
@@ -738,7 +749,12 @@ def _do_plan_create(args):
             # simulated task rev inside events.lock (no pre-lock lamport read).
             ops.append({"kind": "task.set", "task_id": t["key"], "base_rev": 1,
                         "deps": list(t["deps"])})
-    events = store.post_ops(room, agent, ops, strict=strict)
+    try:
+        events = store.post_ops(room, agent, ops, strict=strict)
+    except RoomError as exc:
+        if strict and exc.code == "not_conformant":
+            raise RoomError(exc.code, "created: false; strict conformance findings; repair plan inputs and retry") from None
+        raise
     if not isinstance(events, list):
         events = [events]
     replayed = bool(events and events[0].get("replayed")) if events else False
@@ -759,7 +775,7 @@ def _do_plan_create(args):
     plan = proj.get("plan") or {}
     conf = stored_conf if stored_conf is not None else check_conformance(proj, tpl)
     _rev = stored_rev if (replayed and stored_rev is not None) else plan.get("rev")
-    data = {"plan_id": "p1", "rev": _rev,
+    data = {"created": True, "plan_id": "p1", "opened_lamport": events[0]["lamport"], "rev": _rev,
             "ids": dict(stored_ids if stored_ids is not None else {}), "conformance": conf}
     if op_id is not None:
         data["replayed"] = replayed
@@ -776,7 +792,13 @@ def _do_plan_get(args):
         if not _is_safe_int(v):
             raise RoomError("bad_op", "bad since_rev")
         upto = v
-    proj = _fold(room, upto=upto)
+    try:
+        os.stat(store._room_dir(None, room))
+    except FileNotFoundError:
+        raise RoomError("no_plan", "no active plan") from None
+    except OSError:
+        raise RoomError("room_read_failed", "Room data could not be read.") from None
+    proj = _fold(room, upto=upto, checked=True)
     plan = proj.get("plan")
     if plan is None or not isinstance(plan, dict) or plan.get("state") != "active":
         raise RoomError("no_plan", "no active plan")
@@ -1034,9 +1056,9 @@ def _do_next_work(args):
     limit = None
     if "limit" in args:
         if not _is_safe_int(args["limit"]):
-            raise RoomError("bad_args", "bad limit")
+            raise RoomError("bad_args", "limit must be an integer in 0-9007199254740991")
         if args["limit"] < 0:
-            raise RoomError("bad_args", "bad limit")
+            raise RoomError("bad_args", "limit must be an integer in 0-9007199254740991")
         limit = args["limit"]
     proj = _fold(room)
     plan = proj.get("plan")
@@ -1174,7 +1196,7 @@ def _do_read_inbox(args):
     agent = _req_str(args, "agent")
     since = args.get("since", 0)
     if not isinstance(since, int) or isinstance(since, bool):
-        raise RoomError("bad_args", "since must be int")
+        raise RoomError("bad_args", "since must be an integer")
     evs = store.inbox(room, agent, since=since)
     return {"events": [_wrap(e) for e in evs]}
 
@@ -1183,7 +1205,7 @@ def _do_wait_inbox(args):
     agent = _req_str(args, "agent")
     since = args.get("since", 0)
     if not isinstance(since, int) or isinstance(since, bool):
-        raise RoomError("bad_args", "since must be int")
+        raise RoomError("bad_args", "since must be an integer")
     timeout = args.get("timeout_s", 30.0)
     if not isinstance(timeout, (int, float)) or isinstance(timeout, bool):
         raise RoomError("bad_args", "timeout_s must be number")
@@ -1245,10 +1267,10 @@ _load_extensions()
 
 def dispatch(name, args, *, pin=None):
     if not isinstance(name, str) or not isinstance(args, dict):
-        raise RoomError("bad_args", "registered tool name and object arguments required")
+        raise RoomError("bad_args", "name must be a registered tool name; args must be object")
     tool = next((tool for tool in list_tools() if tool["name"] == name), None)
     if tool is None:
-        raise RoomError("bad_args", "unknown tool")
+        raise RoomError("bad_args", "name must identify a registered tool")
     guard_session(args, pin=pin,
                   agent_required="agent" in tool["inputSchema"].get("required", ()),
                   lifecycle=name == "agent_lifecycle")
@@ -1256,7 +1278,7 @@ def dispatch(name, args, *, pin=None):
         return LEGACY_DISPATCH[name](args)
     handler = V2_DISPATCH.get(name)
     if handler is None:
-        raise RoomError("bad_args", "unknown tool")
+        raise RoomError("bad_args", "name must identify a registered tool")
     data = handler(args)
     return _v2_payload(data)
 

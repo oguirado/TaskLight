@@ -7,7 +7,7 @@ export type TaskStatus = "pending" | "active" | "blocked" | "done" | "cancelled"
 export type PlanOpKind =
   | "plan.open" | "plan.close" | "plan.phase"
   | "task.add" | "task.set" | "task.claim" | "task.release"
-  | "micro.add" | "micro.set" | "memory.set" | "activity.beat" | "agent.lifecycle";
+  | "micro.add" | "micro.set" | "memory.set" | "activity.beat" | "agent.lifecycle" | "unit.decision";
 
 export type PlanOpErrorCode =
   | "no_plan" | "plan_exists" | "unknown_template" | "bad_template"
@@ -63,6 +63,16 @@ export interface ActivityBeatOp extends PlanOpBase {
   note?: string; op_id: string; base_rev?: never;
 }
 
+export interface UnitDecisionOp extends PlanOpBase {
+  kind: "unit.decision"; op_id: string; task_id: string; micro_id?: string;
+  verdict: "ADMIT" | "HOLD" | "REJECT"; reason: string;
+  evidence?: readonly { path: string; sha256: string }[];
+  result_agent?: string; result_run_id?: string;
+  /** Legacy result reference; mutually exclusive with the result_* pair. */
+  agent?: string; run_id?: string; base_rev?: never;
+}
+export interface UnitDecision extends UnitDecisionOp { lamport: number }
+
 export type AgentLifecycle = "deployed" | "alive" | "finished" | "failed";
 export interface AgentResult {
   verdict: "ADMIT" | "HOLD" | "NO_PUDE" | "OK" | "FAIL";
@@ -82,7 +92,7 @@ export interface AgentLifecycleRecord {
 
 export type PlanOpBody =
   | PlanOpenOp | PlanCloseOp | PlanPhaseOp | TaskAddOp | TaskSetOp
-  | TaskClaimOp | TaskReleaseOp | MicroAddOp | MicroSetOp | MemorySetOp | ActivityBeatOp | AgentLifecycleOp;
+  | TaskClaimOp | TaskReleaseOp | MicroAddOp | MicroSetOp | MemorySetOp | ActivityBeatOp | AgentLifecycleOp | UnitDecisionOp;
 
 export interface PlanOpEvent {
   id: string; lamport: number; ts: number; room: string; agent: string; act: "op"; text: string; op: PlanOpBody;
@@ -98,6 +108,7 @@ export interface PlanTask {
   deps: readonly string[]; assignee: string | null; claim_lamport: number | null; claim_ts: number | null;
   estimate: string | null; explicit_state: "blocked" | "cancelled" | null; blocked_reason: string | null;
   state: TaskStatus; ready: boolean; rev: number; microtasks: readonly PlanMicrotask[];
+  decisions?: readonly UnitDecision[]; last_decision?: UnitDecision | null;
 }
 export interface PlanMemorySection { id: string; text: string; rev: number; by: string; ts: number }
 export interface PlanState {

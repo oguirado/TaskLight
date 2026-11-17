@@ -5,8 +5,8 @@ import subprocess
 import sys
 import threading
 
-from . import support
-from . import u57_mcp_v2_test as oracle
+from .. import support
+from . import test_mcp_v2 as oracle
 
 
 class ModuleClient(support.McpClient):

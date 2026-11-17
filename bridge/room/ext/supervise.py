@@ -3,8 +3,10 @@
 import argparse
 import json
 import math
+import os
 import secrets
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -93,11 +95,24 @@ class _Lifecycle:
                     pass
 
 
+def _open_regular_result(path, flags):
+    # Inspect the opened descriptor, preventing path replacement races. Opening
+    # a FIFO without a writer must return promptly before rejecting its type.
+    descriptor = os.open(path, flags | os.O_NONBLOCK)
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise ValueError("result file must be regular")
+    except BaseException:
+        os.close(descriptor)
+        raise
+    return descriptor
+
+
 def _read_result(path):
     if path is None:
         return None
     try:
-        with open(path, "rb") as stream:
+        with open(path, "rb", opener=_open_regular_result) as stream:
             # A sentinel byte distinguishes the inclusive limit from overflow.
             payload = stream.read(RESULT_FILE_MAX_BYTES + 1)
         if len(payload) > RESULT_FILE_MAX_BYTES:

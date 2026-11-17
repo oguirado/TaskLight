@@ -2,6 +2,7 @@
 import json
 import secrets
 
+from bridge.plan.ops import check_arguments
 from . import register
 from bridge.plan import fold_plan
 from bridge.room import store
@@ -10,10 +11,12 @@ from bridge.room import store
 def activity_beat(args: dict) -> dict:
     allowed = {"room", "agent", "task_id", "micro_id", "run_id", "note", "op_id",
                "expected_opened_lamport"}
-    if not isinstance(args, dict) or set(args) - allowed:
-        raise store.RoomError("bad_args", "invalid activity arguments")
-    if not all(isinstance(args.get(key), str) for key in ("room", "agent")):
-        raise store.RoomError("bad_args", "room and agent must be strings")
+    check_arguments(args, allowed, error=store.RoomError)
+    for key in ("room", "agent"):
+        if key not in args:
+            raise store.RoomError("bad_args", key + " is required and must be a string")
+        if not isinstance(args[key], str):
+            raise store.RoomError("bad_args", key + " must be a string")
     op = {"kind": "activity.beat"}
     for key in ("task_id", "micro_id", "run_id", "note", "op_id"):
         if key in args:

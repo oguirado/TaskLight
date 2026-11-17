@@ -13,6 +13,9 @@ export const PLAN_LIMITS = Object.freeze({
   MICRO_OUTCOME_MAX: 240,     // matches _validate_step (bridge/room/store.py:102)
   MICRO_TOOK_MAX: 32,         // matches _validate_step (bridge/room/store.py:106)
   MICRO_EVIDENCE_MAX: 8,      // matches _validate_evidence (bridge/room/store.py:121)
+  DECISION_HISTORY_MAX: 16,
+  DECISION_REASON_MAX: 240,
+  DECISION_PATH_MAX: 512,
   OP_PAYLOAD_MAX_BYTES: 8192, // 8 KiB [TARGET] (STRATEGY_v9 §4), under FRAME_MAX 65536 (room_relay.py:18)
   TEXT_MAX_BYTES: 4096,       // matches agent_store.ts:27 & store.py:173
   TS_MAX_ABS: 8.64e15,        // matches agent_store.ts:28

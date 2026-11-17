@@ -261,7 +261,18 @@ class MCP(unittest.TestCase):
                 self.assertNotIn("expected_opened_lamport", tool["inputSchema"].get("required", []))
                 fence = props.pop("expected_opened_lamport")
                 self.assertEqual((fence.get("type"), fence.get("minimum")), ("integer", 1))
-        self.assertEqual(tools, BASELINE["tools"])  # A-U111a: later units append tools
+        # A-C9: re-pin the documented shapes and optional ignored template envelope.
+        expected_tools = copy.deepcopy(BASELINE["tools"])
+        for descriptor in expected_tools:
+            if descriptor["name"] in ("list_templates", "get_template"):
+                descriptor["inputSchema"]["properties"].update(room={"type": "string"}, agent={"type": "string"})
+            if descriptor["name"] == "plan_create":
+                descriptor["description"] = ("Create a plan from a template; tasks is a list of objects with required key, title, type and phase. "
+                                             "plan_get returns a list of task records with id; callers can key by task id. Success returns created: true, plan_id, opened_lamport and conformance, "
+                                             "even with findings. strict rejection keeps its error code and says created: false in detail.")
+            if descriptor["name"] == "plan_get":
+                descriptor["description"] = "Read the active plan projection; tasks is a list of records with id, which callers can key by task id. plan_create takes tasks as a list with required key."
+        self.assertEqual(tools, [{**tool, "inputSchema": {**tool["inputSchema"], "properties": {**tool["inputSchema"]["properties"], "what": {"type": "string", "enum": ["plan", "memory", "integration"]}}}} if tool["name"] == "room_export" else tool for tool in expected_tools])  # A-C7: new tool unit_decide
         self.assertEqual(self.result(self.rpc("resources/templates/list")), BASELINE["resourceTemplates"])
         listed = self.listed()
         legacy = [r for r in listed if r["uri"] != URI]

@@ -53,12 +53,13 @@ class StorageProperties(unittest.TestCase):
         self.assertEqual(child['untrusted']['rev'],receipt['lamport'])
         self.assertEqual(self.bytes(),before)
 
-    def test_conflicting_same_op_id_retains_first_result_without_other_mutation(self):
+    def test_conflicting_same_op_id_is_rejected_without_other_mutation(self):
         self.setup_plan();self.post(adding())
-        receipt=self.post(dict(kind='task.claim',task_id='T01',op_id='claim-reuse'))
+        self.post(dict(kind='task.claim',task_id='T01',op_id='claim-reuse'))
         before=self.bytes()
-        reused=self.post(dict(kind='task.claim',task_id='T02',op_id='claim-reuse'))
-        self.assertEqual(reused['id'],receipt['id']);self.assertTrue(reused['replayed'])
+        with self.assertRaisesRegex(store.RoomError, r'^bad_op: op_id conflict$') as caught:  # A-DEBT: bridge/room/store.py:966 rejects changed content under an existing op_id.
+            self.post(dict(kind='task.claim',task_id='T02',op_id='claim-reuse'))
+        self.assertEqual(caught.exception.code,'bad_op')  # A-DEBT: bridge/room/store.py:966 classifies content conflicts as bad_op.
         self.assertEqual(self.bytes(),before)
         events,_=store._parse_events_bytes(before)
         self.assertIsNone(fold_plan(events,templates=TEMPLATES)['tasks'][1]['assignee'])

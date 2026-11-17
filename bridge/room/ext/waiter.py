@@ -2,6 +2,7 @@
 import math
 import time
 
+from bridge.plan.ops import check_arguments
 from bridge.plan.fold import fold_plan
 from bridge.plan.ops import LIFECYCLE_STATES
 from bridge.room import store
@@ -20,6 +21,7 @@ def _matches(room, events, since, agents, parent, states):
                 or event.get("room") != room or event["lamport"] <= since
                 or op["state"] not in states
                 or not disposition or disposition.get("noop") or disposition.get("replayed")
+                or disposition.get("ignored")
                 or (agents is not None and event["agent"] not in agents)):
             return
         record = projection.get("agent_lifecycle", {}).get(event["agent"], {})
@@ -40,37 +42,36 @@ def _matches(room, events, since, agents, parent, states):
 
 def wait_agents(args):
     allowed = {"room", "agents", "parent", "states", "since_lamport", "timeout_s"}
-    if not isinstance(args, dict) or "room" not in args or set(args) - allowed:
-        raise store.RoomError("bad_args", "invalid wait_agents arguments")
+    check_arguments(args, allowed, ("room",), error=store.RoomError)
     room = args["room"]
     store._check_room(room)
     agents = None
     if "agents" in args:
-        if not isinstance(args["agents"], list):
-            raise store.RoomError("bad_args", "agents must be an array of agent slugs")
+        if not isinstance(args["agents"], list) or not args["agents"]:
+            raise store.RoomError("bad_args", "agents must be a nonempty array of agent slugs")
         for agent in args["agents"]:
             try:
                 store._check_agent(agent)
             except store.RoomError:
-                raise store.RoomError("bad_args", "invalid agents filter") from None
+                raise store.RoomError("bad_args", "agents entries must be 1-48 chars of a-z 0-9 . _ -; first char a-z or 0-9") from None
         agents = set(args["agents"])
     parent = args.get("parent")
     if "parent" in args:
         try:
             store._check_agent(parent)
         except store.RoomError:
-            raise store.RoomError("bad_args", "invalid parent filter") from None
+            raise store.RoomError("bad_args", "parent must be 1-48 chars of a-z 0-9 . _ -; first char a-z or 0-9") from None
     states = args.get("states", ["finished", "failed"])
-    if (not isinstance(states, list)
+    if (not isinstance(states, list) or not states
             or any(not isinstance(state, str) or state not in LIFECYCLE_STATES for state in states)):
-        raise store.RoomError("bad_args", "invalid states filter")
+        raise store.RoomError("bad_args", "states must be a nonempty array containing only deployed, alive, finished or failed")
     states = set(states)
     since = args.get("since_lamport", 0)
     if type(since) is not int or not 0 <= since <= SAFE_MAX:
-        raise store.RoomError("bad_args", "since_lamport must be a nonnegative safe integer")
+        raise store.RoomError("bad_args", "since_lamport must be an integer in 0-9007199254740991")
     timeout = args.get("timeout_s", 60)
     if type(timeout) not in (int, float) or not math.isfinite(timeout) or not 1 <= timeout <= 600:
-        raise store.RoomError("bad_args", "timeout_s must be between 1 and 600 seconds")
+        raise store.RoomError("bad_args", "timeout_s must be a finite number in 1-600 seconds")
 
     deadline = time.monotonic() + timeout
     version = object()
@@ -104,10 +105,10 @@ register({
     "inputSchema": {"type": "object", "additionalProperties": False, "required": ["room"],
         "properties": {
             "room": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,47}$"},
-            "agents": {"type": "array", "items": {
+            "agents": {"type": "array", "minItems": 1, "items": {
                 "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,47}$"}},
             "parent": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,47}$"},
-            "states": {"type": "array", "items": {"type": "string", "enum": sorted(LIFECYCLE_STATES)},
+            "states": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": sorted(LIFECYCLE_STATES)},
                        "default": ["finished", "failed"]},
             "since_lamport": {"type": "integer", "minimum": 0, "maximum": SAFE_MAX, "default": 0},
             "timeout_s": {"type": "number", "minimum": 1, "maximum": 600, "default": 60},

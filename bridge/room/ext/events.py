@@ -1,6 +1,7 @@
 """Bounded journal cursor extension."""
 import time
 
+from bridge.plan.ops import check_arguments
 from bridge.room import store
 from bridge.room.ext import register
 
@@ -55,37 +56,35 @@ def handler(args) -> dict:
     if "agent" not in args:
         raise store.RoomError("bad_agent", "missing agent")
     store._check_agent(args["agent"])
-    unknown = set(args) - _ALLOWED
-    if unknown:
-        raise store.RoomError("bad_args", "unknown keys: %r" % (sorted(unknown),))
+    check_arguments(args, _ALLOWED, error=store.RoomError)
     if "after_lamport" not in args:
-        raise store.RoomError("bad_args", "missing after_lamport")
+        raise store.RoomError("bad_args", "after_lamport is required")
     after = args["after_lamport"]
     if type(after) is not int or after < 0:
-        raise store.RoomError("bad_args", "invalid after_lamport %r" % (after,))
+        raise store.RoomError("bad_args", "after_lamport must be an integer >= 0")
     if "limit" in args:
         limit = args["limit"]
         if type(limit) is not int or not (1 <= limit <= 500):
-            raise store.RoomError("bad_args", "invalid limit %r" % (limit,))
+            raise store.RoomError("bad_args", "limit must be an integer in 1-500")
     else:
         limit = 100
     if "wait_ms" in args:
         wait_ms = args["wait_ms"]
         if type(wait_ms) is not int or not (0 <= wait_ms <= 30000):
-            raise store.RoomError("bad_args", "invalid wait_ms %r" % (wait_ms,))
+            raise store.RoomError("bad_args", "wait_ms must be an integer in 0-30000")
     else:
         wait_ms = 0
     acts = None
     if "acts" in args:
         v = args["acts"]
         if not isinstance(v, list) or any(not isinstance(x, str) for x in v):
-            raise store.RoomError("bad_args", "invalid acts %r" % (v,))
+            raise store.RoomError("bad_args", "acts must be an array of strings")
         acts = set(v)
     ops = None
     if "ops" in args:
         v = args["ops"]
         if not isinstance(v, list) or any(not isinstance(x, str) for x in v):
-            raise store.RoomError("bad_args", "invalid ops %r" % (v,))
+            raise store.RoomError("bad_args", "ops must be an array of strings")
         ops = set(v)
 
     room = args["room"]

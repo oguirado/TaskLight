@@ -54,6 +54,18 @@ function renderAgent(doc: Document, agent: SwarmAgentVM, noPlan: boolean): HTMLE
     ? `${agent.micro_done}/${agent.micro_total} microtasks done` : "No task progress");
   field(doc, work, "Last beat", agent.last_beat_age_ms === null ? "No beat observed" : `${Math.floor(agent.last_beat_age_ms / 1_000)}s ago`);
   card.append(work);
+  const result = (agent as InventoryAgent).last_result;
+  const laneState = (agent as InventoryAgent).state ?? agent.lifecycle;
+  if (result && (laneState === "finished" || laneState === "failed")) {
+    const resultView = element(doc, "div", "swarm-result");
+    const verdict = element(doc, "span", "swarm-verdict", result.verdict);
+    verdict.dataset.verdict = result.verdict;
+    resultView.append(verdict);
+    if (typeof result.summary === "string") {
+      resultView.append(element(doc, "p", "swarm-result-summary", Array.from(result.summary).slice(0, 200).join("")));
+    }
+    card.append(resultView);
+  }
 
   const metadata = element(doc, "div", "swarm-metadata");
   const toggle = element(doc, "button", "swarm-metadata-toggle", `Agent details · ${agent.agent}`);
@@ -302,10 +314,23 @@ function renderTaskBubble(doc: Document, room: string, task: PlanTask): HTMLElem
   const button = element(doc, "button", "swarm-task-bubble");
   button.type = "button";
   button.id = `swarm-task-${key}`;
-  button.setAttribute("aria-label", `${task.title}, ${task.state}, ${done}/${total}`);
+  const decision = task.last_decision;
+  const resultAgent = decision?.result_agent ?? decision?.agent;
+  const resultRunId = decision?.result_run_id ?? decision?.run_id;
+  const source = resultAgent ? `Result: ${resultAgent} (${resultRunId})` : "";
+  button.setAttribute("aria-label", `${task.title}, ${task.state}, ${done}/${total}${decision ? `, ${decision.verdict}` : ""}${source ? `, ${source}` : ""}`);
   button.setAttribute("aria-expanded", "false");
   button.setAttribute("aria-controls", `swarm-micros-${key}`);
-  button.append(bubbleIndicator(doc, task.state, done, total, true), element(doc, "span", "swarm-task-title", task.title));
+  const admitted = decision?.verdict === "ADMIT";
+  button.append(bubbleIndicator(doc, admitted ? "done" : task.state,
+    admitted ? total || 1 : done, admitted ? total || 1 : total, true),
+  element(doc, "span", "swarm-task-title", task.title));
+  if (decision) {
+    const verdict = element(doc, "span", "swarm-verdict", decision.verdict);
+    verdict.dataset.verdict = decision.verdict;
+    button.append(verdict);
+    if (source) button.append(element(doc, "span", "swarm-decision-source", source));
+  }
   const children = element(doc, "div", "swarm-microtasks");
   children.id = `swarm-micros-${key}`;
   children.hidden = true;
@@ -322,6 +347,12 @@ function renderTaskBubble(doc: Document, room: string, task: PlanTask): HTMLElem
         children.append(row);
       }
       if (total === 0) children.append(element(doc, "p", "swarm-note", "No microtasks"));
+      if (decision) {
+        children.append(element(doc, "p", "swarm-note", decision.reason));
+        for (const item of decision.evidence ?? []) {
+          children.append(element(doc, "p", "swarm-note", `${item.path} · ${item.sha256}`));
+        }
+      }
     }
     children.hidden = !open;
     button.setAttribute("aria-expanded", String(open));

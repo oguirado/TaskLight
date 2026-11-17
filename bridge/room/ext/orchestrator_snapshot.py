@@ -4,6 +4,7 @@ import math
 import os
 import stat
 
+from bridge.plan.ops import check_arguments
 from bridge.plan.fold import fold_plan
 from bridge.room import store
 from bridge.wall.emit import sanitize_output
@@ -200,26 +201,24 @@ def _pack(snapshot, budget):
 
 
 def orchestrator_snapshot(args):
-    if (not isinstance(args, dict) or "room" not in args
-            or set(args) - {"room", "now", "since", "max_bytes"}):
-        raise store.RoomError("bad_args")
+    check_arguments(args, {"room", "now", "since", "max_bytes"}, ("room",), error=store.RoomError)
     room = args["room"]
     store._check_room(room)
     now = args["now"] if "now" in args else int(store.time.time() * 1000)
     if (type(now) not in (int, float) or not 0 <= now <= SAFE_MAX
             or not math.isfinite(now)):
-        raise store.RoomError("bad_args")
+        raise store.RoomError("bad_args", "now must be finite epoch milliseconds in 0-9007199254740991")
     since = args.get("since", 0)
     if type(since) is not int or not 0 <= since <= SAFE_MAX:
-        raise store.RoomError("bad_args")
+        raise store.RoomError("bad_args", "since must be an integer in 0-9007199254740991")
     budget = args.get("max_bytes", 16384)
     if type(budget) is not int or not 1024 <= budget <= 65536:
-        raise store.RoomError("bad_args")
+        raise store.RoomError("bad_args", "max_bytes must be an integer in 1024-65536")
 
     events, connected = _capture(room)
     head = max((event["lamport"] for event in events), default=0)
     if since > head:
-        raise store.RoomError("bad_args")
+        raise store.RoomError("bad_args", "since must not exceed the current room head Lamport cursor")
     try:
         templates = store._tpl_kw(needed=store._plan_template_ids(events), strict=True)["templates"]
         projection, completions = _projection(events, templates)

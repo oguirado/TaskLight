@@ -12,6 +12,7 @@ import os
 import re
 import secrets
 
+from bridge.plan.ops import check_arguments
 from . import register
 from .admission import admit_work as _admit_work
 from bridge.plan.fold import fold_plan
@@ -39,20 +40,18 @@ def _nonblank_evidence(evidence):
 
 
 def _arguments(args, required, optional):
-    if (not isinstance(args, dict) or set(args) - required - optional
-            or not required <= set(args)):
-        raise store.RoomError("bad_args", "invalid work arguments")
+    check_arguments(args, required | optional, required, error=store.RoomError)
     for key in (required | optional) - {"done", "claim_lamport", "expected_opened_lamport"}:
         if key in args and not isinstance(args[key], str):
             raise store.RoomError("bad_args", key + " must be a string")
     if "run_id" in args and not _RUN_ID_RE.fullmatch(args["run_id"]):
-        raise store.RoomError("bad_args", "invalid run_id")
+        raise store.RoomError("bad_args", "run_id must be 1-64 chars of A-Z a-z 0-9 _ -")
     if "expected_opened_lamport" in args:
         store._validate_expected_opened_lamport(args["expected_opened_lamport"])
     store._check_room(args["room"])
     store._check_agent(args["agent"])
     if "op_id" in args and not OP_ID_RE.fullmatch(args["op_id"]):
-        raise store.RoomError("bad_op", "invalid op_id")
+        raise store.RoomError("bad_op", "op_id must be 8-64 chars of A-Z a-z 0-9 _ -")
     for key in ("task_id", "prefer_task"):
         if key in args and not TASK_ID_RE.fullmatch(args[key]):
             raise store.RoomError("bad_op", "invalid " + key)
@@ -238,23 +237,21 @@ def work_acquire(args: dict) -> dict:
 def _completions(args):
     fence = args["claim_lamport"]
     if not store._is_safe_int(fence) or fence <= 0:
-        raise store.RoomError("bad_args", "claim_lamport must be a positive safe integer")
+        raise store.RoomError("bad_args", "claim_lamport must be an integer in 1-9007199254740991")
     done = args["done"]
     if not isinstance(done, list) or not 1 <= len(done) <= MICRO_MAX:
-        raise store.RoomError("bad_args", "done must be a nonempty bounded array")
+        raise store.RoomError("bad_args", f"done must be an array of 1-{MICRO_MAX} entries")
     seen = set()
-    for member in done:
+    for index, member in enumerate(done):
         required = {"id", "outcome", "evidence"}
-        if (not isinstance(member, dict) or set(member) - required - {"took"}
-                or not required <= set(member)):
-            raise store.RoomError("bad_args", "invalid completion fields")
+        check_arguments(member, required | {"took"}, required, label=f"done[{index}]", error=store.RoomError)
         for key in ("id", "outcome", "took"):
             if key in member and not isinstance(member[key], str):
                 raise store.RoomError("bad_args", key + " must be a string")
         if not MICRO_ID_RE.fullmatch(member["id"]):
             raise store.RoomError("bad_op", "invalid microtask id")
         if member["id"] in seen:
-            raise store.RoomError("bad_args", "duplicate completion")
+            raise store.RoomError("bad_args", "done.id entries must be unique")
         seen.add(member["id"])
         if not member["outcome"].strip():
             raise store.RoomError("bad_args", "outcome must not be blank")

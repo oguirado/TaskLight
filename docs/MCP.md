@@ -36,7 +36,7 @@ cursors, revisions and replay identities are preserved. Historical memory
 and local template text receive the same protection. A sanitizer failure
 refuses the output; the CLI exits nonzero, and exports write neither file.
 
-33 tools are exposed [MEASURED: candidate `tools/list`, cross-checked against
+34 tools are exposed [MEASURED: candidate `tools/list`, cross-checked against
 `python3 -m bridge.room tools`, including registered extensions]. This is the
 sole documented tool total; rediscover it when the registry changes. One-line purposes:
 
@@ -87,6 +87,10 @@ Shared planning and memory:
 
 Extensions:
 
+- `unit_decide`: append an immutable ADMIT, HOLD or REJECT unit decision.
+  `agent` is the caller; optional `result_agent` and `result_run_id` jointly
+  reference a worker result. The legacy same-caller `run_id` form remains
+  accepted; do not mix reference forms. See [Results and unit decisions](RESULTS.md).
 - `wait_agents`: wait for all matching lifecycle events after a caller-owned cursor;
   see [Waiting for agent results](WAIT_AGENTS.md).
 - `orchestrator_snapshot`: read compact current agents, attention, available work,

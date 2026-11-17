@@ -203,6 +203,22 @@ def main():
             from bridge.room import store
             store._check_room(room)
             value["room"] = room
+            if event not in {"SessionStart", "SessionEnd"} and _string(payload.get("agent_id")):
+                try:
+                    # Optional type metadata can change between hooks. Reuse
+                    # the run's admitted identity without a separate registry.
+                    with deadline.wait():
+                        records, _ = store.read(room)
+                        registered = [record["agent"] for record in records
+                                      if record.get("act") == "op"
+                                      and isinstance(record.get("op"), dict)
+                                      and record["op"].get("kind") == "agent.lifecycle"
+                                      and record["op"].get("run_id") == value["run_id"]]
+                    if registered and value["agent"] not in registered:
+                        value["agent"] = registered[0]
+                except Exception:
+                    # Lookup is best effort; keep the computed identity.
+                    pass
             if event in _THROTTLED:
                 _heartbeat(value, deadline)
             else:

@@ -1652,6 +1652,36 @@ def read(room, since=0, *, home=None):
     return out, malformed
 
 
+def read_checked(room, since=0, *, home=None):
+    """Read an existing journal without hiding broken committed records.
+
+    Keep the legacy parser's blank-line and torn-tail rules, event order and
+    duplicates. Validate the whole journal before applying the cursor filter.
+    This reader never initializes storage or acquires a writer lock.
+    """
+    _check_room(room)
+    reason = "Room data could not be read."
+
+    def open_readonly(path, flags):
+        # A nonblocking open also makes a concurrently substituted FIFO safe.
+        return os.open(path, flags | getattr(os, "O_NONBLOCK", 0))
+
+    path = _events_path(home, room)
+    try:
+        if not stat.S_ISREG(os.stat(path).st_mode):
+            raise RoomError("room_read_failed", reason)
+        with open(path, "rb", opener=open_readonly) as stream:
+            if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                raise RoomError("room_read_failed", reason)
+            data = stream.read()
+    except OSError:
+        raise RoomError("room_read_failed", reason) from None
+    events, malformed = _parse_events_bytes(data)
+    if malformed or any(event["room"] != room for event in events):
+        raise RoomError("room_read_failed", reason)
+    return [event for event in events if event["lamport"] > since], 0
+
+
 def wait(room, since, *, act=None, agent=None, exclude_agent=None, to=None, timeout_s=30.0,
          poll_s=0.2, home=None):
     timeout_s = _check_timing(timeout_s, "timeout_s")

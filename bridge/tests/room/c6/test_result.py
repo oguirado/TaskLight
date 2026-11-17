@@ -57,7 +57,7 @@ class ResultOracle(RoomCase):
         result = dict(RESULT, summary="s" * 201)
         self.life(state="finished", result=result)
         last = self.inventory_row()["last_result"]
-        self.assertEqual(set(last), {"verdict", "summary", "receipt"})
+        self.assertEqual(set(last) - {"evidence"}, {"verdict", "summary", "receipt"})  # A-C7: C7 M1 adds bounded evidence
         self.assertEqual((last["verdict"], last["receipt"]), (result["verdict"], result["receipt"]))
         self.assertLessEqual(len(last["summary"]), 200)
         self.assertTrue(last["summary"].startswith("s" * 190), "M6 truncation must retain summary text")
@@ -65,7 +65,8 @@ class ResultOracle(RoomCase):
     def test_m6_failed_result_short_summary_is_unchanged(self):
         result = dict(RESULT, verdict="HOLD", summary="a" * 200)
         self.life(state="failed", result=result)
-        self.assertEqual(self.inventory_row()["last_result"], {key: result[key] for key in ("verdict", "summary", "receipt")})
+        last = {k: v for k, v in self.inventory_row()["last_result"].items() if k != "evidence"}  # A-C7: C7 M1 adds bounded evidence
+        self.assertEqual(last, {key: result[key] for key in ("verdict", "summary", "receipt")})
 
     def test_m6_result_does_not_leak_to_a_redeployed_run(self):
         self.life(state="finished", result=RESULT)
@@ -92,7 +93,8 @@ class ResultOracle(RoomCase):
         self.assertFalse(response.get("isError", False))
         self.assertEqual(code, 0)
         self.assertEqual(data, cli_data)
-        self.assertEqual(data["agents"][0].get("last_result"), {key: RESULT[key] for key in ("verdict", "summary", "receipt")})
+        last = {k: v for k, v in data["agents"][0].get("last_result").items() if k != "evidence"}  # A-C7: C7 M1 adds bounded evidence
+        self.assertEqual(last, {key: RESULT[key] for key in ("verdict", "summary", "receipt")})
         self.assertEqual(self.raw(), before)
 
 

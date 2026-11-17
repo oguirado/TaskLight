@@ -1,0 +1,3404 @@
+{
+  "template": {
+    "v": 1,
+    "id": "blank",
+    "name": "Blank Project",
+    "summary": "Minimal generic planning template for any project or domain.",
+    "lens_id": "dev",
+    "brief_fields": [
+      {
+        "id": "goal",
+        "label": "Project goal",
+        "required": true
+      },
+      {
+        "id": "scope",
+        "label": "Scope and boundaries",
+        "required": false
+      }
+    ],
+    "phases": [
+      {
+        "id": "plan",
+        "label": "Plan",
+        "exit": "Goal, scope, and initial tasks are defined."
+      },
+      {
+        "id": "execute",
+        "label": "Execute",
+        "exit": "All planned tasks and acceptance checks are complete."
+      },
+      {
+        "id": "review",
+        "label": "Review",
+        "exit": "Final outcomes and evidence are verified and recorded."
+      }
+    ],
+    "task_types": [
+      {
+        "id": "task",
+        "label": "General task",
+        "accept_required": true,
+        "evidence_required": false,
+        "micro_hints": [
+          "Produce the target draft or artifact for review",
+          "Verify the output against the acceptance criteria",
+          "Record the final outcome and any follow-up notes"
+        ]
+      }
+    ],
+    "granularity": {
+      "tasks_max": 20,
+      "micro_min": 1,
+      "micro_max": 6,
+      "rule": "Each microtask must state a single verifiable outcome."
+    },
+    "memory_sections": [
+      {
+        "id": "goal",
+        "label": "Goal",
+        "required": true,
+        "max_chars": 500,
+        "hint": "State the main objective and definition of done."
+      },
+      {
+        "id": "decisions",
+        "label": "Decisions",
+        "required": false,
+        "max_chars": 800,
+        "hint": "Log key choices made and the reasons behind them."
+      },
+      {
+        "id": "constraints",
+        "label": "Constraints",
+        "required": false,
+        "max_chars": 600,
+        "hint": "List deadlines, limits, and non-negotiable rules."
+      }
+    ],
+    "hash": "71ed1d88afdb9c4f86dd25ecf536ed32d45600e1e23df1fef9aa02ccecfd01ba"
+  },
+  "base": {
+    "kind": "unit.decision",
+    "op_id": "c7-decision-0001",
+    "task_id": "T01",
+    "verdict": "ADMIT",
+    "reason": "Checks passed"
+  },
+  "evidence": [
+    {
+      "path": "artifacts/check-1.json",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000001"
+    },
+    {
+      "path": "artifacts/check-2.json",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000002"
+    },
+    {
+      "path": "artifacts/check-3.json",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000003"
+    },
+    {
+      "path": "artifacts/check-4.json",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000004"
+    },
+    {
+      "path": "artifacts/check-5.json",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000005"
+    },
+    {
+      "path": "artifacts/check-6.json",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000006"
+    },
+    {
+      "path": "artifacts/check-7.json",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000007"
+    },
+    {
+      "path": "artifacts/check-8.json",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000008"
+    }
+  ],
+  "seed": [
+    {
+      "id": "e-0000000000000001",
+      "room": "demo",
+      "agent": "reviewer",
+      "act": "op",
+      "text": "",
+      "lamport": 1,
+      "ts": 1800000000001,
+      "op": {
+        "kind": "plan.open",
+        "op_id": "c7-plan-open",
+        "title": "Decision oracle",
+        "template_id": "blank",
+        "template_hash": "71ed1d88afdb9c4f86dd25ecf536ed32d45600e1e23df1fef9aa02ccecfd01ba",
+        "phase": "plan",
+        "brief": {
+          "goal": "Verify decisions"
+        }
+      }
+    },
+    {
+      "id": "e-0000000000000002",
+      "room": "demo",
+      "agent": "reviewer",
+      "act": "op",
+      "text": "",
+      "lamport": 2,
+      "ts": 1800000000002,
+      "op": {
+        "kind": "task.add",
+        "op_id": "c7-task-one",
+        "title": "First task",
+        "type": "task",
+        "phase": "plan",
+        "accept": "Verified",
+        "assignee": "worker",
+        "microtasks": [
+          {
+            "text": "First micro",
+            "accept": "Verified"
+          },
+          {
+            "text": "Second micro",
+            "accept": "Verified"
+          }
+        ]
+      }
+    },
+    {
+      "id": "e-0000000000000003",
+      "room": "demo",
+      "agent": "reviewer",
+      "act": "op",
+      "text": "",
+      "lamport": 3,
+      "ts": 1800000000003,
+      "op": {
+        "kind": "task.add",
+        "op_id": "c7-task-two",
+        "title": "Second task",
+        "type": "task",
+        "phase": "plan",
+        "accept": "Verified",
+        "microtasks": [
+          {
+            "text": "Other micro",
+            "accept": "Verified"
+          }
+        ]
+      }
+    },
+    {
+      "id": "e-0000000000000004",
+      "room": "demo",
+      "agent": "worker",
+      "act": "op",
+      "text": "",
+      "lamport": 4,
+      "ts": 1800000000004,
+      "op": {
+        "kind": "agent.lifecycle",
+        "op_id": "c7-worker-deploy",
+        "state": "deployed",
+        "run_id": "r1"
+      }
+    },
+    {
+      "id": "e-0000000000000005",
+      "room": "demo",
+      "agent": "worker",
+      "act": "op",
+      "text": "",
+      "lamport": 5,
+      "ts": 1800000000005,
+      "op": {
+        "kind": "agent.lifecycle",
+        "op_id": "c7-worker-result",
+        "state": "finished",
+        "run_id": "r1",
+        "result": {
+          "verdict": "ADMIT",
+          "summary": "Result summary",
+          "receipt": "artifacts/result.json",
+          "evidence": [
+            {
+              "path": "artifacts/check-1.json",
+              "sha256": "0000000000000000000000000000000000000000000000000000000000000001"
+            },
+            {
+              "path": "artifacts/check-2.json",
+              "sha256": "0000000000000000000000000000000000000000000000000000000000000002"
+            },
+            {
+              "path": "artifacts/check-3.json",
+              "sha256": "0000000000000000000000000000000000000000000000000000000000000003"
+            },
+            {
+              "path": "artifacts/check-4.json",
+              "sha256": "0000000000000000000000000000000000000000000000000000000000000004"
+            },
+            {
+              "path": "artifacts/check-5.json",
+              "sha256": "0000000000000000000000000000000000000000000000000000000000000005"
+            },
+            {
+              "path": "artifacts/check-6.json",
+              "sha256": "0000000000000000000000000000000000000000000000000000000000000006"
+            },
+            {
+              "path": "artifacts/check-7.json",
+              "sha256": "0000000000000000000000000000000000000000000000000000000000000007"
+            },
+            {
+              "path": "artifacts/check-8.json",
+              "sha256": "0000000000000000000000000000000000000000000000000000000000000008"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "cases": [
+    {
+      "name": "verdict_admit",
+      "valid": true,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed"
+      }
+    },
+    {
+      "name": "verdict_hold",
+      "valid": true,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "HOLD",
+        "reason": "Checks passed"
+      }
+    },
+    {
+      "name": "verdict_reject",
+      "valid": true,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "REJECT",
+        "reason": "Checks passed"
+      }
+    },
+    {
+      "name": "micro",
+      "valid": true,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "micro_id": "T01.M01"
+      }
+    },
+    {
+      "name": "reference",
+      "valid": true,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "agent": "worker",
+        "run_id": "r1"
+      }
+    },
+    {
+      "name": "all_fields",
+      "valid": true,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "micro_id": "T01.M01",
+        "agent": "worker",
+        "run_id": "r1",
+        "evidence": [
+          {
+            "path": "artifacts/check-1.json",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000001"
+          },
+          {
+            "path": "artifacts/check-2.json",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000002"
+          },
+          {
+            "path": "artifacts/check-3.json",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000003"
+          },
+          {
+            "path": "artifacts/check-4.json",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000004"
+          },
+          {
+            "path": "artifacts/check-5.json",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000005"
+          },
+          {
+            "path": "artifacts/check-6.json",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000006"
+          },
+          {
+            "path": "artifacts/check-7.json",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000007"
+          },
+          {
+            "path": "artifacts/check-8.json",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000008"
+          }
+        ]
+      }
+    },
+    {
+      "name": "one_char_reason",
+      "valid": true,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "x"
+      }
+    },
+    {
+      "name": "max_reason",
+      "valid": true,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr"
+      }
+    },
+    {
+      "name": "unicode_reason",
+      "valid": true,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9"
+      }
+    },
+    {
+      "name": "hostile_passive_text",
+      "valid": true,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "<img src=x onerror=alert(1)>",
+        "evidence": [
+          {
+            "path": "artifacts/<img src=x onerror=alert(1)>.json",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      }
+    },
+    {
+      "name": "one_evidence",
+      "valid": true,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "evidence": [
+          {
+            "path": "artifacts/check-1.json",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000001"
+          }
+        ]
+      }
+    },
+    {
+      "name": "min_path",
+      "valid": true,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "evidence": [
+          {
+            "path": "x",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      }
+    },
+    {
+      "name": "max_path",
+      "valid": true,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "evidence": [
+          {
+            "path": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      }
+    },
+    {
+      "name": "missing_op_id",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed"
+      }
+    },
+    {
+      "name": "missing_task_id",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "verdict": "ADMIT",
+        "reason": "Checks passed"
+      }
+    },
+    {
+      "name": "missing_verdict",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "reason": "Checks passed"
+      }
+    },
+    {
+      "name": "missing_reason",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT"
+      }
+    },
+    {
+      "name": "invalid_op_id_0",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed"
+      }
+    },
+    {
+      "name": "invalid_op_id_1",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": true,
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed"
+      }
+    },
+    {
+      "name": "invalid_op_id_2",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": 7,
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed"
+      }
+    },
+    {
+      "name": "invalid_op_id_3",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": null,
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed"
+      }
+    },
+    {
+      "name": "invalid_op_id_4",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "x",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed"
+      }
+    },
+    {
+      "name": "invalid_op_id_5",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed"
+      }
+    },
+    {
+      "name": "invalid_task_id_0",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "",
+        "verdict": "ADMIT",
+        "reason": "Checks passed"
+      }
+    },
+    {
+      "name": "invalid_task_id_1",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": null,
+        "verdict": "ADMIT",
+        "reason": "Checks passed"
+      }
+    },
+    {
+      "name": "invalid_task_id_2",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": true,
+        "verdict": "ADMIT",
+        "reason": "Checks passed"
+      }
+    },
+    {
+      "name": "invalid_task_id_3",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": 7,
+        "verdict": "ADMIT",
+        "reason": "Checks passed"
+      }
+    },
+    {
+      "name": "invalid_task_id_4",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": [],
+        "verdict": "ADMIT",
+        "reason": "Checks passed"
+      }
+    },
+    {
+      "name": "invalid_task_id_5",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": {},
+        "verdict": "ADMIT",
+        "reason": "Checks passed"
+      }
+    },
+    {
+      "name": "invalid_task_id_6",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T00",
+        "verdict": "ADMIT",
+        "reason": "Checks passed"
+      }
+    },
+    {
+      "name": "invalid_task_id_7",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T41",
+        "verdict": "ADMIT",
+        "reason": "Checks passed"
+      }
+    },
+    {
+      "name": "invalid_task_id_8",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01\n",
+        "verdict": "ADMIT",
+        "reason": "Checks passed"
+      }
+    },
+    {
+      "name": "invalid_micro_id_0",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "micro_id": ""
+      }
+    },
+    {
+      "name": "invalid_micro_id_1",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "micro_id": null
+      }
+    },
+    {
+      "name": "invalid_micro_id_2",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "micro_id": true
+      }
+    },
+    {
+      "name": "invalid_micro_id_3",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "micro_id": 7
+      }
+    },
+    {
+      "name": "invalid_micro_id_4",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "micro_id": []
+      }
+    },
+    {
+      "name": "invalid_micro_id_5",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "micro_id": {}
+      }
+    },
+    {
+      "name": "invalid_micro_id_6",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "micro_id": "T01.M00"
+      }
+    },
+    {
+      "name": "invalid_micro_id_7",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "micro_id": "T01.M13"
+      }
+    },
+    {
+      "name": "invalid_micro_id_8",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "micro_id": "T01.M01\n"
+      }
+    },
+    {
+      "name": "invalid_verdict_0",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "",
+        "reason": "Checks passed"
+      }
+    },
+    {
+      "name": "invalid_verdict_1",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": null,
+        "reason": "Checks passed"
+      }
+    },
+    {
+      "name": "invalid_verdict_2",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": true,
+        "reason": "Checks passed"
+      }
+    },
+    {
+      "name": "invalid_verdict_3",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": 7,
+        "reason": "Checks passed"
+      }
+    },
+    {
+      "name": "invalid_verdict_4",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": [],
+        "reason": "Checks passed"
+      }
+    },
+    {
+      "name": "invalid_verdict_5",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": {},
+        "reason": "Checks passed"
+      }
+    },
+    {
+      "name": "invalid_verdict_6",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "OK",
+        "reason": "Checks passed"
+      }
+    },
+    {
+      "name": "invalid_verdict_7",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "FAIL",
+        "reason": "Checks passed"
+      }
+    },
+    {
+      "name": "invalid_verdict_8",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "NO_PUDE",
+        "reason": "Checks passed"
+      }
+    },
+    {
+      "name": "invalid_verdict_9",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "admit",
+        "reason": "Checks passed"
+      }
+    },
+    {
+      "name": "invalid_reason_0",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": ""
+      }
+    },
+    {
+      "name": "invalid_reason_1",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": null
+      }
+    },
+    {
+      "name": "invalid_reason_2",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": true
+      }
+    },
+    {
+      "name": "invalid_reason_3",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": 7
+      }
+    },
+    {
+      "name": "invalid_reason_4",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": []
+      }
+    },
+    {
+      "name": "invalid_reason_5",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": {}
+      }
+    },
+    {
+      "name": "invalid_reason_6",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr"
+      }
+    },
+    {
+      "name": "invalid_evidence_0",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "evidence": null
+      }
+    },
+    {
+      "name": "invalid_evidence_1",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "evidence": true
+      }
+    },
+    {
+      "name": "invalid_evidence_2",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "evidence": 7
+      }
+    },
+    {
+      "name": "invalid_evidence_3",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "evidence": {}
+      }
+    },
+    {
+      "name": "invalid_evidence_4",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "evidence": ""
+      }
+    },
+    {
+      "name": "invalid_evidence_5",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "evidence": []
+      }
+    },
+    {
+      "name": "invalid_evidence_6",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "evidence": [
+          {
+            "path": "artifacts/check-1.json",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000001"
+          },
+          {
+            "path": "artifacts/check-2.json",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000002"
+          },
+          {
+            "path": "artifacts/check-3.json",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000003"
+          },
+          {
+            "path": "artifacts/check-4.json",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000004"
+          },
+          {
+            "path": "artifacts/check-5.json",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000005"
+          },
+          {
+            "path": "artifacts/check-6.json",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000006"
+          },
+          {
+            "path": "artifacts/check-7.json",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000007"
+          },
+          {
+            "path": "artifacts/check-8.json",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000008"
+          },
+          {
+            "path": "artifacts/check-1.json",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000001"
+          }
+        ]
+      }
+    },
+    {
+      "name": "invalid_agent_0",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "agent": "",
+        "run_id": "r1"
+      }
+    },
+    {
+      "name": "invalid_agent_1",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "agent": null,
+        "run_id": "r1"
+      }
+    },
+    {
+      "name": "invalid_agent_2",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "agent": true,
+        "run_id": "r1"
+      }
+    },
+    {
+      "name": "invalid_agent_3",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "agent": 7,
+        "run_id": "r1"
+      }
+    },
+    {
+      "name": "invalid_agent_4",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "agent": "UPPER",
+        "run_id": "r1"
+      }
+    },
+    {
+      "name": "invalid_agent_5",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "agent": "../agent",
+        "run_id": "r1"
+      }
+    },
+    {
+      "name": "invalid_agent_6",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "agent": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "run_id": "r1"
+      }
+    },
+    {
+      "name": "invalid_run_id_0",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "run_id": "",
+        "agent": "worker"
+      }
+    },
+    {
+      "name": "invalid_run_id_1",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "run_id": null,
+        "agent": "worker"
+      }
+    },
+    {
+      "name": "invalid_run_id_2",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "run_id": true,
+        "agent": "worker"
+      }
+    },
+    {
+      "name": "invalid_run_id_3",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "run_id": 7,
+        "agent": "worker"
+      }
+    },
+    {
+      "name": "invalid_run_id_4",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "run_id": "bad run",
+        "agent": "worker"
+      }
+    },
+    {
+      "name": "invalid_run_id_5",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "run_id": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr",
+        "agent": "worker"
+      }
+    },
+    {
+      "name": "entry_null",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "evidence": [
+          null
+        ]
+      }
+    },
+    {
+      "name": "entry_string",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "evidence": [
+          "x"
+        ]
+      }
+    },
+    {
+      "name": "entry_array",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "evidence": [
+          []
+        ]
+      }
+    },
+    {
+      "name": "missing_path",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "evidence": [
+          {
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      }
+    },
+    {
+      "name": "missing_hash",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "evidence": [
+          {
+            "path": "x"
+          }
+        ]
+      }
+    },
+    {
+      "name": "unknown_evidence_key",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "evidence": [
+          {
+            "path": "x",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "extra": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "empty_path",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "evidence": [
+          {
+            "path": "",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      }
+    },
+    {
+      "name": "oversize_path",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "evidence": [
+          {
+            "path": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      }
+    },
+    {
+      "name": "wrong_path_type",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "evidence": [
+          {
+            "path": true,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      }
+    },
+    {
+      "name": "uppercase_hash",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "evidence": [
+          {
+            "path": "x",
+            "sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+          }
+        ]
+      }
+    },
+    {
+      "name": "short_hash",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "evidence": [
+          {
+            "path": "x",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      }
+    },
+    {
+      "name": "long_hash",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "evidence": [
+          {
+            "path": "x",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      }
+    },
+    {
+      "name": "non_hex_hash",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "evidence": [
+          {
+            "path": "x",
+            "sha256": "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg"
+          }
+        ]
+      }
+    },
+    {
+      "name": "wrong_hash_type",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "evidence": [
+          {
+            "path": "x",
+            "sha256": 64
+          }
+        ]
+      }
+    },
+    {
+      "name": "newline_hash",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "evidence": [
+          {
+            "path": "x",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+          }
+        ]
+      }
+    },
+    {
+      "name": "agent_without_run",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "agent": "worker"
+      }
+    },
+    {
+      "name": "run_without_agent",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "run_id": "r1"
+      }
+    },
+    {
+      "name": "unknown_extra",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "extra": 1
+      }
+    },
+    {
+      "name": "unknown___proto__",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "__proto__": 1
+      }
+    },
+    {
+      "name": "unknown_constructor",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "constructor": 1
+      }
+    },
+    {
+      "name": "unknown_prototype",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "prototype": 1
+      }
+    },
+    {
+      "name": "unknown_result_lamport",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "result_lamport": 1
+      }
+    },
+    {
+      "name": "unknown_plan_lamport",
+      "valid": false,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "plan_lamport": 1
+      }
+    },
+    {
+      "name": "whitespace_reason",
+      "valid": true,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": " "
+      }
+    },
+    {
+      "name": "minimum_op_id",
+      "valid": true,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "abcdefgh",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed"
+      }
+    },
+    {
+      "name": "maximum_op_id",
+      "valid": true,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed"
+      }
+    },
+    {
+      "name": "maximum_agent_and_run",
+      "valid": true,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "agent": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "run_id": "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr"
+      }
+    },
+    {
+      "name": "valid_agent_punctuation",
+      "valid": true,
+      "op": {
+        "kind": "unit.decision",
+        "op_id": "c7-decision-0001",
+        "task_id": "T01",
+        "verdict": "ADMIT",
+        "reason": "Checks passed",
+        "agent": "worker.a-b_c",
+        "run_id": "Run_1-OK"
+      }
+    }
+  ],
+  "histories": [
+    {
+      "name": "single",
+      "events": [
+        {
+          "id": "e-0000000000000001",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 1,
+          "ts": 1800000000001,
+          "op": {
+            "kind": "plan.open",
+            "op_id": "c7-plan-open",
+            "title": "Decision oracle",
+            "template_id": "blank",
+            "template_hash": "71ed1d88afdb9c4f86dd25ecf536ed32d45600e1e23df1fef9aa02ccecfd01ba",
+            "phase": "plan",
+            "brief": {
+              "goal": "Verify decisions"
+            }
+          }
+        },
+        {
+          "id": "e-0000000000000002",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 2,
+          "ts": 1800000000002,
+          "op": {
+            "kind": "task.add",
+            "op_id": "c7-task-one",
+            "title": "First task",
+            "type": "task",
+            "phase": "plan",
+            "accept": "Verified",
+            "assignee": "worker",
+            "microtasks": [
+              {
+                "text": "First micro",
+                "accept": "Verified"
+              },
+              {
+                "text": "Second micro",
+                "accept": "Verified"
+              }
+            ]
+          }
+        },
+        {
+          "id": "e-0000000000000003",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 3,
+          "ts": 1800000000003,
+          "op": {
+            "kind": "task.add",
+            "op_id": "c7-task-two",
+            "title": "Second task",
+            "type": "task",
+            "phase": "plan",
+            "accept": "Verified",
+            "microtasks": [
+              {
+                "text": "Other micro",
+                "accept": "Verified"
+              }
+            ]
+          }
+        },
+        {
+          "id": "e-0000000000000004",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 4,
+          "ts": 1800000000004,
+          "op": {
+            "kind": "agent.lifecycle",
+            "op_id": "c7-worker-deploy",
+            "state": "deployed",
+            "run_id": "r1"
+          }
+        },
+        {
+          "id": "e-0000000000000005",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 5,
+          "ts": 1800000000005,
+          "op": {
+            "kind": "agent.lifecycle",
+            "op_id": "c7-worker-result",
+            "state": "finished",
+            "run_id": "r1",
+            "result": {
+              "verdict": "ADMIT",
+              "summary": "Result summary",
+              "receipt": "artifacts/result.json",
+              "evidence": [
+                {
+                  "path": "artifacts/check-1.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000001"
+                },
+                {
+                  "path": "artifacts/check-2.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000002"
+                },
+                {
+                  "path": "artifacts/check-3.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000003"
+                },
+                {
+                  "path": "artifacts/check-4.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000004"
+                },
+                {
+                  "path": "artifacts/check-5.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000005"
+                },
+                {
+                  "path": "artifacts/check-6.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000006"
+                },
+                {
+                  "path": "artifacts/check-7.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000007"
+                },
+                {
+                  "path": "artifacts/check-8.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000008"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "e-0000000000000006",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 6,
+          "ts": 1800000000006,
+          "op": {
+            "kind": "unit.decision",
+            "op_id": "c7-decision-0006",
+            "task_id": "T01",
+            "verdict": "ADMIT",
+            "reason": "Checks passed"
+          }
+        }
+      ],
+      "reasons": [
+        "Checks passed"
+      ],
+      "rejected_ids": []
+    },
+    {
+      "name": "referenced_micro",
+      "events": [
+        {
+          "id": "e-0000000000000001",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 1,
+          "ts": 1800000000001,
+          "op": {
+            "kind": "plan.open",
+            "op_id": "c7-plan-open",
+            "title": "Decision oracle",
+            "template_id": "blank",
+            "template_hash": "71ed1d88afdb9c4f86dd25ecf536ed32d45600e1e23df1fef9aa02ccecfd01ba",
+            "phase": "plan",
+            "brief": {
+              "goal": "Verify decisions"
+            }
+          }
+        },
+        {
+          "id": "e-0000000000000002",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 2,
+          "ts": 1800000000002,
+          "op": {
+            "kind": "task.add",
+            "op_id": "c7-task-one",
+            "title": "First task",
+            "type": "task",
+            "phase": "plan",
+            "accept": "Verified",
+            "assignee": "worker",
+            "microtasks": [
+              {
+                "text": "First micro",
+                "accept": "Verified"
+              },
+              {
+                "text": "Second micro",
+                "accept": "Verified"
+              }
+            ]
+          }
+        },
+        {
+          "id": "e-0000000000000003",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 3,
+          "ts": 1800000000003,
+          "op": {
+            "kind": "task.add",
+            "op_id": "c7-task-two",
+            "title": "Second task",
+            "type": "task",
+            "phase": "plan",
+            "accept": "Verified",
+            "microtasks": [
+              {
+                "text": "Other micro",
+                "accept": "Verified"
+              }
+            ]
+          }
+        },
+        {
+          "id": "e-0000000000000004",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 4,
+          "ts": 1800000000004,
+          "op": {
+            "kind": "agent.lifecycle",
+            "op_id": "c7-worker-deploy",
+            "state": "deployed",
+            "run_id": "r1"
+          }
+        },
+        {
+          "id": "e-0000000000000005",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 5,
+          "ts": 1800000000005,
+          "op": {
+            "kind": "agent.lifecycle",
+            "op_id": "c7-worker-result",
+            "state": "finished",
+            "run_id": "r1",
+            "result": {
+              "verdict": "ADMIT",
+              "summary": "Result summary",
+              "receipt": "artifacts/result.json",
+              "evidence": [
+                {
+                  "path": "artifacts/check-1.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000001"
+                },
+                {
+                  "path": "artifacts/check-2.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000002"
+                },
+                {
+                  "path": "artifacts/check-3.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000003"
+                },
+                {
+                  "path": "artifacts/check-4.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000004"
+                },
+                {
+                  "path": "artifacts/check-5.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000005"
+                },
+                {
+                  "path": "artifacts/check-6.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000006"
+                },
+                {
+                  "path": "artifacts/check-7.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000007"
+                },
+                {
+                  "path": "artifacts/check-8.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000008"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "e-0000000000000006",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 6,
+          "ts": 1800000000006,
+          "op": {
+            "kind": "unit.decision",
+            "op_id": "c7-decision-0006",
+            "task_id": "T01",
+            "verdict": "ADMIT",
+            "reason": "Checks passed",
+            "micro_id": "T01.M01",
+            "agent": "worker",
+            "run_id": "r1",
+            "evidence": [
+              {
+                "path": "artifacts/check-1.json",
+                "sha256": "0000000000000000000000000000000000000000000000000000000000000001"
+              }
+            ]
+          }
+        }
+      ],
+      "reasons": [
+        "Checks passed"
+      ],
+      "rejected_ids": []
+    },
+    {
+      "name": "bounded_history",
+      "events": [
+        {
+          "id": "e-0000000000000001",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 1,
+          "ts": 1800000000001,
+          "op": {
+            "kind": "plan.open",
+            "op_id": "c7-plan-open",
+            "title": "Decision oracle",
+            "template_id": "blank",
+            "template_hash": "71ed1d88afdb9c4f86dd25ecf536ed32d45600e1e23df1fef9aa02ccecfd01ba",
+            "phase": "plan",
+            "brief": {
+              "goal": "Verify decisions"
+            }
+          }
+        },
+        {
+          "id": "e-0000000000000002",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 2,
+          "ts": 1800000000002,
+          "op": {
+            "kind": "task.add",
+            "op_id": "c7-task-one",
+            "title": "First task",
+            "type": "task",
+            "phase": "plan",
+            "accept": "Verified",
+            "assignee": "worker",
+            "microtasks": [
+              {
+                "text": "First micro",
+                "accept": "Verified"
+              },
+              {
+                "text": "Second micro",
+                "accept": "Verified"
+              }
+            ]
+          }
+        },
+        {
+          "id": "e-0000000000000003",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 3,
+          "ts": 1800000000003,
+          "op": {
+            "kind": "task.add",
+            "op_id": "c7-task-two",
+            "title": "Second task",
+            "type": "task",
+            "phase": "plan",
+            "accept": "Verified",
+            "microtasks": [
+              {
+                "text": "Other micro",
+                "accept": "Verified"
+              }
+            ]
+          }
+        },
+        {
+          "id": "e-0000000000000004",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 4,
+          "ts": 1800000000004,
+          "op": {
+            "kind": "agent.lifecycle",
+            "op_id": "c7-worker-deploy",
+            "state": "deployed",
+            "run_id": "r1"
+          }
+        },
+        {
+          "id": "e-0000000000000005",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 5,
+          "ts": 1800000000005,
+          "op": {
+            "kind": "agent.lifecycle",
+            "op_id": "c7-worker-result",
+            "state": "finished",
+            "run_id": "r1",
+            "result": {
+              "verdict": "ADMIT",
+              "summary": "Result summary",
+              "receipt": "artifacts/result.json",
+              "evidence": [
+                {
+                  "path": "artifacts/check-1.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000001"
+                },
+                {
+                  "path": "artifacts/check-2.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000002"
+                },
+                {
+                  "path": "artifacts/check-3.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000003"
+                },
+                {
+                  "path": "artifacts/check-4.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000004"
+                },
+                {
+                  "path": "artifacts/check-5.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000005"
+                },
+                {
+                  "path": "artifacts/check-6.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000006"
+                },
+                {
+                  "path": "artifacts/check-7.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000007"
+                },
+                {
+                  "path": "artifacts/check-8.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000008"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "e-0000000000000006",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 6,
+          "ts": 1800000000006,
+          "op": {
+            "kind": "unit.decision",
+            "op_id": "c7-decision-0006",
+            "task_id": "T01",
+            "verdict": "ADMIT",
+            "reason": "Decision 06"
+          }
+        },
+        {
+          "id": "e-0000000000000007",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 7,
+          "ts": 1800000000007,
+          "op": {
+            "kind": "unit.decision",
+            "op_id": "c7-decision-0007",
+            "task_id": "T01",
+            "verdict": "HOLD",
+            "reason": "Decision 07"
+          }
+        },
+        {
+          "id": "e-0000000000000008",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 8,
+          "ts": 1800000000008,
+          "op": {
+            "kind": "unit.decision",
+            "op_id": "c7-decision-0008",
+            "task_id": "T01",
+            "verdict": "REJECT",
+            "reason": "Decision 08"
+          }
+        },
+        {
+          "id": "e-0000000000000009",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 9,
+          "ts": 1800000000009,
+          "op": {
+            "kind": "unit.decision",
+            "op_id": "c7-decision-0009",
+            "task_id": "T01",
+            "verdict": "ADMIT",
+            "reason": "Decision 09"
+          }
+        },
+        {
+          "id": "e-000000000000000a",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 10,
+          "ts": 1800000000010,
+          "op": {
+            "kind": "unit.decision",
+            "op_id": "c7-decision-0010",
+            "task_id": "T01",
+            "verdict": "HOLD",
+            "reason": "Decision 10"
+          }
+        },
+        {
+          "id": "e-000000000000000b",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 11,
+          "ts": 1800000000011,
+          "op": {
+            "kind": "unit.decision",
+            "op_id": "c7-decision-0011",
+            "task_id": "T01",
+            "verdict": "REJECT",
+            "reason": "Decision 11"
+          }
+        },
+        {
+          "id": "e-000000000000000c",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 12,
+          "ts": 1800000000012,
+          "op": {
+            "kind": "unit.decision",
+            "op_id": "c7-decision-0012",
+            "task_id": "T01",
+            "verdict": "ADMIT",
+            "reason": "Decision 12"
+          }
+        },
+        {
+          "id": "e-000000000000000d",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 13,
+          "ts": 1800000000013,
+          "op": {
+            "kind": "unit.decision",
+            "op_id": "c7-decision-0013",
+            "task_id": "T01",
+            "verdict": "HOLD",
+            "reason": "Decision 13"
+          }
+        },
+        {
+          "id": "e-000000000000000e",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 14,
+          "ts": 1800000000014,
+          "op": {
+            "kind": "unit.decision",
+            "op_id": "c7-decision-0014",
+            "task_id": "T01",
+            "verdict": "REJECT",
+            "reason": "Decision 14"
+          }
+        },
+        {
+          "id": "e-000000000000000f",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 15,
+          "ts": 1800000000015,
+          "op": {
+            "kind": "unit.decision",
+            "op_id": "c7-decision-0015",
+            "task_id": "T01",
+            "verdict": "ADMIT",
+            "reason": "Decision 15"
+          }
+        },
+        {
+          "id": "e-0000000000000010",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 16,
+          "ts": 1800000000016,
+          "op": {
+            "kind": "unit.decision",
+            "op_id": "c7-decision-0016",
+            "task_id": "T01",
+            "verdict": "HOLD",
+            "reason": "Decision 16"
+          }
+        },
+        {
+          "id": "e-0000000000000011",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 17,
+          "ts": 1800000000017,
+          "op": {
+            "kind": "unit.decision",
+            "op_id": "c7-decision-0017",
+            "task_id": "T01",
+            "verdict": "REJECT",
+            "reason": "Decision 17"
+          }
+        },
+        {
+          "id": "e-0000000000000012",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 18,
+          "ts": 1800000000018,
+          "op": {
+            "kind": "unit.decision",
+            "op_id": "c7-decision-0018",
+            "task_id": "T01",
+            "verdict": "ADMIT",
+            "reason": "Decision 18"
+          }
+        },
+        {
+          "id": "e-0000000000000013",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 19,
+          "ts": 1800000000019,
+          "op": {
+            "kind": "unit.decision",
+            "op_id": "c7-decision-0019",
+            "task_id": "T01",
+            "verdict": "HOLD",
+            "reason": "Decision 19"
+          }
+        },
+        {
+          "id": "e-0000000000000014",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 20,
+          "ts": 1800000000020,
+          "op": {
+            "kind": "unit.decision",
+            "op_id": "c7-decision-0020",
+            "task_id": "T01",
+            "verdict": "REJECT",
+            "reason": "Decision 20"
+          }
+        },
+        {
+          "id": "e-0000000000000015",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 21,
+          "ts": 1800000000021,
+          "op": {
+            "kind": "unit.decision",
+            "op_id": "c7-decision-0021",
+            "task_id": "T01",
+            "verdict": "ADMIT",
+            "reason": "Decision 21"
+          }
+        },
+        {
+          "id": "e-0000000000000016",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 22,
+          "ts": 1800000000022,
+          "op": {
+            "kind": "unit.decision",
+            "op_id": "c7-decision-0022",
+            "task_id": "T01",
+            "verdict": "HOLD",
+            "reason": "Decision 22"
+          }
+        },
+        {
+          "id": "e-0000000000000017",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 23,
+          "ts": 1800000000023,
+          "op": {
+            "kind": "unit.decision",
+            "op_id": "c7-decision-0023",
+            "task_id": "T01",
+            "verdict": "REJECT",
+            "reason": "Decision 23"
+          }
+        },
+        {
+          "id": "e-0000000000000018",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 24,
+          "ts": 1800000000024,
+          "op": {
+            "kind": "unit.decision",
+            "op_id": "c7-decision-0024",
+            "task_id": "T01",
+            "verdict": "ADMIT",
+            "reason": "Decision 24"
+          }
+        },
+        {
+          "id": "e-0000000000000019",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 25,
+          "ts": 1800000000025,
+          "op": {
+            "kind": "unit.decision",
+            "op_id": "c7-decision-0025",
+            "task_id": "T01",
+            "verdict": "HOLD",
+            "reason": "Decision 25"
+          }
+        }
+      ],
+      "reasons": [
+        "Decision 10",
+        "Decision 11",
+        "Decision 12",
+        "Decision 13",
+        "Decision 14",
+        "Decision 15",
+        "Decision 16",
+        "Decision 17",
+        "Decision 18",
+        "Decision 19",
+        "Decision 20",
+        "Decision 21",
+        "Decision 22",
+        "Decision 23",
+        "Decision 24",
+        "Decision 25"
+      ],
+      "rejected_ids": []
+    },
+    {
+      "name": "identical_retry",
+      "events": [
+        {
+          "id": "e-0000000000000001",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 1,
+          "ts": 1800000000001,
+          "op": {
+            "kind": "plan.open",
+            "op_id": "c7-plan-open",
+            "title": "Decision oracle",
+            "template_id": "blank",
+            "template_hash": "71ed1d88afdb9c4f86dd25ecf536ed32d45600e1e23df1fef9aa02ccecfd01ba",
+            "phase": "plan",
+            "brief": {
+              "goal": "Verify decisions"
+            }
+          }
+        },
+        {
+          "id": "e-0000000000000002",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 2,
+          "ts": 1800000000002,
+          "op": {
+            "kind": "task.add",
+            "op_id": "c7-task-one",
+            "title": "First task",
+            "type": "task",
+            "phase": "plan",
+            "accept": "Verified",
+            "assignee": "worker",
+            "microtasks": [
+              {
+                "text": "First micro",
+                "accept": "Verified"
+              },
+              {
+                "text": "Second micro",
+                "accept": "Verified"
+              }
+            ]
+          }
+        },
+        {
+          "id": "e-0000000000000003",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 3,
+          "ts": 1800000000003,
+          "op": {
+            "kind": "task.add",
+            "op_id": "c7-task-two",
+            "title": "Second task",
+            "type": "task",
+            "phase": "plan",
+            "accept": "Verified",
+            "microtasks": [
+              {
+                "text": "Other micro",
+                "accept": "Verified"
+              }
+            ]
+          }
+        },
+        {
+          "id": "e-0000000000000004",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 4,
+          "ts": 1800000000004,
+          "op": {
+            "kind": "agent.lifecycle",
+            "op_id": "c7-worker-deploy",
+            "state": "deployed",
+            "run_id": "r1"
+          }
+        },
+        {
+          "id": "e-0000000000000005",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 5,
+          "ts": 1800000000005,
+          "op": {
+            "kind": "agent.lifecycle",
+            "op_id": "c7-worker-result",
+            "state": "finished",
+            "run_id": "r1",
+            "result": {
+              "verdict": "ADMIT",
+              "summary": "Result summary",
+              "receipt": "artifacts/result.json",
+              "evidence": [
+                {
+                  "path": "artifacts/check-1.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000001"
+                },
+                {
+                  "path": "artifacts/check-2.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000002"
+                },
+                {
+                  "path": "artifacts/check-3.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000003"
+                },
+                {
+                  "path": "artifacts/check-4.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000004"
+                },
+                {
+                  "path": "artifacts/check-5.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000005"
+                },
+                {
+                  "path": "artifacts/check-6.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000006"
+                },
+                {
+                  "path": "artifacts/check-7.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000007"
+                },
+                {
+                  "path": "artifacts/check-8.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000008"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "e-0000000000000006",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 6,
+          "ts": 1800000000006,
+          "op": {
+            "kind": "unit.decision",
+            "op_id": "c7-decision-0006",
+            "task_id": "T01",
+            "verdict": "ADMIT",
+            "reason": "Checks passed"
+          }
+        },
+        {
+          "id": "e-0000000000000007",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 7,
+          "ts": 1800000000007,
+          "op": {
+            "kind": "unit.decision",
+            "op_id": "c7-decision-0006",
+            "task_id": "T01",
+            "verdict": "ADMIT",
+            "reason": "Checks passed"
+          }
+        }
+      ],
+      "reasons": [
+        "Checks passed"
+      ],
+      "rejected_ids": []
+    },
+    {
+      "name": "conflicting_retry",
+      "events": [
+        {
+          "id": "e-0000000000000001",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 1,
+          "ts": 1800000000001,
+          "op": {
+            "kind": "plan.open",
+            "op_id": "c7-plan-open",
+            "title": "Decision oracle",
+            "template_id": "blank",
+            "template_hash": "71ed1d88afdb9c4f86dd25ecf536ed32d45600e1e23df1fef9aa02ccecfd01ba",
+            "phase": "plan",
+            "brief": {
+              "goal": "Verify decisions"
+            }
+          }
+        },
+        {
+          "id": "e-0000000000000002",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 2,
+          "ts": 1800000000002,
+          "op": {
+            "kind": "task.add",
+            "op_id": "c7-task-one",
+            "title": "First task",
+            "type": "task",
+            "phase": "plan",
+            "accept": "Verified",
+            "assignee": "worker",
+            "microtasks": [
+              {
+                "text": "First micro",
+                "accept": "Verified"
+              },
+              {
+                "text": "Second micro",
+                "accept": "Verified"
+              }
+            ]
+          }
+        },
+        {
+          "id": "e-0000000000000003",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 3,
+          "ts": 1800000000003,
+          "op": {
+            "kind": "task.add",
+            "op_id": "c7-task-two",
+            "title": "Second task",
+            "type": "task",
+            "phase": "plan",
+            "accept": "Verified",
+            "microtasks": [
+              {
+                "text": "Other micro",
+                "accept": "Verified"
+              }
+            ]
+          }
+        },
+        {
+          "id": "e-0000000000000004",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 4,
+          "ts": 1800000000004,
+          "op": {
+            "kind": "agent.lifecycle",
+            "op_id": "c7-worker-deploy",
+            "state": "deployed",
+            "run_id": "r1"
+          }
+        },
+        {
+          "id": "e-0000000000000005",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 5,
+          "ts": 1800000000005,
+          "op": {
+            "kind": "agent.lifecycle",
+            "op_id": "c7-worker-result",
+            "state": "finished",
+            "run_id": "r1",
+            "result": {
+              "verdict": "ADMIT",
+              "summary": "Result summary",
+              "receipt": "artifacts/result.json",
+              "evidence": [
+                {
+                  "path": "artifacts/check-1.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000001"
+                },
+                {
+                  "path": "artifacts/check-2.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000002"
+                },
+                {
+                  "path": "artifacts/check-3.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000003"
+                },
+                {
+                  "path": "artifacts/check-4.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000004"
+                },
+                {
+                  "path": "artifacts/check-5.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000005"
+                },
+                {
+                  "path": "artifacts/check-6.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000006"
+                },
+                {
+                  "path": "artifacts/check-7.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000007"
+                },
+                {
+                  "path": "artifacts/check-8.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000008"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "e-0000000000000006",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 6,
+          "ts": 1800000000006,
+          "op": {
+            "kind": "unit.decision",
+            "op_id": "c7-decision-0006",
+            "task_id": "T01",
+            "verdict": "ADMIT",
+            "reason": "Checks passed"
+          }
+        },
+        {
+          "id": "e-0000000000000007",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 7,
+          "ts": 1800000000007,
+          "op": {
+            "kind": "unit.decision",
+            "op_id": "c7-decision-0006",
+            "task_id": "T01",
+            "verdict": "ADMIT",
+            "reason": "Conflicting retry"
+          }
+        }
+      ],
+      "reasons": [
+        "Checks passed"
+      ],
+      "rejected_ids": [
+        "e-0000000000000007"
+      ]
+    },
+    {
+      "name": "invalid_then_valid",
+      "events": [
+        {
+          "id": "e-0000000000000001",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 1,
+          "ts": 1800000000001,
+          "op": {
+            "kind": "plan.open",
+            "op_id": "c7-plan-open",
+            "title": "Decision oracle",
+            "template_id": "blank",
+            "template_hash": "71ed1d88afdb9c4f86dd25ecf536ed32d45600e1e23df1fef9aa02ccecfd01ba",
+            "phase": "plan",
+            "brief": {
+              "goal": "Verify decisions"
+            }
+          }
+        },
+        {
+          "id": "e-0000000000000002",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 2,
+          "ts": 1800000000002,
+          "op": {
+            "kind": "task.add",
+            "op_id": "c7-task-one",
+            "title": "First task",
+            "type": "task",
+            "phase": "plan",
+            "accept": "Verified",
+            "assignee": "worker",
+            "microtasks": [
+              {
+                "text": "First micro",
+                "accept": "Verified"
+              },
+              {
+                "text": "Second micro",
+                "accept": "Verified"
+              }
+            ]
+          }
+        },
+        {
+          "id": "e-0000000000000003",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 3,
+          "ts": 1800000000003,
+          "op": {
+            "kind": "task.add",
+            "op_id": "c7-task-two",
+            "title": "Second task",
+            "type": "task",
+            "phase": "plan",
+            "accept": "Verified",
+            "microtasks": [
+              {
+                "text": "Other micro",
+                "accept": "Verified"
+              }
+            ]
+          }
+        },
+        {
+          "id": "e-0000000000000004",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 4,
+          "ts": 1800000000004,
+          "op": {
+            "kind": "agent.lifecycle",
+            "op_id": "c7-worker-deploy",
+            "state": "deployed",
+            "run_id": "r1"
+          }
+        },
+        {
+          "id": "e-0000000000000005",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 5,
+          "ts": 1800000000005,
+          "op": {
+            "kind": "agent.lifecycle",
+            "op_id": "c7-worker-result",
+            "state": "finished",
+            "run_id": "r1",
+            "result": {
+              "verdict": "ADMIT",
+              "summary": "Result summary",
+              "receipt": "artifacts/result.json",
+              "evidence": [
+                {
+                  "path": "artifacts/check-1.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000001"
+                },
+                {
+                  "path": "artifacts/check-2.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000002"
+                },
+                {
+                  "path": "artifacts/check-3.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000003"
+                },
+                {
+                  "path": "artifacts/check-4.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000004"
+                },
+                {
+                  "path": "artifacts/check-5.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000005"
+                },
+                {
+                  "path": "artifacts/check-6.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000006"
+                },
+                {
+                  "path": "artifacts/check-7.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000007"
+                },
+                {
+                  "path": "artifacts/check-8.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000008"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "e-0000000000000006",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 6,
+          "ts": 1800000000006,
+          "op": {
+            "kind": "unit.decision",
+            "op_id": "c7-decision-0006",
+            "task_id": "T40",
+            "verdict": "ADMIT",
+            "reason": "Unknown task must not appear"
+          }
+        },
+        {
+          "id": "e-0000000000000007",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 7,
+          "ts": 1800000000007,
+          "op": {
+            "kind": "unit.decision",
+            "op_id": "c7-decision-0007",
+            "task_id": "T01",
+            "verdict": "ADMIT",
+            "reason": "Checks passed"
+          }
+        }
+      ],
+      "reasons": [
+        "Checks passed"
+      ],
+      "rejected_ids": [
+        "e-0000000000000006"
+      ]
+    },
+    {
+      "name": "cross_task_micro",
+      "events": [
+        {
+          "id": "e-0000000000000001",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 1,
+          "ts": 1800000000001,
+          "op": {
+            "kind": "plan.open",
+            "op_id": "c7-plan-open",
+            "title": "Decision oracle",
+            "template_id": "blank",
+            "template_hash": "71ed1d88afdb9c4f86dd25ecf536ed32d45600e1e23df1fef9aa02ccecfd01ba",
+            "phase": "plan",
+            "brief": {
+              "goal": "Verify decisions"
+            }
+          }
+        },
+        {
+          "id": "e-0000000000000002",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 2,
+          "ts": 1800000000002,
+          "op": {
+            "kind": "task.add",
+            "op_id": "c7-task-one",
+            "title": "First task",
+            "type": "task",
+            "phase": "plan",
+            "accept": "Verified",
+            "assignee": "worker",
+            "microtasks": [
+              {
+                "text": "First micro",
+                "accept": "Verified"
+              },
+              {
+                "text": "Second micro",
+                "accept": "Verified"
+              }
+            ]
+          }
+        },
+        {
+          "id": "e-0000000000000003",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 3,
+          "ts": 1800000000003,
+          "op": {
+            "kind": "task.add",
+            "op_id": "c7-task-two",
+            "title": "Second task",
+            "type": "task",
+            "phase": "plan",
+            "accept": "Verified",
+            "microtasks": [
+              {
+                "text": "Other micro",
+                "accept": "Verified"
+              }
+            ]
+          }
+        },
+        {
+          "id": "e-0000000000000004",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 4,
+          "ts": 1800000000004,
+          "op": {
+            "kind": "agent.lifecycle",
+            "op_id": "c7-worker-deploy",
+            "state": "deployed",
+            "run_id": "r1"
+          }
+        },
+        {
+          "id": "e-0000000000000005",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 5,
+          "ts": 1800000000005,
+          "op": {
+            "kind": "agent.lifecycle",
+            "op_id": "c7-worker-result",
+            "state": "finished",
+            "run_id": "r1",
+            "result": {
+              "verdict": "ADMIT",
+              "summary": "Result summary",
+              "receipt": "artifacts/result.json",
+              "evidence": [
+                {
+                  "path": "artifacts/check-1.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000001"
+                },
+                {
+                  "path": "artifacts/check-2.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000002"
+                },
+                {
+                  "path": "artifacts/check-3.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000003"
+                },
+                {
+                  "path": "artifacts/check-4.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000004"
+                },
+                {
+                  "path": "artifacts/check-5.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000005"
+                },
+                {
+                  "path": "artifacts/check-6.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000006"
+                },
+                {
+                  "path": "artifacts/check-7.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000007"
+                },
+                {
+                  "path": "artifacts/check-8.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000008"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "e-0000000000000006",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 6,
+          "ts": 1800000000006,
+          "op": {
+            "kind": "unit.decision",
+            "op_id": "c7-decision-0006",
+            "task_id": "T01",
+            "verdict": "ADMIT",
+            "reason": "Foreign micro must not appear",
+            "micro_id": "T02.M01"
+          }
+        },
+        {
+          "id": "e-0000000000000007",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 7,
+          "ts": 1800000000007,
+          "op": {
+            "kind": "unit.decision",
+            "op_id": "c7-decision-0007",
+            "task_id": "T01",
+            "verdict": "ADMIT",
+            "reason": "Checks passed"
+          }
+        }
+      ],
+      "reasons": [
+        "Checks passed"
+      ],
+      "rejected_ids": [
+        "e-0000000000000006"
+      ]
+    },
+    {
+      "name": "unknown_result_reference",
+      "events": [
+        {
+          "id": "e-0000000000000001",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 1,
+          "ts": 1800000000001,
+          "op": {
+            "kind": "plan.open",
+            "op_id": "c7-plan-open",
+            "title": "Decision oracle",
+            "template_id": "blank",
+            "template_hash": "71ed1d88afdb9c4f86dd25ecf536ed32d45600e1e23df1fef9aa02ccecfd01ba",
+            "phase": "plan",
+            "brief": {
+              "goal": "Verify decisions"
+            }
+          }
+        },
+        {
+          "id": "e-0000000000000002",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 2,
+          "ts": 1800000000002,
+          "op": {
+            "kind": "task.add",
+            "op_id": "c7-task-one",
+            "title": "First task",
+            "type": "task",
+            "phase": "plan",
+            "accept": "Verified",
+            "assignee": "worker",
+            "microtasks": [
+              {
+                "text": "First micro",
+                "accept": "Verified"
+              },
+              {
+                "text": "Second micro",
+                "accept": "Verified"
+              }
+            ]
+          }
+        },
+        {
+          "id": "e-0000000000000003",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 3,
+          "ts": 1800000000003,
+          "op": {
+            "kind": "task.add",
+            "op_id": "c7-task-two",
+            "title": "Second task",
+            "type": "task",
+            "phase": "plan",
+            "accept": "Verified",
+            "microtasks": [
+              {
+                "text": "Other micro",
+                "accept": "Verified"
+              }
+            ]
+          }
+        },
+        {
+          "id": "e-0000000000000004",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 4,
+          "ts": 1800000000004,
+          "op": {
+            "kind": "agent.lifecycle",
+            "op_id": "c7-worker-deploy",
+            "state": "deployed",
+            "run_id": "r1"
+          }
+        },
+        {
+          "id": "e-0000000000000005",
+          "room": "demo",
+          "agent": "worker",
+          "act": "op",
+          "text": "",
+          "lamport": 5,
+          "ts": 1800000000005,
+          "op": {
+            "kind": "agent.lifecycle",
+            "op_id": "c7-worker-result",
+            "state": "finished",
+            "run_id": "r1",
+            "result": {
+              "verdict": "ADMIT",
+              "summary": "Result summary",
+              "receipt": "artifacts/result.json",
+              "evidence": [
+                {
+                  "path": "artifacts/check-1.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000001"
+                },
+                {
+                  "path": "artifacts/check-2.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000002"
+                },
+                {
+                  "path": "artifacts/check-3.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000003"
+                },
+                {
+                  "path": "artifacts/check-4.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000004"
+                },
+                {
+                  "path": "artifacts/check-5.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000005"
+                },
+                {
+                  "path": "artifacts/check-6.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000006"
+                },
+                {
+                  "path": "artifacts/check-7.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000007"
+                },
+                {
+                  "path": "artifacts/check-8.json",
+                  "sha256": "0000000000000000000000000000000000000000000000000000000000000008"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "e-0000000000000006",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 6,
+          "ts": 1800000000006,
+          "op": {
+            "kind": "unit.decision",
+            "op_id": "c7-decision-0006",
+            "task_id": "T01",
+            "verdict": "ADMIT",
+            "reason": "Missing result must not appear",
+            "agent": "absent",
+            "run_id": "r1"
+          }
+        },
+        {
+          "id": "e-0000000000000007",
+          "room": "demo",
+          "agent": "reviewer",
+          "act": "op",
+          "text": "",
+          "lamport": 7,
+          "ts": 1800000000007,
+          "op": {
+            "kind": "unit.decision",
+            "op_id": "c7-decision-0007",
+            "task_id": "T01",
+            "verdict": "ADMIT",
+            "reason": "Checks passed"
+          }
+        }
+      ],
+      "reasons": [
+        "Checks passed"
+      ],
+      "rejected_ids": [
+        "e-0000000000000006"
+      ]
+    }
+  ]
+}
