@@ -1,8 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
-import { activate, card, controlledPanel, disclosure, expectSafe, hostile, mount, selectorHostile,
+import { activate, controlledPanel, disclosure, expectSafe, hostile, mount, selectorHostile,
   setup, source, step, task, text, wall } from "./fixtures";
+
+
 import type { Task } from "./fixtures";
 import { expectStationary } from "./css_probe";
+
+// A-Q1: U148 non-article task roots retain .task/data-task-id; keep identity checks.
+function card(root: ParentNode, id = "T01"): HTMLElement {
+  const matches = [...root.querySelectorAll<HTMLElement>(".task[data-task-id]")].filter(n => n.dataset.taskId === id);
+  expect(matches, `Required unique task card: ${id}`).toHaveLength(1);
+  return matches[0]!;
+}
 
 setup();
 describe("A8 passive untrusted content", () => {
@@ -24,7 +33,9 @@ describe("A8 passive untrusted content", () => {
     const t = task({ activity: { state: "needs_you" }, operatorQuestion: { eventId: selectorHostile, text: hostile } });
     const onOpenTask = vi.fn(); const { host, handle } = mount(wall({ tasks: [t] }), { onOpenTask });
     expect(text(card(host))).toContain(hostile); expectSafe(host);
-    const button = [...card(host).querySelectorAll<HTMLButtonElement>("button")].find(n => /chat|conversation|answer|respond/i.test(`${text(n)} ${n.getAttribute("aria-label") ?? ""}`));
+    // A-R41: hostile question activation stays literal through legacy Messages.
+    activate(host.querySelector<HTMLElement>(".messages-toggle")!);
+    const button = host.querySelector<HTMLButtonElement>(".messages-open");
     expect(button).toBeDefined(); expect(() => activate(button!)).not.toThrow();
     expect(onOpenTask).toHaveBeenCalledTimes(1); expect(() => handle.update(wall({ tasks: [t] }))).not.toThrow();
     expectSafe(host);

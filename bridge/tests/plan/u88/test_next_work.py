@@ -83,9 +83,12 @@ class NextWorkOracle(unittest.TestCase):
 
     def test_M3_cancellation_exposes_active_dependant_microtasks(self):
         self.pair()
-        self.tool("microtask_set", room="demo", agent="worker", id="T02.M01", state="active")
+        # A-U109c: (a) claim first, then satisfy dependencies before activation, M3.
+        self.tool("task_claim", room="demo", agent="worker", task_id="T02")
         self.assertEqual(self.next_work(), [])
         self.update("T01", state="cancelled")
+        self.assertEqual(self.next_work(), self.projection()["tasks"][1]["microtasks"])
+        self.tool("microtask_set", room="demo", agent="worker", id="T02.M01", state="active")
         self.assertEqual(self.next_work(), self.projection()["tasks"][1]["microtasks"])
         self.assertEqual(self.next_work()[0]["state"], "active")
 
@@ -118,9 +121,13 @@ class NextWorkOracle(unittest.TestCase):
         self.tool("task_claim", room="demo", agent="worker", task_id="T02")
         self.tool("task_claim", room="demo", agent="other", task_id="T03")
         self.update("T04", state="blocked")
+        # A-U109c: (a) only the assignee may complete a microtask, M3.
+        self.tool("task_claim", room="demo", agent="owner", task_id="T05")
         self.tool("microtask_set", room="demo", agent="owner", id="T05.M01", state="done")
         self.update("T06", state="cancelled")
-        self.tool("microtask_set", room="demo", agent="owner", id="T01.M02", state="active")
+        # A-U109c: (a) active work belongs to the querying owner; release resets it, M3/M5.
+        self.tool("microtask_set", room="demo", agent="worker", id="T02.M02", state="active")
+        self.assertEqual(self.next_work()[1]["state"], "active")
         expected = ["T02.M01", "T02.M02", "T01.M01", "T01.M02"]
         self.assertEqual([m["id"] for m in self.next_work()], expected)
         for limit in (0, 1, 3):
@@ -128,5 +135,7 @@ class NextWorkOracle(unittest.TestCase):
 
     def test_M3_dependency_depth_precedes_task_id_order(self):
         self.create([task("downstream", deps=["prerequisite"]), task("free"), task("prerequisite")])
+        # A-U109c: (a) completing the prerequisite requires a legitimate claim, M3.
+        self.tool("task_claim", room="demo", agent="owner", task_id="T03")
         self.tool("microtask_set", room="demo", agent="owner", id="T03.M01", state="done")
         self.assertEqual([m["id"] for m in self.next_work()], ["T02.M01", "T01.M01"])

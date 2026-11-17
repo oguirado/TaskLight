@@ -1,6 +1,22 @@
 import { describe, expect, it, vi } from "vitest";
-import { card, canonical, expectActivity, map, micro, mount, plan, q, setup, step, task, wall, workingWall } from "./fixtures";
+import { canonical, expectActivity as legacyExpectActivity, map, micro, mount, plan, q, setup, step, task, wall, workingWall } from "./fixtures";
+
+
 import { cssText, expectStationary } from "./css_probe";
+
+// A-Q1: U148 keeps task and microtask state distinct; exclude children from task text checks.
+function expectActivity(scope: HTMLElement, state: Parameters<typeof legacyExpectActivity>[1]): void {
+  const own = scope.cloneNode(true) as HTMLElement;
+  if (scope.matches(".task[data-task-id]")) own.querySelectorAll(".steps").forEach(n => n.remove());
+  legacyExpectActivity(own, state);
+}
+
+// A-Q1: U148 non-article task roots retain .task/data-task-id; keep identity checks.
+function card(root: ParentNode, id = "T01"): HTMLElement {
+  const matches = [...root.querySelectorAll<HTMLElement>(".task[data-task-id]")].filter(n => n.dataset.taskId === id);
+  expect(matches, `Required unique task card: ${id}`).toHaveLength(1);
+  return matches[0]!;
+}
 
 setup();
 function dot(host: ParentNode) { return q(host, '.agent-dot[data-agent="owner"]'); }

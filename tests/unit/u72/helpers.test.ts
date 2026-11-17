@@ -6,7 +6,8 @@ import { describe, expect, test } from "vitest";
 // A variable specifier avoids requiring a declaration file for this Node ESM module.
 const modulePath = "../../../tools/demo/demo_lib.mjs";
 const { parseStylesheetImports, chromeCandidates, summaryExitCode } = await import(modulePath);
-const sheets = ["tokens.css", "wall.css", "views.css", "plan.css", "model_selector.css", "agents.css"];
+// A-R40: retain the already loaded Swarm stylesheet in cascade order, U138 Surface / Oracle and legacy amendments.
+const sheets = ["tokens.css", "wall.css", "views.css", "plan.css", "swarm.css", "model_selector.css", "agents.css"];
 const browsers = ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "microsoft-edge", "brave-browser"];
 
 describe("A1 / M1 stylesheet imports", () => {

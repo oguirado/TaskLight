@@ -1,0 +1,16 @@
+[
+  {
+    "case": "A2",
+    "mutation": "invalidate-only-on-maximum-lamport",
+    "status": "DETECTED",
+    "error": "AssertionError",
+    "assertion": "late accepted claim must assign T01 to alice: expected null to be 'alice' // Object.is equality"
+  },
+  {
+    "case": "A3",
+    "mutation": "template-content-comparison-disabled",
+    "status": "DETECTED",
+    "error": "AssertionError",
+    "assertion": "in-place template.name freshness: expected 'Neutral' to be 'In-place name' // Object.is equality"
+  }
+]

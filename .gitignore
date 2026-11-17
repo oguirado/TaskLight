@@ -18,3 +18,4 @@ coverage/
 .DS_Store
 __pycache__/
 *.pyc
+tests/property/artifacts/

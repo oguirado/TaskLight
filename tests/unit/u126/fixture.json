@@ -1,0 +1,50 @@
+{
+  "events": [
+    {
+      "id": "e-0000000000000005",
+      "room": "demo",
+      "agent": "alice",
+      "act": "op",
+      "text": "",
+      "ts": 5000,
+      "lamport": 5,
+      "op": {
+        "kind": "memory.set",
+        "section": "goal",
+        "text": "old",
+        "base_rev": 0,
+        "op_id": "mem-0005"
+      }
+    },
+    {
+      "id": "e-0000000000000009",
+      "room": "demo",
+      "agent": "bob",
+      "act": "op",
+      "text": "",
+      "ts": 1000,
+      "lamport": 9,
+      "op": {
+        "kind": "memory.set",
+        "section": "goal",
+        "text": "new",
+        "base_rev": 5,
+        "op_id": "mem-0009"
+      }
+    }
+  ],
+  "versions": [
+    {
+      "rev": 9,
+      "by": "bob",
+      "ts": 1000,
+      "text": "new"
+    },
+    {
+      "rev": 5,
+      "by": "alice",
+      "ts": 5000,
+      "text": "old"
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "src/plan/reducer.ts": "ab889ff47d801c3a3c5b90d766b82a7d1a1ffa6e53017c6b86979f40f1590bf7",
+  "bridge/plan/fold.py": "9efefbbd733a1be8817700654cc67d07b458afb85f08ce671a872acaa00e1074",
+  "bridge/room/store.py": "c8fd179c25f4ebdbf6614dd9080d51ec163dad2a2e95b836f3163b6f608727da",
+  "bridge/room/app.py": "aad046f30c14f7d6764ec1c086b06bf98d22de6dc3b9c36fe6fd32966fdfbd6a",
+  "bridge/room/mcp.py": "0c5ca218dbcd758b852bfbf6c5b7d957134df94945e214c5429c68a5c5701f93",
+  "bridge/room/__main__.py": "f0553d02a32d01b65b27ee72738af136e079d19e5e490c7e91d13bfcc1bf30ed",
+  "src/app/agent_store.ts": "5703f4657d068d835cced246dc43b7b73df2071b4b5f7d936544d272e6f84549",
+  "vitest.config.ts": "02381237b394510e415bee0eb04ff6354cc2d559bfe7529d34c973a5a59b70b1",
+  "tsconfig.json": "9e35ea1df15346325100fd3a221993229f4193e82b3293ade2268d4dec605732",
+  "package.json": "e4e055e4eef26d2f1ce301f050d5e1d8239429f14eed8a243336cf586d9b48a8",
+  "unit_baseline": {
+    "exit": 1,
+    "summary": [
+      "Test Files  10 failed | 335 passed (345)",
+      "Tests  399 failed | 10454 passed | 9 skipped (10862)"
+    ]
+  },
+  "refresh": {
+    "reason": "U116r1 binds the supplied integrated U109 candidate; previous hashes are historical, not current test evidence.",
+    "previous_source_hashes": {
+      "src/plan/reducer.ts": "87cc849c06878ded833a033c727d6551c918989114ba69f47a9cfbf1f666475d",
+      "bridge/plan/fold.py": "bed254f505328eec7aeda2ec59a0d5b540d697182afc6e29e862eb0f4f903728",
+      "bridge/room/store.py": "3c3997a3c94de7b7ec2d129b4481608db419d3e077d09bc2b8f6eb18ad7542c0",
+      "bridge/room/app.py": "ce4f6a85f230670cd86b111a1034f16fdfdcf8e5c5dd8de13c8b34bf661f1513",
+      "bridge/room/mcp.py": "0ba1bafc8802e21f77b7b827c307e4f1dff2a39c80bc457f6f98b4a24eb6387c",
+      "src/app/agent_store.ts": "36f26378b2c0498f241e3b1c76e8bb41ca4f7f918f32f5ca50ed56cacd3eb69f"
+    }
+  }
+}

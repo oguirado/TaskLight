@@ -54,8 +54,10 @@ class CursorOracle(CursorCase):
     def test_m3_exact_event_projection_drops_unlisted_fields(self):
         extra = event(5, act="question", to="reader", evidence=[], text="literal question")
         self.seed([*self.events, extra])
-        self.check(self.request(after_lamport=4), [extra], 5, 5)
-        self.assertNotIn("to", self.request(after_lamport=4)["events"][0])
+        # A-U128a: SPEC_U128 M2 projects stored addressing fields (`to`, `re`); other unlisted fields stay dropped.
+        expected = project([extra]); expected[0]["to"] = "reader"
+        self.assertEqual(self.request(after_lamport=4), {"events": expected, "next_after": 5,
+                                                         "head": 5, "has_more": False, "resync": False})
 
     def test_a2_omitted_limit_returns_small_fixture(self):
         self.seed()
@@ -329,6 +331,9 @@ class ProtocolOracle(CursorCase):
     def test_a8_registration_schema_and_fresh_mcp_discovery(self):
         reply, = self.rpc({"method": "tools/list"})
         tools = reply["result"]["tools"]
+        # A-U132c: the integrated lifecycle and work tools are each discovered once.
+        for name in ("agent_lifecycle", "work_acquire", "work_report"):
+            self.assertEqual(len([tool for tool in tools if tool["name"] == name]), 1)
         matches = [tool for tool in tools if tool["name"] == "room_events"]
         self.assertEqual(len(matches), 1)
         tool = matches[0]
@@ -350,7 +355,8 @@ class ProtocolOracle(CursorCase):
         for name in ("acts", "ops"):
             self.assertEqual(props[name]["type"], "array")
             self.assertEqual(props[name]["items"]["type"], "string")
-        self.assertEqual(ext.EXT_MODULES, ("events", "activity", "export"))
+        # A-U132c: retain U110 send and include U132 lifecycle and U119 acquire.
+        self.assertEqual(ext.EXT_MODULES, ("events", "activity", "export", "send", "lifecycle", "acquire"))
         ext.load()
         ext.load()
         self.assertEqual(len([t for t in ext.EXT_TOOLS if t["name"] == "room_events"]), 1)

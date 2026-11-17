@@ -1,6 +1,9 @@
 # TaskLight Desktop Setup
 
-This guide covers running the TaskLight wall and MCP planning server on your own desktop before or without a Firebase project.
+An external harness deploys and directs agents; TaskLight displays their shared
+plans, coarse microtasks, identity, harness, current work, state, liveness,
+dependencies and progress. Keep terminals and human conversations in the harness.
+This guide sets up the desktop wall and MCP server before Firebase deployment.
 
 For browser-free plans and memory, use [HEADLESS.md](HEADLESS.md).
 
@@ -144,14 +147,26 @@ CW_HOME = "<cw-home>"
 }
 ```
 
+### Check discovery before writing
+
+From the repository root, with the same `CW_HOME`, run:
+
+```sh
+python3 -m bridge.room tools
+```
+
+Compare the descriptors with MCP `tools/list`, and inspect `initialize` and
+`prompts/list`. [MCP.md](MCP.md) records the live inventory and handshake.
+The installer preview writes nothing; only `--apply` installs native host files.
+
 ## 5. First plan in 2 minutes
 
 Ask your connected AI agent to run these MCP tools against `room: "demo"` (or any room listed in your `wall.config.json`):
 
 1. `list_templates` to inspect available planning templates.
 2. `plan_create` with `template_id: "web-app"`, a `title`, `brief`, and `tasks` (each with microtasks).
-3. `task_claim` to assign a task to the agent (agents can also query `next_work`, advance phases with `plan_phase`, and close with `plan_close`).
-4. `microtask_set` to mark a microtask `done` with an `outcome` and optional `evidence`: a list of up to 8 absolute paths to files that show the work (a plain string is rejected with `bad_evidence`; credential files are refused).
+3. `work_acquire` to claim eligible work and activate its first microtask without takeover. Alternatively use `next_work` then `task_claim` and `microtask_set`.
+4. `work_report` to batch coarse microtask completions with outcomes, real evidence paths and the acquired `claim_lamport`; the same append transaction activates the next pending item. See [MCP.md](MCP.md) for its discovered shape and [HEADLESS.md](HEADLESS.md) for a scratch walkthrough. The granular `microtask_set` path remains supported; a plain evidence string is rejected with `bad_evidence`, and credential files are refused.
 5. `memory_set` (for example section `"architecture"`) with `base_rev: 0`.
 
 Open the wall (next section). It shows the live plan band (title, phase chips, progress, tasks and microtasks) and the **Memory** view.
@@ -166,15 +181,34 @@ VITE_EXTENSION_ORIGINS=chrome-extension://<extension-id> npx vite --config tools
 
 Then browse `http://localhost:5173/` (use `localhost`, not `127.0.0.1`: the development manifest only allows `http://localhost/*`). The page connects to the extension, the extension starts the native host, and the rooms in your `wall.config.json` appear as workspaces.
 
-### Model routing and liaison
+### Model routing and legacy liaison
 
 `firebase-hybrid` remains the factory default for every task group,
 including `liaison`. App Check remains mandatory for Firebase. Local and
 network model servers are optional user-configured endpoints managed
 through the native host; no network endpoint or credential ships with
 TaskLight. See [MODELS.md](MODELS.md) for configuration and privacy rules.
-The liaison drafts messages and summaries; only a human sends them to
-executors. An unavailable liaison leaves direct messaging and planning usable.
+Retained chat and liaison controls are legacy, with no new investment. The
+liaison drafts only; human conversations and questions belong in the harness.
+Unavailable legacy inference does not block planning. Private Nano narration
+stays on-device; unavailable generation uses **Rules summary** without cloud
+narration or room writes.
+
+### Lifecycle and harness provenance
+
+Use [HARNESS_HOOKS.md](HARNESS_HOOKS.md) for the landed neutral hook contract;
+hooks record lifecycle without model calls. Reuse the harness-recorded `run_id`
+for executor beats, stable per attempt. Failure or exit releases eligible open
+work, never closes the plan. Check cleanup separately from lifecycle persistence.
+Terminal task release remains **HOLD** pending upstream resolution. Mailbox
+slice 2 remains **HOLD** under [FAMILY_CHANNEL.md](FAMILY_CHANNEL.md), even when
+its underlying tools appear in discovery. Exact pin launch settings are AUSENTE.
+
+Keep **Antigravity 2 (agent-reported)** and **Antigravity 2 (harness-recorded)**
+distinct. Antigravity 2 native wiring and live compatibility remain pending;
+see [HARNESS_ANTIGRAVITY.md](HARNESS_ANTIGRAVITY.md) for the owner contract.
+The label alone is not evidence of automatic harness integration. These labels
+and all lifecycle identity remain caller-asserted, not authentication.
 
 ## 6. Try it without installing anything
 

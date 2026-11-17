@@ -1,9 +1,25 @@
 import { describe, expect, it } from "vitest";
 import { groupTasksByPhase, renderPhaseTaskCards } from "../../../src/views/plan";
-import { activityNode, canonical, card, expectActivity, hostile, map, micro, mount, phases, plan, projection,
+import { activityNode, canonical, expectActivity as legacyExpectActivity, hostile, map, micro, mount, phases, plan, projection,
   setup, source, states, step, task, text, wall } from "./fixtures";
+
+
 import type { ActivityState, Task } from "./fixtures";
 import { expectStationary, hasAnimation, icon, visualSignature } from "./css_probe";
+
+// A-Q1: U148 keeps task and microtask state distinct; exclude children from task text checks.
+function expectActivity(scope: HTMLElement, state: Parameters<typeof legacyExpectActivity>[1]): void {
+  const own = scope.cloneNode(true) as HTMLElement;
+  if (scope.matches(".task[data-task-id]")) own.querySelectorAll(".steps").forEach(n => n.remove());
+  legacyExpectActivity(own, state);
+}
+
+// A-Q1: U148 non-article task roots retain .task/data-task-id; keep identity checks.
+function card(root: ParentNode, id = "T01"): HTMLElement {
+  const matches = [...root.querySelectorAll<HTMLElement>(".task[data-task-id]")].filter(n => n.dataset.taskId === id);
+  expect(matches, `Required unique task card: ${id}`).toHaveLength(1);
+  return matches[0]!;
+}
 
 setup();
 function fixture(state: ActivityState): Task {

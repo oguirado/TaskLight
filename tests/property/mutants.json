@@ -1,0 +1,89 @@
+{
+  "schema": "u116-mutants-v1",
+  "mutants": [
+    {
+      "id": "remove-id-order-python",
+      "target": "bridge/plan/fold.py",
+      "source_sha256": "9efefbbd733a1be8817700654cc67d07b458afb85f08ce671a872acaa00e1074",
+      "mutation": "drop event-ID tie ordering in disposable module",
+      "applicability": "baseline",
+      "activation_witness": "reverse tied IDs reach modified sort",
+      "assertion": "complete frozen projection including T01",
+      "applied": null,
+      "activated": null,
+      "detected": null
+    },
+    {
+      "id": "remove-id-order-typescript",
+      "target": "src/plan/reducer.ts",
+      "source_sha256": "ab889ff47d801c3a3c5b90d766b82a7d1a1ffa6e53017c6b86979f40f1590bf7",
+      "mutation": "process-local sort seam drops ID comparison",
+      "applicability": "baseline",
+      "activation_witness": "reverse canonical tied IDs traverse comparator seam",
+      "assertion": "complete frozen projection including T01",
+      "applied": null,
+      "activated": null,
+      "detected": null
+    },
+    {
+      "id": "skip-fsync",
+      "target": "bridge/room/store.py",
+      "source_sha256": "c8fd179c25f4ebdbf6614dd9080d51ec163dad2a2e95b836f3163b6f608727da",
+      "mutation": "process-local persistence seam acknowledges without fsync",
+      "applicability": "baseline",
+      "activation_witness": "acknowledged operation reaches seam",
+      "assertion": "write-before-real-fsync-before-success",
+      "applied": null,
+      "activated": null,
+      "detected": null
+    },
+    {
+      "id": "ignore-ownership-control",
+      "target": "bridge/plan/fold.py",
+      "source_sha256": "9efefbbd733a1be8817700654cc67d07b458afb85f08ce671a872acaa00e1074",
+      "mutation": "disposable module bypasses only the U109 foreign micro writer gate; unassigned, fencing and dependency gates remain intact",
+      "applicability": "baseline",
+      "activation_witness": "claim and conflicting writer execute modified branch",
+      "assertion": "foreign writer must not change microtasks",
+      "applied": null,
+      "activated": null,
+      "detected": null
+    },
+    {
+      "id": "disable-invalidation",
+      "target": null,
+      "source_sha256": null,
+      "mutation": "U113 invalidation target AUSENTE \u2014 no inventar",
+      "applicability": "cache",
+      "activation_witness": null,
+      "assertion": null,
+      "applied": null,
+      "activated": null,
+      "detected": null
+    },
+    {
+      "id": "permissive-gates",
+      "target": null,
+      "source_sha256": null,
+      "mutation": "U109 is integrated; a separate permissive-gates mutation target is not bound in this refresh",
+      "applicability": "gates",
+      "activation_witness": null,
+      "assertion": null,
+      "applied": null,
+      "activated": null,
+      "detected": null
+    },
+    {
+      "id": "ignore-lifecycle",
+      "target": null,
+      "source_sha256": null,
+      "mutation": "U132 lifecycle implementation and frozen shape AUSENTE \u2014 no inventar",
+      "applicability": "lifecycle",
+      "activation_witness": null,
+      "assertion": null,
+      "applied": null,
+      "activated": null,
+      "detected": null
+    }
+  ]
+}

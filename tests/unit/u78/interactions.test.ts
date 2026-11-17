@@ -1,5 +1,7 @@
+// A-Q1: U148/U150 named non-article task roots retain their classes and identity hooks.
 import { describe, expect, it, vi } from "vitest";
 import { button, mounted, q, running, setup, storeFixture, visible, vm } from "./helpers";
+import { event } from "../u67/helpers";
 
 setup();
 describe("A1 / M1 theme", () => {
@@ -68,14 +70,17 @@ describe("A3 / M3 model feedback", () => {
     const s = storeFixture();
     expect(s.ingest({ id: "e-0000000000000064", lamport: 100, ts: Date.now(), room: "oracle", agent: "helper", act: "plan", text: "", plan: { title: "Legacy", steps: [{ text: "Check" }] } })).toBe(true);
     const { host, chat, post } = running(s); await vi.advanceTimersByTimeAsync(10_000);
-    const card = [...host.querySelectorAll<HTMLElement>("article.task")].find(n => n.getAttribute("data-task-id") === "agent:oracle:helper" || n.id === "agent:oracle:helper");
-    expect(card).toBeDefined(); card!.click();
+    const card = [...host.querySelectorAll<HTMLElement>(".task[data-task-id]")].find(n => n.getAttribute("data-task-id") === "agent:oracle:helper" || n.id === "agent:oracle:helper");
+    // A-R41: keep unavailable-model feedback coverage behind legacy Messages.
+    expect(card).toBeDefined(); openLegacyMessages(host, "agent:oracle:helper");
     button(chat, /suggest with Gemini Nano/i).click();
     expect(visible(chat)).toMatch(/not available on this device|Gemini Nano.*unavailable/i); expect(post).not.toHaveBeenCalled();
   });
-  it.each([/Gemini Nano/i, /Rules/i])("status %s opens the existing Models sheet via its public handler", name => {
+  // A-R40: health and Rules remain passive; the single named Models entry opens the sheet, U138 M7 / U118 M4.
+  it.each([/Gemini Nano/i, /Rules/i])("status %s accompanies the named Models opener", name => {
     const onOpenModels = vi.fn(); const { host } = mounted(vm(), { onOpenModels });
-    const status = button(host, name); status.click();
+    expect(host.querySelector(".model-health, .rules-line")?.parentElement?.textContent).toMatch(name);
+    const status = button(host, /^Models$/); status.click();
     expect(onOpenModels).toHaveBeenCalledExactlyOnceWith(status);
   });
   it("destroy cancels pending feedback and leaves no UI after the timeout", async () => {
@@ -108,7 +113,12 @@ describe("A5 / M5 open work counts", () => {
     { cancelled: false, field: "header" }, { cancelled: false, field: "workspace" },
     { cancelled: true, field: "header" }, { cancelled: true, field: "workspace" },
   ])("excludes done and closed legacy work; cancelled=$cancelled field=$field", ({ cancelled, field }) => {
-    const { host } = running(storeFixture({ completed: true, cancelled, legacy: true }));
+    // A-U109c: (a) claim before completing the task counted by both views, M3.
+    const store = storeFixture({ cancelled, legacy: true });
+    expect(store.ingest(event(22, { kind: "task.claim", task_id: "T01" }))).toBe(true);
+    expect(store.ingest(event(23, { kind: "micro.set", micro_id: "T01.M01", state: "done", outcome: "Verified" }))).toBe(true);
+    expect(store.plan("oracle")!.projection.rejected).toEqual([]);
+    const { host } = running(store);
     const count = cancelled ? 3 : 4;
     if (field === "header") expect(q(host, ".view-sub").textContent).toContain(`${count} open tasks`);
     else expect(q(host, '.workspace[data-wsid="oracle"] .ws-lens').textContent).toMatch(new RegExp(`\\b${count} open\\b`));
@@ -124,4 +134,14 @@ function createLegacy() {
   const s = storeFixture();
   expect(s.ingest({ id: "e-0000000000000065", lamport: 101, ts: Date.now(), room: "oracle", agent: "legacy", act: "plan", text: "", plan: { title: "Legacy", steps: [{ text: "Check" }] } })).toBe(true);
   return s;
+}
+
+// A-R41: task conversations open only inside the expanded Messages (legacy) entry.
+function openLegacyMessages(host: HTMLElement, taskId?: string): void {
+  const toggle = host.querySelector<HTMLButtonElement>(".messages-toggle")!;
+  if (toggle.getAttribute("aria-expanded") !== "true") toggle.click();
+  const button = taskId === undefined ? host.querySelector<HTMLButtonElement>(".messages-open")
+    : [...host.querySelectorAll<HTMLButtonElement>(".messages-task")]
+      .find(node => node.getAttribute("data-task-vm-id") === taskId);
+  expect(button).toBeDefined(); button!.click();
 }

@@ -16,7 +16,7 @@ import importlib
 
 # Modules loaded by ``load()``, in this order. A listed module that does not
 # exist yet is skipped; any other import error propagates.
-EXT_MODULES = ("events", "activity", "export")
+EXT_MODULES = ("events", "activity", "export", "send", "lifecycle", "acquire")
 
 EXT_TOOLS = []
 EXT_DISPATCH = {}

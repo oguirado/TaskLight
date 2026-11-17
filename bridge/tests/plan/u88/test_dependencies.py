@@ -4,8 +4,21 @@ import unittest
 
 from bridge.plan.errors import PlanError
 from bridge.plan.fold import _derived, apply_op_event
-from .fixtures import (CASES, TEMPLATES, canonical, event, events_for, folded,
+from .fixtures import (CASES, TEMPLATES, canonical, event, events_for as legacy_events_for, folded,
                        incremental, vector)
+
+
+def events_for(case):
+    # A-U109c: (a) assign each vector's microtask writer at task creation, M3.
+    # Canonical dependency expectations and the shared vector file stay fixed.
+    events = legacy_events_for(case)
+    owners = {ev['op']['micro_id'].split('.')[0]: ev['agent']
+              for ev in events if ev['op']['kind'] == 'micro.set'}
+    additions = [ev for ev in events if ev['op']['kind'] == 'task.add']
+    for i, ev in enumerate(additions, 1):
+        if f'T{i:02d}' in owners:
+            ev['op']['assignee'] = owners[f'T{i:02d}']
+    return events
 
 
 def prerequisite_probe(state):

@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 
 const cases = [
+  // A-U132c: the Python discovery oracle also checks lifecycle and both U119 work tools.
   "a8_registration_schema_and_fresh_mcp_discovery",
   "a8_success_is_raw_in_handler_and_untrusted_in_mcp",
   "a8_errors_are_structured_and_server_survives",

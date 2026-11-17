@@ -7,7 +7,7 @@ export type TaskStatus = "pending" | "active" | "blocked" | "done" | "cancelled"
 export type PlanOpKind =
   | "plan.open" | "plan.close" | "plan.phase"
   | "task.add" | "task.set" | "task.claim" | "task.release"
-  | "micro.add" | "micro.set" | "memory.set" | "activity.beat";
+  | "micro.add" | "micro.set" | "memory.set" | "activity.beat" | "agent.lifecycle";
 
 export type PlanOpErrorCode =
   | "no_plan" | "plan_exists" | "unknown_template" | "bad_template"
@@ -51,11 +51,11 @@ export interface TaskSetOp extends PlanOpBase {
   deps?: readonly string[]; estimate?: string | null; state?: "blocked" | "cancelled" | null; reason?: string | null;
 }
 export interface TaskClaimOp extends PlanOpBase { kind: "task.claim"; task_id: string; takeover?: boolean }
-export interface TaskReleaseOp extends PlanOpBase { kind: "task.release"; task_id: string }
+export interface TaskReleaseOp extends PlanOpBase { kind: "task.release"; task_id: string; claim_lamport?: number }
 export interface MicroAddOp extends PlanOpBase { kind: "micro.add"; task_id: string; base_rev: number; text: string; accept?: string }
 export interface MicroSetOp extends PlanOpBase {
   kind: "micro.set"; micro_id: string; base_rev?: never; state: MicroState;
-  outcome?: string; took?: string; evidence?: readonly RoomEvidence[];
+  outcome?: string; took?: string; evidence?: readonly RoomEvidence[]; claim_lamport?: number;
 }
 export interface MemorySetOp extends PlanOpBase { kind: "memory.set"; section: string; text: string; base_rev: number }
 export interface ActivityBeatOp extends PlanOpBase {
@@ -63,9 +63,20 @@ export interface ActivityBeatOp extends PlanOpBase {
   note?: string; op_id: string; base_rev?: never;
 }
 
+export type AgentLifecycle = "deployed" | "alive" | "finished" | "failed";
+export interface AgentLifecycleOp extends PlanOpBase {
+  kind: "agent.lifecycle"; state: AgentLifecycle; run_id: string; op_id: string;
+  swarm?: string; harness?: string; reason?: string; base_rev?: never;
+}
+export interface AgentLifecycleRecord {
+  lifecycle: AgentLifecycle; run_id: string; swarm?: string; harness?: string; reason?: string;
+  deployed_ts: number; last_alive_ts?: number; ts: number; lamport: number;
+  retired_run_ids: readonly string[];
+}
+
 export type PlanOpBody =
   | PlanOpenOp | PlanCloseOp | PlanPhaseOp | TaskAddOp | TaskSetOp
-  | TaskClaimOp | TaskReleaseOp | MicroAddOp | MicroSetOp | MemorySetOp | ActivityBeatOp;
+  | TaskClaimOp | TaskReleaseOp | MicroAddOp | MicroSetOp | MemorySetOp | ActivityBeatOp | AgentLifecycleOp;
 
 export interface PlanOpEvent {
   id: string; lamport: number; ts: number; room: string; agent: string; act: "op"; text: string; op: PlanOpBody;
@@ -91,6 +102,8 @@ export interface PlanState {
 export interface PlanConformanceFinding { code: string; severity: "error"; path: string; message: string }
 export interface PlanConformance { ok: boolean; findings: readonly PlanConformanceFinding[] }
 export interface PlanProjection {
+  // Compatibility snapshots may omit fields; reducers emit complete lifecycle records.
+  agent_lifecycle?: Readonly<Record<string, Partial<AgentLifecycleRecord>>>;
   plan: PlanState | null; tasks: readonly PlanTask[];
   memory: Readonly<Record<string, PlanMemorySection>>;
   archived_plans: readonly { id: string; title: string; template_id: string; opened_ts: number;
@@ -108,4 +121,4 @@ export interface PlanFoldStats {
 export interface PlanFoldResult { projection: PlanProjection; stats: PlanFoldStats }
 export type PlanApplyResult =
   | { ok: true; projection: PlanProjection; replayed: boolean }
-  | { ok: false; code: PlanOpErrorCode; projection: PlanProjection };
+  | { ok: false; code: PlanOpErrorCode; detail: string; projection: PlanProjection };

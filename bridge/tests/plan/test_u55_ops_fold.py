@@ -16,22 +16,27 @@ class FoldOracle(OracleCase):
              {'kind':'task.claim','task_id':'T01','base_rev':4},
              {'kind':'micro.add','task_id':'T01','base_rev':5,'text':'Second'},
              {'kind':'micro.set','micro_id':'T01.M01','state':'done','outcome':'OK','took':'1m','evidence':[{'path':'proof','sha256':'a'*64}]},
+             # A-U109c: (a) release unfinished work, reclaim before completion, M3/M5, Amendment C A-U109-1.
+             {'kind':'task.release','task_id':'T01','base_rev':7},
+             {'kind':'task.claim','task_id':'T01'},
              {'kind':'micro.set','micro_id':'T01.M02','state':'done'},
-             {'kind':'task.release','task_id':'T01','base_rev':8},
              {'kind':'memory.set','section':'notes','text':'Decision','base_rev':0},
              {'kind':'plan.close','base_rev':2,'outcome':'Finished'}]
         s=empty_projection()
         for n,op in enumerate(ops,1):
             s,_=apply_op_event(s,event(n,op),templates=templates())
+            if op['kind']=='task.release':
+                self.assertIsNone(s['tasks'][0]['assignee'])
+                self.assertIsNone(s['tasks'][0]['claim_lamport'])
         self.assertEqual(s['rejected'],[])
         self.assertEqual(s['plan']['state'],'closed')
-        self.assertEqual(s['plan']['rev'],11)
+        self.assertEqual(s['plan']['rev'],12)
         self.assertEqual(s['plan']['closed_outcome'],'Finished')
         t=s['tasks'][0]
-        self.assertEqual((t['id'],t['rev'],t['state'],t['ready'],t['assignee']),('T01',9,'done',False,None))
+        self.assertEqual((t['id'],t['rev'],t['state'],t['ready'],t['assignee']),('T01',10,'done',False,'alice'))
         self.assertEqual([m['id'] for m in t['microtasks']],['T01.M01','T01.M02'])
-        self.assertEqual([m['rev'] for m in t['microtasks']],[7,8])
-        self.assertEqual(s['memory']['notes'],{'id':'notes','text':'Decision','rev':10,'by':'alice','ts':BASE_TS+10})
+        self.assertEqual([m['rev'] for m in t['microtasks']],[7,10])
+        self.assertEqual(s['memory']['notes'],{'id':'notes','text':'Decision','rev':11,'by':'alice','ts':BASE_TS+11})
         self.assertEqual(s['rollup'],{'tasks_total':1,'tasks_done':1,'tasks_blocked':0,'tasks_ready':0,'micro_total':2,'micro_done':2,'progress':1.0,'progress_pct':100})
 
     def test_O2_no_plan(self):
@@ -184,7 +189,8 @@ class FoldOracle(OracleCase):
     def test_O8_micro_tie_last_write(self):
         a=event(3,{'kind':'micro.set','micro_id':'T01.M01','state':'active'})
         b=event(3,{'kind':'micro.set','micro_id':'T01.M01','state':'done'},id='e-0000000000000004')
-        s=fold_plan([b,event(2,adding(microtasks=[{'text':'Step'}])),a,event(1,opening())],templates=templates())
+        # A-U109c: (a) tied writes still require their event agent to own the task, M3.
+        s=fold_plan([b,event(2,adding(assignee='alice',microtasks=[{'text':'Step'}])),a,event(1,opening())],templates=templates())
         self.assertEqual(s['tasks'][0]['state'],'done')
 
     def test_O8_no_clock_or_filesystem(self):
@@ -196,13 +202,15 @@ class FoldOracle(OracleCase):
     def test_lifecycle_archive_memory_and_cancelled_ids(self):
         s=self.start(adding(),{'kind':'task.set','task_id':'T01','base_rev':2,'state':'cancelled'},adding(),{'kind':'memory.set','section':'notes','text':'Keep','base_rev':0})
         self.assertEqual([t['id'] for t in s['tasks']],['T01','T02'])
-        s,_=self.apply(s,6,{'kind':'plan.close','base_rev':1,'outcome':'Old'})
-        self.assertCode('no_plan',self.apply,s,7,adding())
-        s,_=self.apply(s,8,opening())
+        # A-U109c: (a) explicitly cancel remaining work before archiving, M6.
+        s,_=self.apply(s,6,{'kind':'task.set','task_id':'T02','base_rev':4,'state':'cancelled'})
+        s,_=self.apply(s,7,{'kind':'plan.close','base_rev':1,'outcome':'Old'})
+        self.assertCode('no_plan',self.apply,s,8,adding())
+        s,_=self.apply(s,9,opening())
         self.assertEqual(s['tasks'],[])
         self.assertEqual(s['memory']['notes']['text'],'Keep')
-        self.assertEqual(s['archived_plans'],[{'id':'p1','title':'Plan','template_id':'neutral','opened_ts':BASE_TS+1,'closed_ts':BASE_TS+6,'tasks_total':2,'tasks_done':0,'outcome':'Old'}])
-        s,_=self.apply(s,9,adding())
+        self.assertEqual(s['archived_plans'],[{'id':'p1','title':'Plan','template_id':'neutral','opened_ts':BASE_TS+1,'closed_ts':BASE_TS+7,'tasks_total':2,'tasks_done':0,'outcome':'Old'}])
+        s,_=self.apply(s,10,adding())
         self.assertEqual(s['tasks'][0]['id'],'T01')
 
     def test_optional_revisions(self):
@@ -272,7 +280,8 @@ for label,v in [('above_date_bound',8640000000000001),('below_date_bound',-86400
 
 def derived_case(ms,explicit,want,ready):
     def test(self):
-        s=self.start(adding(microtasks=[{'text':'Step'} for _ in ms]))
+        # A-U109c: (a) derived-state fixtures assign the writer before every micro state, M3.
+        s=self.start(adding(assignee='alice',microtasks=[{'text':'Step'} for _ in ms]))
         n=3
         for i,state in enumerate(ms,1):
             s,_=self.apply(s,n,{'kind':'micro.set','micro_id':'T01.M%02d'%i,'state':state});n+=1
@@ -321,7 +330,8 @@ setattr(FoldOracle,'test_O8_ineligible_events_filtered',filtered_events)
 
 
 def dependency_readiness(self):
-    s=self.start(adding(microtasks=[{'text':'Step'}]),adding(deps=['T01']))
+    # A-U109c: (a) prerequisite completion requires its assignee, M3.
+    s=self.start(adding(assignee='alice',microtasks=[{'text':'Step'}]),adding(deps=['T01']))
     self.assertFalse(s['tasks'][1]['ready'])
     s,_=self.apply(s,4,{'kind':'micro.set','micro_id':'T01.M01','state':'done'})
     self.assertTrue(s['tasks'][1]['ready'])
@@ -332,9 +342,11 @@ setattr(FoldOracle,'test_dependency_readiness',dependency_readiness)
 def replay_history_survives_reopen(self):
     s=self.start()
     s,first=self.apply(s,2,adding(op_id='persist_01'))
-    s,_=self.apply(s,3,{'kind':'plan.close','base_rev':1})
-    s,_=self.apply(s,4,opening())
-    s,result=self.apply(s,5,adding(op_id='persist_01'))
+    # A-U109c: (a) cancel open work before testing replay across reopen, M6/M7.
+    s,_=self.apply(s,3,{'kind':'task.set','task_id':'T01','base_rev':2,'state':'cancelled'})
+    s,_=self.apply(s,4,{'kind':'plan.close','base_rev':1})
+    s,_=self.apply(s,5,opening())
+    s,result=self.apply(s,6,adding(op_id='persist_01'))
     self.assertTrue(result['replayed'])
     self.assertEqual(s['tasks'],[])
     self.assertIn('["alice","persist_01"]',s['replayed_ops'])
@@ -366,6 +378,9 @@ setattr(FoldOracle,'test_O3_task_add_self_cycle',add_self_dependency)
 
 for op in valid_ops[1:9]:
     def test(self,op=op):
-        s=self.start(adding(microtasks=[{'text':'Step'}]),{'kind':'plan.close','base_rev':1})
-        self.assertCode('no_plan',self.apply,s,4,op)
+        # A-U109c: (a) reach a legitimately closed plan before checking no_plan, M6.
+        s=self.start(adding(microtasks=[{'text':'Step'}]),
+                     {'kind':'task.set','task_id':'T01','base_rev':2,'state':'cancelled'},
+                     {'kind':'plan.close','base_rev':1})
+        self.assertCode('no_plan',self.apply,s,5,op)
     setattr(FoldOracle,'test_closed_plan_rejects_'+op['kind'],test)

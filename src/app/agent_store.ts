@@ -7,8 +7,11 @@ import * as Plan from "../plan";
 import type { PlanProjection, PlanTask, PlanMicrotask, PlanState, PlanningTemplate } from "../plan";
 
 export type TemplateResolver = (templateId: string, templateHash: string) => PlanningTemplate | undefined;
-export interface AgentStoreOptions { maxPerRoom?: number; templates?: TemplateResolver }
+export interface AgentStoreOptions { maxPerRoom?: number; maxBytesPerRoom?: number; templates?: TemplateResolver }
 export interface IngestSummary { accepted: number; duplicate: number; malformed: number; torn: boolean }
+export type MemoryVersionVM = { rev: number; by: string; ts: number; text: string };
+type MemoryHistoryVM = Readonly<Record<string, readonly MemoryVersionVM[]>>;
+
 export interface PlanProjectionResult {
   room: string;
   source: "v2" | "legacy";
@@ -17,6 +20,7 @@ export interface PlanProjectionResult {
   rejectedOps?: number;
   errors?: readonly { id?: string; lamport?: number; code: string }[];
   template?: PlanningTemplate;
+  memoryHistory?: MemoryHistoryVM;
 }
 export interface AgentStore {
   ingest(ev: unknown): boolean;
@@ -149,6 +153,9 @@ function validEvent(v: unknown): v is RoomEvent {
     const op = v["op"];
     const planField = v["plan"];
     const stepField = v["step"];
+    for (const payload of [planField, stepField, v["evidence"]]) {
+      if (payload !== undefined && (hasDangerousOwnKey(payload) || !isJsonSafeDeep(payload))) return false;
+    }
 
     if (act === "op") {
       if (!isRecord(op)) return false;
@@ -221,19 +228,181 @@ function deepClone<T>(v: T): T {
   return out as T;
 }
 
-const cloneEvent = (e: RoomEvent): RoomEvent => {
-  const c: RoomEvent = { ...e };
-  if (e.plan !== undefined) {
-    c.plan = {
-      title: e.plan.title,
-      steps: e.plan.steps.map((s) => (s.accept === undefined ? { text: s.text } : { text: s.text, accept: s.accept })),
-    };
+const cloneEvent = (e: RoomEvent): RoomEvent => deepClone(e);
+
+// Display retention is independent of replay authority. Only exact beat ops may
+// be compacted; all other admitted ops (including rejected ones) remain pinned.
+const pinnedEvent = (e: RoomEvent): boolean => e.act === "op" && e.op?.kind !== "activity.beat";
+type EventOrder = readonly [lamport: number, id: string];
+const eventOrder = (e: RoomEvent): EventOrder => [e.lamport, e.id];
+const compareOrder = (a: EventOrder, b: EventOrder): number =>
+  a[0] - b[0] || (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0);
+
+function insertionIndex<T>(list: readonly T[], order: EventOrder, key: (v: T) => EventOrder): number {
+  let low = 0, high = list.length;
+  while (low < high) {
+    const mid = low + Math.floor((high - low) / 2);
+    if (compareOrder(key(list[mid]!), order) < 0) low = mid + 1;
+    else high = mid;
   }
-  if (e.step !== undefined) c.step = { ...e.step };
-  if (e.evidence !== undefined) c.evidence = e.evidence.map((x) => ({ ...x }));
-  if (e.op !== undefined) c.op = deepClone(e.op);
-  return c;
-};
+  return low;
+}
+
+interface ActivityPoint { order: EventOrder; at: number }
+interface BeatReplay extends ActivityPoint {
+  by: string;
+  task: string;
+  micro: string | undefined;
+  run: string;
+  identity: string;
+}
+interface LegacyLast extends ActivityPoint { text: string }
+interface LegacyChange extends ActivityPoint {
+  by: string;
+  fields: Pick<RoomEvent, "act" | "text"> & Partial<RoomEvent>;
+}
+interface RoomHistory {
+  pinned: RoomEvent[];
+  recent: { event: RoomEvent; bytes: number }[];
+  bytes: number;
+  evictedThrough: EventOrder | undefined;
+  beats: BeatReplay[];
+  activity: Map<string, ActivityPoint[]>;
+  lastLegacy: Map<string, LegacyLast>;
+  legacy: LegacyChange[];
+}
+
+function roomHistory(): RoomHistory {
+  return { pinned: [], recent: [], bytes: 0, evictedThrough: undefined,
+    beats: [], activity: new Map(), lastLegacy: new Map(), legacy: [] };
+}
+
+function compactRecent(history: RoomHistory, e: RoomEvent): void {
+  const order = eventOrder(e);
+  if (e.act === "op") {
+    // These are replay instructions, not receipts: a late predecessor or changed
+    // template can change a beat's acceptance, retirement and supersession.
+    // Text, note, evidence and the original envelope are deliberately discarded.
+    const op = e.op!;
+    history.beats.push({ order, at: e.ts, by: e.agent, task: op["task_id"] as string,
+      micro: op["micro_id"] as string | undefined, run: op["run_id"] as string,
+      identity: op.op_id! });
+    return;
+  }
+
+  // Prefix maxima suffice for takeover, including timestamp regression. Keep
+  // their positions so arbitrary late semantic ops see the right earlier max.
+  let points = history.activity.get(e.agent);
+  if (points === undefined) { points = []; history.activity.set(e.agent, points); }
+  const index = insertionIndex(points, order, (point) => point.order);
+  const previous = points[index - 1];
+  if (previous === undefined || previous.at < e.ts) {
+    let end = index;
+    while (end < points.length && points[end]!.at <= e.ts) end++;
+    points.splice(index, end - index, { order, at: e.ts });
+  }
+
+  // Legacy lastSeen is ordered activity, not a timestamp maximum. Its lastText
+  // is retained once per agent, independently of the takeover summary above.
+  const last = history.lastLegacy.get(e.agent);
+  if (last === undefined || compareOrder(last.order, order) < 0) {
+    history.lastLegacy.set(e.agent, { order, at: e.ts, text: e.text });
+  }
+  let fields: LegacyChange["fields"];
+  switch (e.act) {
+    case "plan": fields = { act: e.act, text: "", plan: e.plan! }; break;
+    case "step": fields = { act: e.act, text: "", step: e.step! }; break;
+    case "answer": fields = { act: e.act, text: "", ...(e.re === undefined ? {} : { re: e.re }) }; break;
+    case "close": fields = { act: e.act, text: "" }; break;
+    case "question": {
+      // Open questions are semantic legacy output: preserve their public payload
+      // for late answers, without keeping a raw event object in auxiliary state.
+      const { id, lamport, ts, room, agent, ...body } = e;
+      fields = body;
+      break;
+    }
+    default: return;
+  }
+  history.legacy.push({ order, at: e.ts, by: e.agent, fields });
+}
+
+function replayActivity(room: string, by: string, point: ActivityPoint, text = ""): RoomEvent {
+  return { id: point.order[1], lamport: point.order[0], ts: point.at,
+    room, agent: by, act: "heartbeat", text };
+}
+
+// Reconstructed envelopes are temporary fold inputs only. No cache or closure
+// retains them. Auxiliary storage is O(agents + seen IDs), not bounded total
+// storage: beat replay identities and legacy semantic changes must survive.
+function planReplay(room: string, history: RoomHistory, raw: readonly RoomEvent[]): RoomEvent[] {
+  const events = [...raw];
+  for (const beat of history.beats) {
+    events.push({ ...replayActivity(room, beat.by, beat), act: "op",
+      op: { kind: "activity.beat", task_id: beat.task, run_id: beat.run, op_id: beat.identity,
+        ...(beat.micro === undefined ? {} : { micro_id: beat.micro }) } });
+  }
+  for (const [agent, points] of history.activity) {
+    for (const point of points) events.push(replayActivity(room, agent, point));
+  }
+  return events;
+}
+
+function legacyReplay(room: string, history: RoomHistory, events: RoomEvent[]): void {
+  for (const entry of history.recent) if (entry.event.act !== "op") events.push(entry.event);
+  for (const change of history.legacy) {
+    const last = history.lastLegacy.get(change.by);
+    const text = last?.order[1] === change.order[1] ? last.text : change.fields.text;
+    events.push({ ...replayActivity(room, change.by, change), ...change.fields, text });
+  }
+  for (const [agent, last] of history.lastLegacy) {
+    events.push(replayActivity(room, agent, last, last.text));
+  }
+}
+
+function copyPlanResult(value: PlanProjectionResult | undefined): PlanProjectionResult | undefined {
+  const copy = deepClone(value);
+  if (copy !== undefined && copy.projection.agent_lifecycle === undefined) {
+    // Local replay supports lifecycle even when no registration was recorded.
+    // Keep the explicit empty map available without changing legacy JSON snapshots.
+    Object.defineProperty(copy.projection, "agent_lifecycle", {
+      value: {}, enumerable: false, writable: true, configurable: true,
+    });
+  }
+  if (copy?.memoryHistory !== undefined) {
+    // A-U126: M1/M6 — optional local metadata preserves enumerable replay snapshots.
+    Object.defineProperty(copy, "memoryHistory", {
+      value: copy.memoryHistory, enumerable: false, writable: true, configurable: true,
+    });
+  }
+  return copy;
+}
+
+// Match memory_history: canonical rejections, first event identity, and accepted
+// operation identity across all kinds. Never infer versions from final values.
+function retainedMemoryHistory(events: readonly RoomEvent[], projection: PlanProjection): MemoryHistoryVM {
+  const rejected = new Set(projection.rejected.map((entry) => entry.id));
+  const seenIds = new Set<string>();
+  const seenOps = new Set<string>();
+  const history: Record<string, MemoryVersionVM[]> = Object.create(null);
+  for (const event of [...events].sort(compareEvents)) {
+    if (event.lamport < 1 || event.lamport > projection.last_lamport || seenIds.has(event.id)) continue;
+    seenIds.add(event.id);
+    if (rejected.has(event.id) || event.act !== "op" || !isRecord(event.op)) continue;
+    const op = event.op;
+    if (op.op_id !== undefined) {
+      const identity = JSON.stringify([event.agent, op.op_id]);
+      if (seenOps.has(identity)) continue;
+      seenOps.add(identity);
+    }
+    if (op.kind !== "memory.set" || typeof op.section !== "string" || !ROOM_RE.test(op.section) ||
+        DANGEROUS.has(op.section) || typeof op.text !== "string") continue;
+    const versions = history[op.section] ?? (history[op.section] = []);
+    versions.push({ rev: event.lamport, by: event.agent, ts: event.ts, text: op.text });
+    if (versions.length > 100) versions.shift();
+  }
+  for (const versions of Object.values(history)) versions.reverse();
+  return history;
+}
 
 export function createAgentStore(opts?: AgentStoreOptions): AgentStore {
   const resolver: TemplateResolver | undefined = opts !== undefined && typeof (opts as AgentStoreOptions).templates === "function" ? (opts as AgentStoreOptions).templates : undefined;
@@ -241,21 +410,57 @@ export function createAgentStore(opts?: AgentStoreOptions): AgentStore {
   if (!Number.isInteger(maxPerRoom) || maxPerRoom <= 0) {
     throw new RangeError(`maxPerRoom must be a positive integer, got ${String(maxPerRoom)}`);
   }
+  const maxBytesPerRoom = opts?.maxBytesPerRoom ?? 16 * 1024 * 1024;
+  if (!Number.isInteger(maxBytesPerRoom) || maxBytesPerRoom <= 0) {
+    throw new RangeError(`maxBytesPerRoom must be a positive integer, got ${String(maxBytesPerRoom)}`);
+  }
   const seen = new Set<string>();
-  const rooms = new Map<string, RoomEvent[]>();
+  const rooms = new Map<string, RoomHistory>();
   const maxLamport = new Map<string, number>();
+  let statesCache: AgentState[] | undefined;
+  const planCache = new Map<string, {
+    sorted: RoomEvent[];
+    hasOp: boolean;
+    openings: Map<string, { id: string; hash: string }>;
+    templateOutcome: string | undefined;
+    value: PlanProjectionResult | undefined;
+    canonical?: ReturnType<typeof Plan.foldPlan>;
+    memoryHistory?: MemoryHistoryVM;
+  }>();
 
   const ingestChecked = (ev: unknown): "accepted" | "duplicate" | "invalid" => {
     try {
       if (!validEvent(ev)) return "invalid";
       if (seen.has(ev.id)) return "duplicate";
-      seen.add(ev.id);
-      let list = rooms.get(ev.room);
-      if (list === undefined) {
-        list = [];
-        rooms.set(ev.room, list);
+      const event = cloneEvent(ev);
+      const pinned = pinnedEvent(event);
+      const bytes = pinned ? 0 : encoder.encode(JSON.stringify(event)).length;
+      let history = rooms.get(event.room);
+      if (history === undefined) {
+        history = roomHistory();
+        rooms.set(event.room, history);
       }
-      list.push(cloneEvent(ev));
+      if (pinned) history.pinned.push(event);
+      else {
+        const order = eventOrder(event);
+        if (history.evictedThrough !== undefined && compareOrder(order, history.evictedThrough) <= 0) {
+          compactRecent(history, event);
+        } else {
+          const index = insertionIndex(history.recent, order, (entry) => eventOrder(entry.event));
+          history.recent.splice(index, 0, { event, bytes });
+          history.bytes += bytes;
+          while (history.recent.length > maxPerRoom || history.bytes > maxBytesPerRoom) {
+            const oldest = history.recent.shift()!;
+            history.bytes -= oldest.bytes;
+            history.evictedThrough = eventOrder(oldest.event);
+            compactRecent(history, oldest.event);
+          }
+        }
+      }
+      seen.add(event.id);
+      // Every accepted arrival matters, including late events and rejected ops.
+      planCache.delete(ev.room);
+      statesCache = undefined;
       const cur = maxLamport.get(ev.room);
       if (cur === undefined || ev.lamport > cur) maxLamport.set(ev.room, ev.lamport);
       return "accepted";
@@ -306,59 +511,82 @@ export function createAgentStore(opts?: AgentStoreOptions): AgentStore {
       return Object.fromEntries(maxLamport);
     },
     states(): AgentState[] {
-      const all: RoomEvent[] = [];
-      for (const list of rooms.values()) all.push(...list);
-      return foldRoomWithStats(all).states;
+      if (statesCache === undefined) {
+        const all: RoomEvent[] = [];
+        for (const [room, history] of rooms) legacyReplay(room, history, all);
+        statesCache = foldRoomWithStats(all).states;
+      }
+      return deepClone(statesCache);
     },
     events(room: string): RoomEvent[] {
-      const list = rooms.get(room);
-      if (list === undefined) return [];
-      const ops: RoomEvent[] = [];
-      const others: RoomEvent[] = [];
-      for (const e of list) (e.act === "op" ? ops : others).push(e);
-      others.sort(compareEvents);
-      const kept = others.length > maxPerRoom ? others.slice(others.length - maxPerRoom) : others;
-      return [...ops, ...kept].map(cloneEvent).sort(compareEvents);
+      const history = rooms.get(room);
+      if (history === undefined) return [];
+      return [...history.pinned, ...history.recent.map((entry) => entry.event)].sort(compareEvents).map(cloneEvent);
     },
     plan(room: string): PlanProjectionResult | undefined {
       try {
         if (typeof room !== "string") return undefined;
-        const list = rooms.get(room);
-        if (list === undefined || list.length === 0) return undefined;
-        const sorted = [...list].sort(compareEvents);
-        const hasOp = sorted.some((e) => e.act === "op");
-        if (!hasOp) return undefined;
-        let template: PlanningTemplate | undefined;
-        if (resolver !== undefined) {
-          try {
-            let latest: Record<string, unknown> | undefined;
-            for (const e of sorted) {
-              if (e.act !== "op") continue;
-              const op = (e as { op?: unknown }).op;
-              if (!isRecord(op as unknown)) continue;
-              if ((op as Record<string, unknown>)["kind"] !== "plan.open") continue;
-              latest = op as Record<string, unknown>;
-            }
-            if (latest !== undefined) {
-              const tid = latest["template_id"];
-              const thash = latest["template_hash"];
-              if (typeof tid === "string" && typeof thash === "string") {
-                const candidate = resolver(tid, thash);
-                if (isRecord(candidate as unknown) && (candidate as PlanningTemplate).hash === thash) {
-                  template = candidate as PlanningTemplate;
-                }
-              }
-            }
-          } catch { template = undefined; }
+        const history = rooms.get(room);
+        if (history === undefined) return undefined;
+        let cached = planCache.get(room);
+        if (cached === undefined) {
+          const sorted = [...history.pinned, ...history.recent.map((entry) => entry.event)].sort(compareEvents);
+          const openings = new Map<string, { id: string; hash: string }>();
+          for (const e of sorted) {
+            if (e.act !== "op" || !isRecord(e.op) || e.op["kind"] !== "plan.open") continue;
+            const id = e.op["template_id"], hash = e.op["template_hash"];
+            if (typeof id === "string" && typeof hash === "string") openings.set(JSON.stringify([id, hash]), { id, hash });
+          }
+          cached = { sorted, hasOp: history.beats.length > 0 || sorted.some((e) => e.act === "op"), openings,
+            templateOutcome: undefined, value: undefined };
+          planCache.set(room, cached);
         }
-        const result = template !== undefined ? Plan.foldPlan(sorted as unknown, template) : Plan.foldPlan(sorted as unknown);
+        if (!cached.hasOp) return undefined;
+        const templates = new Map<string, PlanningTemplate | undefined>();
+        const outcomes: Array<[string, string]> = [];
+        let cacheable = true;
+        if (resolver !== undefined) {
+          for (const [key, { id, hash }] of cached.openings) {
+            let template: PlanningTemplate | undefined;
+            let outcome = "missing";
+            try {
+              const candidate = resolver(id, hash);
+              if (isRecord(candidate as unknown) && (candidate as PlanningTemplate).hash === hash) {
+                template = candidate as PlanningTemplate;
+                // Normalize every historical snapshot on every read: resolver
+                // objects and their nested constraints may mutate at a fixed hash.
+                if (isJsonSafeDeep(template)) outcome = `template:${canonicalJsonString(template)}`;
+                else cacheable = false;
+              } else if (isRecord(candidate as unknown)) outcome = "hash-mismatch";
+            } catch { template = undefined; outcome = "threw"; }
+            templates.set(key, template);
+            outcomes.push([key, outcome]);
+          }
+        }
+        const templateOutcome = cacheable ? JSON.stringify(outcomes) : undefined;
+        if (templateOutcome !== undefined && cached.templateOutcome === templateOutcome) {
+          return copyPlanResult(cached.value);
+        }
+        const replay = planReplay(room, history, cached.sorted);
+        const canonical = cached.canonical ?? (cached.canonical = Plan.foldPlan(replay));
+        const memoryHistory = cached.memoryHistory ??
+          (cached.memoryHistory = retainedMemoryHistory(replay, canonical.projection));
+        const result = resolver !== undefined
+          ? Plan.foldPlan(replay, (id, hash) => templates.get(JSON.stringify([id, hash]))) : canonical;
         const proj = (result as { projection?: PlanProjection })?.projection;
+        const template = proj?.plan !== null && proj?.plan !== undefined
+          ? templates.get(JSON.stringify([proj.plan.template_id, proj.plan.template_hash]))
+          : undefined;
         const stats = (result as { stats?: { invalid?: number; rejected?: number; errors?: readonly { id?: string; lamport?: number; code: string }[] } })?.stats;
         if (proj === undefined) return undefined;
-        return { room, source: "v2", projection: proj, invalidOps: typeof stats?.invalid === "number" ? stats.invalid : 0,
+        const value: PlanProjectionResult = { room, source: "v2", projection: proj, memoryHistory, invalidOps: typeof stats?.invalid === "number" ? stats.invalid : 0,
           ...(typeof stats?.rejected === "number" ? { rejectedOps: stats.rejected } : {}),
           ...(Array.isArray(stats?.errors) ? { errors: stats.errors } : {}),
           ...(template !== undefined ? { template } : {}) };
+        // Detach resolver-owned data as well as every returned projection.
+        cached.value = deepClone(value);
+        cached.templateOutcome = templateOutcome;
+        return copyPlanResult(cached.value);
       } catch { return undefined; }
     },
     plans(): PlanProjectionResult[] {
@@ -1059,7 +1287,7 @@ export function toWallVM(
     } catch { archive = []; }
 
     // Memory: scoped to the selected workspace before section collection.
-    let memory: MemoryVM | undefined;
+    let memory: (MemoryVM & { room?: string; history?: MemoryHistoryVM }) | undefined;
     const scopedPlans = safePlans.filter((pr) => pr.room === workspace);
     if (scopedPlans.length > 0) {
       try {
@@ -1124,6 +1352,12 @@ export function toWallVM(
           }
         }
       } catch { memory = undefined; }
+    }
+
+    if (ROOM_RE.test(workspace)) {
+      const history = scopedPlans[0]?.memoryHistory;
+      memory = { ...(memory ?? { sections: [] }), room: workspace,
+        ...(history !== undefined ? { history: deepClone(history) } : {}) };
     }
 
     const vm: WallVM = {

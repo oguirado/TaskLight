@@ -37,7 +37,8 @@ describe("O12 no assets", () => {
   });
   it("css contains the frozen hooks", () => {
     const css = stripCss(read("styles/model_selector.css"));
-    for (const frag of ["--c-st-done", "--c-st-waiting", "--c-text-3", "--c-accent", ":focus-visible", "outline: 2px solid var(--c-accent)",
+    // A-U127: M3 requires the shared focus token, independent of the surface accent.
+    for (const frag of ["--c-st-done", "--c-st-waiting", "--c-text-3", "--c-accent", ":focus-visible", "outline: 2px solid var(--c-focus)",
       "data-health", 'data-source="local"', 'data-source="remote"', "dashed", "button.status-line"]) expect(css).toContain(frag);
   });
 });
@@ -61,15 +62,20 @@ describe("O13 no vendor names", () => {
 
 describe("O14 status-line trigger", () => {
   const base = (): WallVM => toWallVM([mkState({ steps: 2, done: 1 })], new Map(), { nowMs: Date.now(), model: { state: "ready", label: "Gemini Nano" }, network: "online" });
-  it("without onOpenModels: a div, as today", () => {
+  // A-R40: keep one enabled named Models opener even without services, U138 M7 / U118 M4.
+  it("without onOpenModels: passive health and a named Models button", () => {
     const host = document.createElement("div"); document.body.append(host);
     mountWall(host, base(), {});
-    const m = host.querySelector("[data-model]");
+    const m = host.querySelector(".model-health[data-model]");
     expect(m?.tagName).toBe("DIV");
     expect(m?.classList.contains("status-line")).toBe(true);
-    expect(host.querySelector("button.status-line")).toBeNull();
+    const trigger = host.querySelector<HTMLButtonElement>("button.status-line");
+    expect(trigger?.textContent).toBe("Models");
+    expect(trigger?.disabled).toBe(false);
+    expect(host.querySelectorAll("button.status-line")).toHaveLength(1);
   });
-  it("with onOpenModels: a button with the ARIA contract, same dot and text", () => {
+  // A-R40: Models names the sole opener; health retains its dot and text separately, U138 M7 / U118 M4.
+  it("with onOpenModels: named button with the ARIA contract and passive health", () => {
     const host = document.createElement("div"); document.body.append(host);
     const spy = vi.fn();
     mountWall(host, base(), { onOpenModels: spy });
@@ -79,9 +85,11 @@ describe("O14 status-line trigger", () => {
     expect(b!.getAttribute("aria-haspopup")).toBe("dialog");
     expect(b!.getAttribute("aria-controls")).toBe("model-sheet");
     expect(b!.getAttribute("aria-expanded")).toBe("false");
-    expect(b!.hasAttribute("data-model")).toBe(true);
-    expect(b!.querySelector(".status-dot")?.getAttribute("aria-hidden")).toBe("true");
-    expect(b!.querySelector(".status-text")?.textContent).toBe("Gemini Nano");
+    expect(b!.textContent).toBe("Models");
+    const health = host.querySelector(".model-health[data-model]");
+    expect(health?.tagName).toBe("DIV");
+    expect(health?.querySelector(".status-dot")?.getAttribute("aria-hidden")).toBe("true");
+    expect(health?.querySelector(".status-text")?.textContent).toBe("Gemini Nano");
     b!.click();
     expect(spy).toHaveBeenCalledTimes(1);
     expect(spy).toHaveBeenCalledWith(b);
@@ -97,7 +105,9 @@ describe("O14 status-line trigger", () => {
     const h = mountWall(host, base(), { onOpenModels: () => {} });
     h.update({ ...base(), model: { state: "downloading", label: "Downloading" } });
     expect(host.querySelectorAll("button.status-line").length).toBe(1);
-    expect(host.querySelector("button.status-line .status-text")?.textContent).toBe("Downloading");
+    // A-R40: refresh preserves the Models name and updates passive health, U138 M7 / U118 M4.
+    expect(host.querySelector("button.status-line")?.textContent).toBe("Models");
+    expect(host.querySelector(".model-health .status-text")?.textContent).toBe("Downloading");
   });
 });
 

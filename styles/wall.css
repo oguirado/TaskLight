@@ -33,12 +33,13 @@
 }
 
 [data-role="wall-banner"]:focus-visible {
-  outline-color: var(--color-accent);
+  outline: 2px solid var(--c-focus);
+  outline-offset: 2px;
 }
 
 button:focus-visible {
-  outline-color: var(--color-accent);
-  outline-width: 2px;
+  outline: 2px solid var(--c-focus);
+  outline-offset: 2px;
 }
 
 [data-slot="step_1"],

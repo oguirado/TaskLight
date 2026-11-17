@@ -33,9 +33,23 @@ Privacy policy is fail-closed and takes precedence over user selection and Remot
 | `shared` | Allowed | Allowed | Allowed | Denied |
 | `screenshot` (any tier) | Allowed | Denied | Denied | Denied (no override) |
 
-## Liaison task group
+## Swarm narration
 
-The `liaison` task group uses `firebase-hybrid` as its factory default and
+On-device Nano swarm narration summarizes the visible shared work; cloud models
+execute agents through their external harness. Narration cannot mutate or write
+to the room and does not establish acceptance. The shipped narrator supports
+`PREFER_ON_DEVICE` with `gemini-4-hydrogen` cloud fallback only when privacy and
+cloud availability permit it. Private rooms remain on-device (`ONLY_ON_DEVICE`)
+and never use cloud narration. When generation is unavailable or blocked, the
+labelled **Rules summary** supplies a deterministic fallback with no room writes.
+The live inference source display reports the actual on-device or cloud source;
+a rules summary is not generated model output. Nano requires a browser and is
+unavailable in pure headless runs. Firebase hosting remains pending deployment.
+
+## Legacy liaison task group
+
+Retained chat and liaison are legacy, with no new investment. Human conversations
+belong in the harness. The `liaison` task group uses `firebase-hybrid` as its factory default and
 can be assigned a user-configured endpoint under the same privacy rules
 as other groups. Network models are optional user-configured endpoints;
 TaskLight supplies no bundled network provider selection or credentials.

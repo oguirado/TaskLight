@@ -59,9 +59,14 @@ class SeamTests(unittest.TestCase):
         schema = descriptors[0]["inputSchema"]
         self.assertEqual(schema["type"], "object")
         self.assertEqual(set(schema["required"]), {"room", "agent", "task_id", "run_id"})
-        self.assertEqual(set(schema["properties"]), {"room", "agent", "task_id", "micro_id", "run_id", "note", "op_id"})
+        # A-U140r1: generation fencing is optional and has an exact integer schema.
+        self.assertEqual(set(schema["properties"]), {"room", "agent", "task_id", "micro_id", "run_id", "note", "op_id", "expected_opened_lamport"})
+        fence = schema["properties"]["expected_opened_lamport"]
+        self.assertEqual((fence.get("type"), fence.get("minimum")), ("integer", 1))
+        self.assertNotIn("expected_opened_lamport", schema["required"])
         self.assertIs(schema["additionalProperties"], False)
-        self.assertTrue(all(v["type"] == "string" for v in schema["properties"].values()))
+        self.assertTrue(all(v["type"] == "string" for key, v in schema["properties"].items()
+                            if key != "expected_opened_lamport"))
         self.assertEqual(schema["properties"]["run_id"]["pattern"], "^[A-Za-z0-9_-]{1,64}$")
         self.assertEqual(schema["properties"]["note"]["maxLength"], 240)
         handler = ext.EXT_DISPATCH["activity_beat"]
@@ -165,7 +170,8 @@ class ToolTests(ActivityCase):
         before = self.path.read_bytes()
         with mock.patch.object(store.time, "time", return_value=900.0):
             again = self.call(copy.deepcopy(ARGS))
-        self.assertEqual(again, self.first)
+        # A-U121c: retries retain the committed receipt and expose replay, M5.
+        self.assertEqual(again, dict(self.first, replayed=True))
         self.assertEqual(self.path.read_bytes(), before)
         self.assertEqual(len(self.journal()), 10)
 
@@ -190,7 +196,11 @@ class ToolTests(ActivityCase):
         projected = self.projection()
         for changed in ({"run_id": "different_run"}, {"task_id": "T02", "micro_id": "T02.M01"}):
             with self.subTest(changed=changed), mock.patch.object(store.time, "time", return_value=900.0):
-                self.assertEqual(self.call(dict(ARGS, **changed)), self.first)
+                # A-U121c: changed caller content conflicts with the original identity, M2/M3.
+                with self.assertRaises(store.RoomError) as caught:
+                    self.call(dict(ARGS, **changed))
+                self.assertEqual(caught.exception.code, "bad_op")
+                self.assertIn("op_id conflict", str(caught.exception))
                 self.assertEqual(self.path.read_bytes(), before)
                 self.assertEqual(self.projection(), projected)
 
@@ -217,6 +227,10 @@ class ToolTests(ActivityCase):
         self.deny("no_plan", dict(ARGS))
 
     def test_a3_closed_plan_no_append(self):
+        # A-U109c: (a) explicitly cancel unfinished work before reaching closed state, M6.
+        for task in self.projection()["tasks"]:
+            store.post("demo", "alice", "op", "", op={"kind": "task.set", "task_id": task["id"],
+                       "base_rev": task["rev"], "state": "cancelled"}, clock=lambda: 1100)
         store.post("demo", "alice", "op", "", op={"kind": "plan.close", "base_rev": self.projection()["plan"]["rev"]}, clock=lambda: 1100)
         self.deny("no_plan", dict(ARGS, op_id="closed01"))
 
@@ -288,7 +302,8 @@ class ToolTests(ActivityCase):
         with mock.patch.object(mcp, "_result", side_effect=lambda _id, data: replies.append(data)):
             mcp._handle_call(1, {"name": "activity_beat", "arguments": dict(ARGS)})
         payload = json.loads(replies[0]["content"][0]["text"])
-        self.assertEqual(payload, {"untrusted": self.first})
+        # A-U121c: shared success envelope carries the original replay receipt, M5.
+        self.assertEqual(payload, {"untrusted": dict(self.first, replayed=True)})
 
 
 class ValidatorTests(ActivityCase):
@@ -423,7 +438,10 @@ class FoldTests(ActivityCase):
                     apply(dict(kind="micro.set", micro_id="T01.M01", state="active"))
                 owner = "mallory" if scenario in ("reassign", "takeover") else "alice"
                 if scenario in ("release", "reassign"):
+                    # A-U109c: (a) release resets active work; reclaim and explicitly resume, M5.
+                    self.assertEqual(state["tasks"][0]["microtasks"][0]["state"], "pending")
                     apply(dict(kind="task.claim", task_id="T01"), owner)
+                    apply(dict(kind="micro.set", micro_id="T01.M01", state="active"), owner)
                 apply(dict(FIXTURE["beat"]["op"], op_id=f"late{n:04d}"), owner)
                 self.assertNotIn("live", state["tasks"][0]["microtasks"][0], "retired run restored live")
                 apply(dict(FIXTURE["beat"]["op"], run_id="fresh_run", op_id=f"fresh{n:04d}"), owner)
@@ -454,8 +472,13 @@ class FoldTests(ActivityCase):
     def test_m5_microtask_set_keeps_existing_unassigned_authority(self):
         state = fold_plan(FIXTURE["seed"])
         state["tasks"][0]["assignee"] = None
-        after, _ = apply_op_event(state, event(10, dict(kind="micro.set", micro_id="T01.M01", state="pending"), agent="mallory"))
-        self.assertEqual(after["tasks"][0]["microtasks"][0]["state"], "pending")
+        # A-U109c: (a) unassigned writes, including pending, must reject unchanged, M3/M7.
+        before = copy.deepcopy(state)
+        with self.assertRaises(PlanError) as caught:
+            apply_op_event(state, event(10, dict(kind="micro.set", micro_id="T01.M01", state="pending"), agent="mallory"))
+        self.assertEqual(caught.exception.code, "not_conformant")
+        self.assertIn("claim task T01", str(caught.exception))
+        self.assertEqual(state, before)
 
     def test_a7_ownership_negative_control_is_rejected_by_oracle(self):
         from bridge.tests.room.u90.controls import require_owner_rejection

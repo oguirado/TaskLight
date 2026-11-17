@@ -1,0 +1,2238 @@
+{
+  "acceptance": {
+    "deployed": {
+      "event_id": "deployed-a",
+      "room": "demo",
+      "agent": "exec-a",
+      "state": "deployed",
+      "run_id": "r1",
+      "harness": "Antigravity 2"
+    },
+    "alive": {
+      "event_id": "alive-a",
+      "room": "demo",
+      "agent": "exec-a",
+      "state": "alive",
+      "run_id": "r1",
+      "harness": "Antigravity 2"
+    },
+    "finished": {
+      "event_id": "finished-a",
+      "room": "demo",
+      "agent": "exec-a",
+      "state": "finished",
+      "run_id": "r1",
+      "harness": "Antigravity 2"
+    },
+    "failed": {
+      "event_id": "failed-a",
+      "room": "demo",
+      "agent": "exec-a",
+      "state": "failed",
+      "run_id": "r1",
+      "harness": "Antigravity 2"
+    }
+  },
+  "burst": [
+    {
+      "at_ms": 1000,
+      "payload": {
+        "event_id": "deploy-a",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "deployed",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1000,
+      "payload": {
+        "event_id": "alive-a",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1001,
+      "payload": {
+        "event_id": "alive-early-001",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1002,
+      "payload": {
+        "event_id": "alive-early-002",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1003,
+      "payload": {
+        "event_id": "alive-early-003",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1004,
+      "payload": {
+        "event_id": "alive-early-004",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1005,
+      "payload": {
+        "event_id": "alive-early-005",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1006,
+      "payload": {
+        "event_id": "alive-early-006",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1007,
+      "payload": {
+        "event_id": "alive-early-007",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1008,
+      "payload": {
+        "event_id": "alive-early-008",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1009,
+      "payload": {
+        "event_id": "alive-early-009",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1010,
+      "payload": {
+        "event_id": "alive-early-010",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1011,
+      "payload": {
+        "event_id": "alive-early-011",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1012,
+      "payload": {
+        "event_id": "alive-early-012",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1013,
+      "payload": {
+        "event_id": "alive-early-013",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1014,
+      "payload": {
+        "event_id": "alive-early-014",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1015,
+      "payload": {
+        "event_id": "alive-early-015",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1016,
+      "payload": {
+        "event_id": "alive-early-016",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1017,
+      "payload": {
+        "event_id": "alive-early-017",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1018,
+      "payload": {
+        "event_id": "alive-early-018",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1019,
+      "payload": {
+        "event_id": "alive-early-019",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1020,
+      "payload": {
+        "event_id": "alive-early-020",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1021,
+      "payload": {
+        "event_id": "alive-early-021",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1022,
+      "payload": {
+        "event_id": "alive-early-022",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1023,
+      "payload": {
+        "event_id": "alive-early-023",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1024,
+      "payload": {
+        "event_id": "alive-early-024",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1025,
+      "payload": {
+        "event_id": "alive-early-025",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1026,
+      "payload": {
+        "event_id": "alive-early-026",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1027,
+      "payload": {
+        "event_id": "alive-early-027",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1028,
+      "payload": {
+        "event_id": "alive-early-028",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1029,
+      "payload": {
+        "event_id": "alive-early-029",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1030,
+      "payload": {
+        "event_id": "alive-early-030",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1031,
+      "payload": {
+        "event_id": "alive-early-031",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1032,
+      "payload": {
+        "event_id": "alive-early-032",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1033,
+      "payload": {
+        "event_id": "alive-early-033",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1034,
+      "payload": {
+        "event_id": "alive-early-034",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1035,
+      "payload": {
+        "event_id": "alive-early-035",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1036,
+      "payload": {
+        "event_id": "alive-early-036",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1037,
+      "payload": {
+        "event_id": "alive-early-037",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1038,
+      "payload": {
+        "event_id": "alive-early-038",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1039,
+      "payload": {
+        "event_id": "alive-early-039",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1040,
+      "payload": {
+        "event_id": "alive-early-040",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1041,
+      "payload": {
+        "event_id": "alive-early-041",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1042,
+      "payload": {
+        "event_id": "alive-early-042",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1043,
+      "payload": {
+        "event_id": "alive-early-043",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1044,
+      "payload": {
+        "event_id": "alive-early-044",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1045,
+      "payload": {
+        "event_id": "alive-early-045",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1046,
+      "payload": {
+        "event_id": "alive-early-046",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1047,
+      "payload": {
+        "event_id": "alive-early-047",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1048,
+      "payload": {
+        "event_id": "alive-early-048",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1049,
+      "payload": {
+        "event_id": "alive-early-049",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1050,
+      "payload": {
+        "event_id": "alive-early-050",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1051,
+      "payload": {
+        "event_id": "alive-early-051",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1052,
+      "payload": {
+        "event_id": "alive-early-052",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1053,
+      "payload": {
+        "event_id": "alive-early-053",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1054,
+      "payload": {
+        "event_id": "alive-early-054",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1055,
+      "payload": {
+        "event_id": "alive-early-055",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1056,
+      "payload": {
+        "event_id": "alive-early-056",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1057,
+      "payload": {
+        "event_id": "alive-early-057",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1058,
+      "payload": {
+        "event_id": "alive-early-058",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1059,
+      "payload": {
+        "event_id": "alive-early-059",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1060,
+      "payload": {
+        "event_id": "alive-early-060",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1061,
+      "payload": {
+        "event_id": "alive-early-061",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1062,
+      "payload": {
+        "event_id": "alive-early-062",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1063,
+      "payload": {
+        "event_id": "alive-early-063",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1064,
+      "payload": {
+        "event_id": "alive-early-064",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1065,
+      "payload": {
+        "event_id": "alive-early-065",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1066,
+      "payload": {
+        "event_id": "alive-early-066",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1067,
+      "payload": {
+        "event_id": "alive-early-067",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1068,
+      "payload": {
+        "event_id": "alive-early-068",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1069,
+      "payload": {
+        "event_id": "alive-early-069",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1070,
+      "payload": {
+        "event_id": "alive-early-070",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1071,
+      "payload": {
+        "event_id": "alive-early-071",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1072,
+      "payload": {
+        "event_id": "alive-early-072",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1073,
+      "payload": {
+        "event_id": "alive-early-073",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1074,
+      "payload": {
+        "event_id": "alive-early-074",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1075,
+      "payload": {
+        "event_id": "alive-early-075",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1076,
+      "payload": {
+        "event_id": "alive-early-076",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1077,
+      "payload": {
+        "event_id": "alive-early-077",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1078,
+      "payload": {
+        "event_id": "alive-early-078",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1079,
+      "payload": {
+        "event_id": "alive-early-079",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1080,
+      "payload": {
+        "event_id": "alive-early-080",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1081,
+      "payload": {
+        "event_id": "alive-early-081",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1082,
+      "payload": {
+        "event_id": "alive-early-082",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1083,
+      "payload": {
+        "event_id": "alive-early-083",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1084,
+      "payload": {
+        "event_id": "alive-early-084",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1085,
+      "payload": {
+        "event_id": "alive-early-085",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1086,
+      "payload": {
+        "event_id": "alive-early-086",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1087,
+      "payload": {
+        "event_id": "alive-early-087",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1088,
+      "payload": {
+        "event_id": "alive-early-088",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1089,
+      "payload": {
+        "event_id": "alive-early-089",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1090,
+      "payload": {
+        "event_id": "alive-early-090",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1091,
+      "payload": {
+        "event_id": "alive-early-091",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1092,
+      "payload": {
+        "event_id": "alive-early-092",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1093,
+      "payload": {
+        "event_id": "alive-early-093",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1094,
+      "payload": {
+        "event_id": "alive-early-094",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1095,
+      "payload": {
+        "event_id": "alive-early-095",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1096,
+      "payload": {
+        "event_id": "alive-early-096",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1097,
+      "payload": {
+        "event_id": "alive-early-097",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 1098,
+      "payload": {
+        "event_id": "alive-early-098",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32000,
+      "payload": {
+        "event_id": "alive-a",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32001,
+      "payload": {
+        "event_id": "alive-late-001",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32002,
+      "payload": {
+        "event_id": "alive-late-002",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32003,
+      "payload": {
+        "event_id": "alive-late-003",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32004,
+      "payload": {
+        "event_id": "alive-late-004",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32005,
+      "payload": {
+        "event_id": "alive-late-005",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32006,
+      "payload": {
+        "event_id": "alive-late-006",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32007,
+      "payload": {
+        "event_id": "alive-late-007",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32008,
+      "payload": {
+        "event_id": "alive-late-008",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32009,
+      "payload": {
+        "event_id": "alive-late-009",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32010,
+      "payload": {
+        "event_id": "alive-late-010",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32011,
+      "payload": {
+        "event_id": "alive-late-011",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32012,
+      "payload": {
+        "event_id": "alive-late-012",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32013,
+      "payload": {
+        "event_id": "alive-late-013",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32014,
+      "payload": {
+        "event_id": "alive-late-014",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32015,
+      "payload": {
+        "event_id": "alive-late-015",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32016,
+      "payload": {
+        "event_id": "alive-late-016",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32017,
+      "payload": {
+        "event_id": "alive-late-017",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32018,
+      "payload": {
+        "event_id": "alive-late-018",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32019,
+      "payload": {
+        "event_id": "alive-late-019",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32020,
+      "payload": {
+        "event_id": "alive-late-020",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32021,
+      "payload": {
+        "event_id": "alive-late-021",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32022,
+      "payload": {
+        "event_id": "alive-late-022",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32023,
+      "payload": {
+        "event_id": "alive-late-023",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32024,
+      "payload": {
+        "event_id": "alive-late-024",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32025,
+      "payload": {
+        "event_id": "alive-late-025",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32026,
+      "payload": {
+        "event_id": "alive-late-026",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32027,
+      "payload": {
+        "event_id": "alive-late-027",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32028,
+      "payload": {
+        "event_id": "alive-late-028",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32029,
+      "payload": {
+        "event_id": "alive-late-029",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32030,
+      "payload": {
+        "event_id": "alive-late-030",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32031,
+      "payload": {
+        "event_id": "alive-late-031",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32032,
+      "payload": {
+        "event_id": "alive-late-032",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32033,
+      "payload": {
+        "event_id": "alive-late-033",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32034,
+      "payload": {
+        "event_id": "alive-late-034",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32035,
+      "payload": {
+        "event_id": "alive-late-035",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32036,
+      "payload": {
+        "event_id": "alive-late-036",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32037,
+      "payload": {
+        "event_id": "alive-late-037",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32038,
+      "payload": {
+        "event_id": "alive-late-038",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32039,
+      "payload": {
+        "event_id": "alive-late-039",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32040,
+      "payload": {
+        "event_id": "alive-late-040",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32041,
+      "payload": {
+        "event_id": "alive-late-041",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32042,
+      "payload": {
+        "event_id": "alive-late-042",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32043,
+      "payload": {
+        "event_id": "alive-late-043",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32044,
+      "payload": {
+        "event_id": "alive-late-044",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32045,
+      "payload": {
+        "event_id": "alive-late-045",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32046,
+      "payload": {
+        "event_id": "alive-late-046",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32047,
+      "payload": {
+        "event_id": "alive-late-047",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32048,
+      "payload": {
+        "event_id": "alive-late-048",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32049,
+      "payload": {
+        "event_id": "alive-late-049",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32050,
+      "payload": {
+        "event_id": "alive-late-050",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32051,
+      "payload": {
+        "event_id": "alive-late-051",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32052,
+      "payload": {
+        "event_id": "alive-late-052",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32053,
+      "payload": {
+        "event_id": "alive-late-053",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32054,
+      "payload": {
+        "event_id": "alive-late-054",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32055,
+      "payload": {
+        "event_id": "alive-late-055",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32056,
+      "payload": {
+        "event_id": "alive-late-056",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32057,
+      "payload": {
+        "event_id": "alive-late-057",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32058,
+      "payload": {
+        "event_id": "alive-late-058",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32059,
+      "payload": {
+        "event_id": "alive-late-059",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32060,
+      "payload": {
+        "event_id": "alive-late-060",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32061,
+      "payload": {
+        "event_id": "alive-late-061",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32062,
+      "payload": {
+        "event_id": "alive-late-062",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32063,
+      "payload": {
+        "event_id": "alive-late-063",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32064,
+      "payload": {
+        "event_id": "alive-late-064",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32065,
+      "payload": {
+        "event_id": "alive-late-065",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32066,
+      "payload": {
+        "event_id": "alive-late-066",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32067,
+      "payload": {
+        "event_id": "alive-late-067",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32068,
+      "payload": {
+        "event_id": "alive-late-068",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32069,
+      "payload": {
+        "event_id": "alive-late-069",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32070,
+      "payload": {
+        "event_id": "alive-late-070",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32071,
+      "payload": {
+        "event_id": "alive-late-071",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32072,
+      "payload": {
+        "event_id": "alive-late-072",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32073,
+      "payload": {
+        "event_id": "alive-late-073",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32074,
+      "payload": {
+        "event_id": "alive-late-074",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32075,
+      "payload": {
+        "event_id": "alive-late-075",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32076,
+      "payload": {
+        "event_id": "alive-late-076",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32077,
+      "payload": {
+        "event_id": "alive-late-077",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32078,
+      "payload": {
+        "event_id": "alive-late-078",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32079,
+      "payload": {
+        "event_id": "alive-late-079",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32080,
+      "payload": {
+        "event_id": "alive-late-080",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32081,
+      "payload": {
+        "event_id": "alive-late-081",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32082,
+      "payload": {
+        "event_id": "alive-late-082",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32083,
+      "payload": {
+        "event_id": "alive-late-083",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32084,
+      "payload": {
+        "event_id": "alive-late-084",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32085,
+      "payload": {
+        "event_id": "alive-late-085",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32086,
+      "payload": {
+        "event_id": "alive-late-086",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32087,
+      "payload": {
+        "event_id": "alive-late-087",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32088,
+      "payload": {
+        "event_id": "alive-late-088",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32089,
+      "payload": {
+        "event_id": "alive-late-089",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32090,
+      "payload": {
+        "event_id": "alive-late-090",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32091,
+      "payload": {
+        "event_id": "alive-late-091",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32092,
+      "payload": {
+        "event_id": "alive-late-092",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32093,
+      "payload": {
+        "event_id": "alive-late-093",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32094,
+      "payload": {
+        "event_id": "alive-late-094",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32095,
+      "payload": {
+        "event_id": "alive-late-095",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32096,
+      "payload": {
+        "event_id": "alive-late-096",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32097,
+      "payload": {
+        "event_id": "alive-late-097",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 32098,
+      "payload": {
+        "event_id": "alive-late-098",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "alive",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    },
+    {
+      "at_ms": 33000,
+      "payload": {
+        "event_id": "failed-a",
+        "room": "demo",
+        "agent": "exec-a",
+        "state": "failed",
+        "run_id": "r1",
+        "harness": "Antigravity 2"
+      }
+    }
+  ]
+}

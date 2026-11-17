@@ -1,9 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
 import { buildPlanAgenda, renderPlanBand } from "../../../src/views/plan";
 import type { AgendaItemVM, ActivityStateVM } from "../../../src/views/types";
-import { activate, announcements, canonical, card, map, micro, mount, plan, projection, q, setup,
+import { activate, announcements, canonical, map, micro, mount, plan, projection, q, setup,
   step, task, text, wall, workingWall } from "./fixtures";
+
+
 import { hasAnimation } from "./css_probe";
+
+// A-Q1: U148 non-article task roots retain .task/data-task-id; keep identity checks.
+function card(root: ParentNode, id = "T01"): HTMLElement {
+  const matches = [...root.querySelectorAll<HTMLElement>(".task[data-task-id]")].filter(n => n.dataset.taskId === id);
+  expect(matches, `Required unique task card: ${id}`).toHaveLength(1);
+  return matches[0]!;
+}
 
 setup();
 const foreign = () => task({ id: "plan:room-b:T01", workspace: "room-b", title: "Foreign task",
@@ -15,7 +24,7 @@ const entry = (taskId: string, what: string): AgendaItemVM =>
 describe("U91 repair: workspace and supplied Agenda admission", () => {
   it("keeps the integrated wall scoping when phases and local ids collide", () => {
     const { host } = mount(wall({ tasks: [local(), foreign()] }));
-    expect(host.querySelectorAll("article.task")).toHaveLength(1);
+    expect(host.querySelectorAll(".task[data-task-id]")).toHaveLength(1);
     expect(text(q(host, ".phase-groups"))).not.toContain("Foreign task");
   });
   it.each(["Now", "Next", "Blocked"])("reconciles every supplied %s identity, rejecting unknown, foreign and ambiguous ids", group => {
@@ -72,11 +81,15 @@ describe("U91 repair: child deadlines and truthful animation", () => {
     expect(q(host, '[role="progressbar"]').getAttribute("aria-valuenow")).toBe(progress);
     handle.destroy(); expect(vi.getTimerCount()).toBe(0);
   });
-  it("animates the working task's own icon and disables all its motion when reduced", () => {
+  // A-U151: only the working microtask rotates; reduced motion freezes every icon.
+  it("animates the working microtask's own icon and disables all motion when reduced", () => {
     const { host } = mount(workingWall());
-    const icon = q(card(host), ".task-head > .status-icon");
-    expect(hasAnimation(icon)).toBe(true);
-    for (const pseudo of ["", "before", "after"] as const) expect(hasAnimation(icon, pseudo, true)).toBe(false);
+    const icon = q(card(host), '.step[data-activity="working"] .step-indicator');
+    expect(hasAnimation(icon, "before")).toBe(true);
+    expect(hasAnimation(q(card(host), ".task-head > .status-icon"))).toBe(false);
+    for (const indicator of card(host).querySelectorAll(".step-indicator, .status-icon")) {
+      for (const pseudo of ["", "before", "after"] as const) expect(hasAnimation(indicator, pseudo, true)).toBe(false);
+    }
   });
   it("never rotates a running workspace badge after its liveness expires", () => {
     const { host } = mount(workingWall());

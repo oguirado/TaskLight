@@ -2,9 +2,25 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { renderPlanBand } from "../../../src/views/plan";
-import { activate, announcements, card, controlledPanel, disclosure, expectActivity, mount, plan, q, setup,
+import { activate, announcements, controlledPanel, disclosure, expectActivity as legacyExpectActivity, mount, plan, q, setup,
   step, task, wall, workingWall } from "./fixtures";
+
+
 import { computedMotion, contrast, declaration, expectStationary, hasAnimation, rules, token } from "./css_probe";
+
+// A-Q1: U148 keeps task and microtask state distinct; exclude children from task text checks.
+function expectActivity(scope: HTMLElement, state: Parameters<typeof legacyExpectActivity>[1]): void {
+  const own = scope.cloneNode(true) as HTMLElement;
+  if (scope.matches(".task[data-task-id]")) own.querySelectorAll(".steps").forEach(n => n.remove());
+  legacyExpectActivity(own, state);
+}
+
+// A-Q1: U148 non-article task roots retain .task/data-task-id; keep identity checks.
+function card(root: ParentNode, id = "T01"): HTMLElement {
+  const matches = [...root.querySelectorAll<HTMLElement>(".task[data-task-id]")].filter(n => n.dataset.taskId === id);
+  expect(matches, `Required unique task card: ${id}`).toHaveLength(1);
+  return matches[0]!;
+}
 
 setup();
 describe("A4 phase visual distinction", () => {

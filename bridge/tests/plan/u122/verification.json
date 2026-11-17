@@ -1,0 +1,167 @@
+{
+  "captured_sources_unchanged": {
+    "bridge/plan/__init__.py": true,
+    "bridge/plan/conformance.py": true,
+    "bridge/plan/errors.py": true,
+    "bridge/plan/fold.py": true,
+    "bridge/plan/limits.py": true,
+    "bridge/plan/markdown.py": true,
+    "bridge/plan/ops.py": true,
+    "bridge/plan/template.py": true,
+    "bridge/tests/plan/support.py": true,
+    "fixtures/plan/templates.v1.json": true,
+    "src/plan/index.ts": true,
+    "src/plan/limits.ts": true,
+    "src/plan/reducer.ts": true,
+    "src/plan/types.ts": true,
+    "src/plan/validate.ts": true,
+    "tests/bench/loader.mjs": true
+  },
+  "command": [
+    "python3",
+    "-m",
+    "unittest",
+    "discover",
+    "-s",
+    "bridge/tests/plan/u122",
+    "-t",
+    "."
+  ],
+  "copy_probe": {
+    "long": {
+      "container_entry_copies": {
+        "archived_plans": 232,
+        "memory": 100,
+        "replayed_ops": 210,
+        "tasks": 104
+      },
+      "full_projection_deepcopies": 38,
+      "payload_deepcopy_calls": 12364
+    },
+    "short": {
+      "container_entry_copies": {
+        "archived_plans": 200,
+        "memory": 64,
+        "replayed_ops": 136,
+        "tasks": 72
+      },
+      "full_projection_deepcopies": 34,
+      "payload_deepcopy_calls": 9612
+    }
+  },
+  "environment": {
+    "PYTHONDONTWRITEBYTECODE": "1"
+  },
+  "errors": 0,
+  "exit_code": 1,
+  "failing_tests": [
+    "bridge.tests.plan.u122.test_copy_budget.CopyBudget.test_valid_suffix_does_not_add_full_projection_deepcopies",
+    "bridge.tests.plan.u122.test_copy_budget.CopyBudget.test_valid_suffix_does_not_add_projection_container_copy_work"
+  ],
+  "failure_reason": "Valid folded-operation suffix increases full-projection deepcopy count and projection-container copy work",
+  "frozen_prefixes": 102,
+  "green": 43,
+  "hardening": {
+    "p95_ms": null,
+    "peak_rss_bytes": null,
+    "reason": "AUSENTE: distinct verified baseline/candidate artifacts and granted quiet window",
+    "status": "INCONCLUSIVE"
+  },
+  "interpreter": {
+    "implementation": "cpython",
+    "version": "3.12.3"
+  },
+  "isolated_existing_u116_discrepancy": {
+    "classification": "OUT_OF_SCOPE",
+    "error": "RoomError: bad_op: op_id conflict",
+    "errors": 1,
+    "failures": 0,
+    "test": "bridge.tests.property.test_storage.StorageProperties.test_conflicting_same_op_id_retains_first_result_without_other_mutation",
+    "tests": 1
+  },
+  "mutants": {
+    "boolean-as-integer": {
+      "activated": 1,
+      "detected": 1,
+      "infrastructure_failures": []
+    },
+    "infrastructure-controls": [
+      {
+        "activated": 0,
+        "detected": 0,
+        "infrastructure_failures": [
+          "ImportError"
+        ]
+      },
+      {
+        "activated": 0,
+        "detected": 0,
+        "infrastructure_failures": [
+          "inactive mutant"
+        ]
+      },
+      {
+        "activated": 1,
+        "detected": 0,
+        "infrastructure_failures": [
+          "RuntimeError"
+        ]
+      }
+    ],
+    "manual-linear-container-copy": {
+      "activated": 1,
+      "detected": 1,
+      "infrastructure_failures": []
+    },
+    "post-call-input-alias": {
+      "activated": 1,
+      "detected": 1,
+      "infrastructure_failures": []
+    },
+    "public-input-reuse": {
+      "activated": 1,
+      "detected": 1,
+      "infrastructure_failures": []
+    },
+    "rejection-reserves-op-id": {
+      "activated": 1,
+      "detected": 1,
+      "infrastructure_failures": []
+    },
+    "tentative-memory-leak": {
+      "activated": 1,
+      "detected": 1,
+      "infrastructure_failures": []
+    },
+    "tentative-task-leak": {
+      "activated": 1,
+      "detected": 1,
+      "infrastructure_failures": []
+    }
+  },
+  "named_integration": null,
+  "provenance": "MEASURED",
+  "public_artifact_sha256": {
+    "bridge/tests/plan/u122/ORACLE.md": "3799cda184d97df8a390ed066189bbbdd414bcb619c25f8e5fa0e762d67f05fa",
+    "bridge/tests/plan/u122/__init__.py": "f1cce8d4f130425905195fb7c682d068cc81d61475851b16b3b5ae277c414788",
+    "bridge/tests/plan/u122/reference.json": "2efda9f2c6dd8b9bf7d374f06499922498703e40fee42cc305baa2a7924b0210",
+    "bridge/tests/plan/u122/regression_runner.py": "3bf9ccdf313cb5d9320c9d89b29c6b61f58de86a51551e51ee75fe2a9d3f0abc",
+    "bridge/tests/plan/u122/regressions.json": "750001080fcccab9218e87a252c4012d055e0669182b1ecff6bed3433b8b9641",
+    "bridge/tests/plan/u122/support.py": "d5fef1064d76b03eec302f00586e2b06cec87b4316e027e37514ad1f46ba55d6",
+    "bridge/tests/plan/u122/test_controls.py": "f45d535c12c2bae3c776fb4caf79f4bac67b18adef53ad02c7407d6e7f03cf15",
+    "bridge/tests/plan/u122/test_copy_budget.py": "04532a18f2c642f2b9a71d8f2cb9ee44954709efe08227e310774b6a8a7e4528",
+    "bridge/tests/plan/u122/test_semantics.py": "a97b3f5f7e434f92b5ba472468a2e0cddcc371c45e129b477aff8a44144426e6",
+    "bridge/tests/plan/u122/test_stop_rules.py": "2cf2d37b11d3db6ca8fd4fffa36f41b54beba28e6affc7e1dc3274c1de8ab742"
+  },
+  "red": 2,
+  "reference_status": "PROVISIONAL",
+  "schema": "u122-fail-first-verification/v1",
+  "secret_scan": {
+    "new_surface_findings": 0,
+    "oracle_controls_exit_code": 0
+  },
+  "skipped": 0,
+  "status": "EXPECTED_RED",
+  "summary": "FAILED (failures=2)",
+  "tests": 45
+}

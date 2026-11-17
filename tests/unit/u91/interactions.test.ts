@@ -1,6 +1,22 @@
 import { describe, expect, it, vi } from "vitest";
-import { activate, announcements, card, controlledPanel, disclosure, expectActivity, labels, mount, plan, q, setup, source, states,
+import { activate, announcements, controlledPanel, disclosure, expectActivity as legacyExpectActivity, labels, mount, plan, q, setup, source, states,
   step, task, text, visibleText, wall, workingWall } from "./fixtures";
+
+// A-Q1: U148 keeps task and microtask state distinct; exclude children from task text checks.
+function expectActivity(scope: HTMLElement, state: Parameters<typeof legacyExpectActivity>[1]): void {
+  const own = scope.cloneNode(true) as HTMLElement;
+  if (scope.matches(".task[data-task-id]")) own.querySelectorAll(".steps").forEach(n => n.remove());
+  legacyExpectActivity(own, state);
+}
+
+// A-Q1: U148 non-article task roots retain .task/data-task-id; keep identity checks.
+function card(root: ParentNode, id = "T01"): HTMLElement {
+  const matches = [...root.querySelectorAll<HTMLElement>(".task[data-task-id]")].filter(n => n.dataset.taskId === id);
+  expect(matches, `Required unique task card: ${id}`).toHaveLength(1);
+  return matches[0]!;
+}
+
+
 
 setup();
 describe("A4 phase selection", () => {
@@ -11,7 +27,7 @@ describe("A4 phase selection", () => {
     expect(q(host, 'button.phase-chip[data-phase-id="build"]').getAttribute("aria-pressed")).toBe("true");
     expect(q(host, 'button.phase-chip[data-phase-id="discovery"]').getAttribute("aria-current")).toBe("step");
     expect(q(host, 'button.phase-chip[data-phase-id="build"]').getAttribute("aria-current")).not.toBe("step");
-    expect([...host.querySelectorAll("article.task")].map(n => n.getAttribute("data-task-id"))).toEqual(["T02"]);
+    expect([...host.querySelectorAll(".task[data-task-id]")].map(n => n.getAttribute("data-task-id"))).toEqual(["T02"]);
     expect(onSelectPhase).toHaveBeenCalledExactlyOnceWith("build");
     expect(q(host, '[aria-live="polite"]').textContent).toMatch(/build.*selected|selected.*build/i);
     expect(vm.plan?.phaseId).toBe("discovery");
@@ -31,7 +47,7 @@ describe("A4 phase selection", () => {
     const showAll = [...host.querySelectorAll<HTMLButtonElement>("button")].find(n => /Show all phases/i.test(text(n)));
     expect(showAll).toBeDefined(); activate(showAll!, " ");
     expect(host.querySelector('button.phase-chip[aria-pressed="true"]')).toBeNull();
-    expect(host.querySelectorAll("article.task")).toHaveLength(2);
+    expect(host.querySelectorAll(".task[data-task-id]")).toHaveLength(2);
     expect(q(host, 'button.phase-chip[data-phase-id="discovery"]').getAttribute("aria-current")).toBe("step");
     expect(vm.plan?.phaseId).toBe("discovery");
     expect(onSelectPhase.mock.calls.filter(call => call[0] === "build")).toHaveLength(1);
@@ -90,9 +106,11 @@ describe("A5 acceptance and conversation controls", () => {
     expect(after.getAttribute("aria-expanded")).toBe("true"); expect(document.activeElement).toBe(after);
     expect(visibleText(controlledPanel(after))).toContain("CSV preserves headers");
   });
-  it.each(["Enter", " "] as const)("A5 keyboard Chat %j routes the VM id with recoverable trigger identity", key => {
+  // A-R41: keyboard conversation activation moves into collapsed legacy Messages.
+  it.each(["Enter", " "] as const)("A5 keyboard Messages %j routes the VM id with recoverable trigger identity", key => {
     const onOpenTask = vi.fn(); const vm = wall(); const { host, handle } = mount(vm, { onOpenTask });
-    const chat = [...card(host).querySelectorAll<HTMLButtonElement>("button")].find(n => /chat|conversation/i.test(`${text(n)} ${n.getAttribute("aria-label") ?? ""}`));
+    activate(q(host, ".messages-toggle"));
+    const chat = q(host, ".messages-open");
     expect(chat, "Native keyboard Chat action").toBeDefined();
     expect(chat!.dataset.taskId).toBeTruthy(); activate(chat!, key);
     expect(onOpenTask).toHaveBeenCalledTimes(1); expect(onOpenTask.mock.calls[0]?.[0]).toBe(vm.tasks[0]?.id);
@@ -108,7 +126,7 @@ describe("A5 acceptance and conversation controls", () => {
     expect(identities.some(resolves), "onOpenTask carries a recoverable trigger selector/id").toBe(true);
     const stable = { id: chat!.id, task: chat!.dataset.taskId, micro: chat!.dataset.microId };
     handle.update(structuredClone(vm));
-    const rebound = [...card(host).querySelectorAll<HTMLButtonElement>("button")].find(n => /chat|conversation/i.test(`${text(n)} ${n.getAttribute("aria-label") ?? ""}`));
+    const rebound = q(host, ".messages-open");
     expect(rebound).toBeDefined(); expect({ id: rebound!.id, task: rebound!.dataset.taskId, micro: rebound!.dataset.microId }).toEqual(stable);
     expect(document.activeElement).toBe(rebound);
   });
@@ -119,7 +137,9 @@ describe("A7 authority boundary", () => {
     const t = task({ operatorQuestion: { eventId: "question-1", text: "Which CSV format should be accepted?" }, activity: { state: "needs_you" } });
     const before = structuredClone(t); const onOpenTask = vi.fn(); const { host } = mount(wall({ tasks: [t] }), { onOpenTask });
     expectActivity(card(host), "needs_you"); expect(text(card(host))).toContain(t.operatorQuestion!.text);
-    const action = [...card(host).querySelectorAll<HTMLButtonElement>("button")].find(n => /chat|conversation|answer|respond/i.test(`${text(n)} ${n.getAttribute("aria-label") ?? ""}`));
+    // A-R41: task questions retain a keyboard conversation route only in Messages.
+    activate(q(host, ".messages-toggle"));
+    const action = q(host, ".messages-open");
     expect(action).toBeDefined(); activate(action!); expect(onOpenTask).toHaveBeenCalledTimes(1);
     expect(onOpenTask.mock.calls[0]?.[0]).toBe(t.id); expect(t).toEqual(before);
   });

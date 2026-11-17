@@ -6,10 +6,80 @@ import { describe, expect, it } from "vitest";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 type Probe = { ok: boolean; tests: number; failures: number; errors: number; reason: string };
 
+// A-U109c: (a) the all-tools close fixture must complete its work, M6/M7.
+// Adapt only this legacy subprocess fixture in memory; retain exact payload,
+// journal bytes, envelope and dispatch assertions without changing Python files.
+// A-U87r: SPEC_U121 M3 requires canonical batch.request_sha256 metadata.
+const lifecycleParity = String.raw`
+import hashlib, json, sys
+from bridge.tests.room.u87 import probe, test_contract as checks
+
+legacy_parity = checks.ParityOracle.parity
+
+def parity(self, name):
+    if name != "plan_close":
+        return legacy_parity(self, name)
+    outcomes, journals, spies = [], [], []
+    for adapter in ("cli", "mcp"):
+        home = self.tmp / adapter
+        with checks.deterministic(home):
+            args = checks.fixture(home, name)
+            completed = checks.call(adapter, "microtask_set", dict(
+                room="demo", agent="worker", id="T01.M01", state="done"))
+            self.assertEqual(completed[0], 0, completed)
+            with checks.dispatch_spy(name, args) as seen:
+                result = checks.call(adapter, name, args)
+            spies.append(seen)
+            outcomes.append(result)
+            journals.append(checks.journal(home))
+    self.assertEqual(outcomes[0], outcomes[1], "complete decoded payload differs")
+    self.assertEqual(outcomes[0][0], 0, outcomes)
+    self.assertEqual(journals[0], journals[1], "complete journal bytes differ")
+    expected = json.loads((checks.ROOT / "bridge/tests/room/u87/expected.json").read_text())[name]
+    path = "rooms/demo/events.jsonl"
+    lines = expected["journals"][path].splitlines()
+    close = json.loads(lines.pop())
+    # This frozen seed batch has no local keys or generated operation fields.
+    events = [json.loads(line) for line in lines]
+    request = dict(strict=False, ops=[event["op"] for event in events])
+    digest = hashlib.sha256(json.dumps(request, sort_keys=True, separators=(",", ":"),
+                                       ensure_ascii=False, allow_nan=False).encode("utf-8")).hexdigest()
+    for event in events:
+        event["batch"]["request_sha256"] = digest
+    lines = [json.dumps(event, sort_keys=True, separators=(",", ":")) for event in events]
+    complete = dict(close, op=dict(kind="micro.set", micro_id="T01.M01", state="done"))
+    close = dict(close, id="e-0000000000000004", lamport=4)
+    lines.extend(json.dumps(e, sort_keys=True, separators=(",", ":")) for e in (complete, close))
+    expected["journals"][path] = "\n".join(lines) + "\n"
+    expected["payload"]["untrusted"]["rev"] = 4
+    self.assertEqual(outcomes[0][1], expected["payload"], "successful payload changed")
+    self.assertEqual({p: b.decode() for p, b in journals[0].items()}, expected["journals"],
+                     "committed journal changed beyond the completion step")
+    checks.assert_shared(*spies)
+    self.assertEqual(set(outcomes[0][1]), {"untrusted"})
+    return spies[0] & spies[1]
+
+checks.ParityOracle.parity = parity
+print(json.dumps(probe.run_case(sys.argv[1])))
+`;
+
+// A-U87r: SPEC_U121 M1 requires monotonic deadlines; load lock timing before fake clocks.
+const legacyClock = String.raw`
+from bridge.room import store
+from bridge.tests.room.u87 import probe
+import json, sys
+print(json.dumps(probe.run_case(sys.argv[1])))
+`;
+
 function check(name: string): void {
   // U87's production surface is Python. Run the same authoritative behavioral
   // checks rather than introducing a second implementation of the dispatcher.
-  const child = spawnSync("python3", ["-B", "-m", "bridge.tests.room.u87.probe", "case", name], {
+  const args = name === "ParityOracle.test_a2_same_dispatcher_for_every_tool"
+    ? ["-B", "-c", lifecycleParity, name]
+    : name === "RegressionOracle.test_a9_legacy_commands_exact_outputs_and_exits"
+      ? ["-B", "-c", legacyClock, name]
+      : ["-B", "-m", "bridge.tests.room.u87.probe", "case", name];
+  const child = spawnSync("python3", args, {
     cwd: root,
     env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
     encoding: "utf8",

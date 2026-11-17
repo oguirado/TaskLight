@@ -10,8 +10,10 @@ describe("repair1 archive at plan.close", () => {
     const events = [
       event(1, open()),
       event(2, add()),
-      event(3, { kind: "micro.set", micro_id: "T01.M01", state: "done" }),
-      event(4, { kind: "plan.close", base_rev: 1, outcome: "Finished" }),
+      // A-U109c: (a) claim and complete before testing immediate archival, M3/M6.
+      event(3, { kind: "task.claim", task_id: "T01" }),
+      event(4, { kind: "micro.set", micro_id: "T01.M01", state: "done" }),
+      event(5, { kind: "plan.close", base_rev: 1, outcome: "Finished" }),
     ];
     const p = folded(events);
     expect(p.plan).toMatchObject({ state: "closed", closed_outcome: "Finished" });
@@ -21,7 +23,7 @@ describe("repair1 archive at plan.close", () => {
       title: "Plan",
       template_id: template.id,
       opened_ts: events[0]!.ts,
-      closed_ts: events[3]!.ts,
+      closed_ts: events[4]!.ts,
       tasks_total: 1,
       tasks_done: 1,
       outcome: "Finished",
@@ -29,10 +31,15 @@ describe("repair1 archive at plan.close", () => {
   });
 
   it("reopening does not duplicate or alter the archived entry", () => {
-    const base = vector("plan_close").events;
-    const reopen = [...clone(base), event(10, open())];
+    // A-U109c: (a) cancel unfinished work before closing/reopening, M6.
+    const base = [event(1, open()), event(2, add()),
+      event(3, { kind: "task.set", task_id: "T01", base_rev: 2, state: "cancelled" }),
+      event(4, { kind: "plan.close", base_rev: 1, outcome: "Finished" })];
+    const reopen = [...clone(base), event(5, open())];
     const p = foldPlan(reopen, template).projection;
-    expect(p.archived_plans).toEqual(vector("plan_close").expected_projection.archived_plans);
+    expect(p.rejected).toEqual([]);
+    expect(p.archived_plans).toEqual([{ id: "p1", title: "Plan", template_id: template.id,
+      opened_ts: base[0]!.ts, closed_ts: base[3]!.ts, tasks_total: 1, tasks_done: 0, outcome: "Finished" }]);
     expect(p.archived_plans).toHaveLength(1);
     expect(p.tasks).toEqual([]);
   });
@@ -41,15 +48,18 @@ describe("repair1 archive at plan.close", () => {
     const events = [
       event(1, open()),
       event(2, add()),
-      event(3, { kind: "plan.close", base_rev: 1, outcome: "First" }),
-      event(4, open()),
-      event(5, add()),
-      event(6, { kind: "plan.close", base_rev: 4, outcome: "Second" }),
+      // A-U109c: (a) cancel unfinished tasks in both archive cycles, M6.
+      event(3, { kind: "task.set", task_id: "T01", base_rev: 2, state: "cancelled" }),
+      event(4, { kind: "plan.close", base_rev: 1, outcome: "First" }),
+      event(5, open()),
+      event(6, add()),
+      event(7, { kind: "task.set", task_id: "T01", base_rev: 6, state: "cancelled" }),
+      event(8, { kind: "plan.close", base_rev: 5, outcome: "Second" }),
     ];
     const p = folded(events);
     expect(p.archived_plans).toHaveLength(2);
-    expect(p.archived_plans[0]).toMatchObject({ closed_ts: events[2]!.ts, outcome: "First" });
-    expect(p.archived_plans[1]).toMatchObject({ closed_ts: events[5]!.ts, outcome: "Second" });
+    expect(p.archived_plans[0]).toMatchObject({ closed_ts: events[3]!.ts, outcome: "First" });
+    expect(p.archived_plans[1]).toMatchObject({ closed_ts: events[7]!.ts, outcome: "Second" });
   });
 
   it("close does not mutate the input projection", () => {

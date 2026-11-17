@@ -1,3 +1,4 @@
+// A-Q1: U148/U150 named non-article task roots retain their classes and identity hooks.
 import { afterEach, describe, expect, it } from "vitest";
 import type { WallVM } from "../../../src/views/types";
 import { FIXTURE, mkTask, vm, withTasks } from "./fixture";
@@ -11,7 +12,7 @@ const mountAny = (x: unknown) => mount(bad(x));
 describe("B15 unknown workspace", () => {
   it("wall: empty board and the first workspace highlighted", () => {
     const { host } = mount(vm({ workspace: "nope" }));
-    expect(qa(host, "article.task").length).toBe(0);
+    expect(qa(host, ".task[data-task-id]").length).toBe(0);
     q(host, "section.board");
     const cur = qa(host, "button.workspace[aria-current]");
     expect(cur.length).toBe(1);
@@ -33,9 +34,9 @@ describe("B15 unknown workspace", () => {
   it("update() to an unknown workspace and back recovers", () => {
     const { host, handle } = mount();
     handle.update(vm({ workspace: "gone" }));
-    expect(qa(host, "article.task").length).toBe(0);
+    expect(qa(host, ".task[data-task-id]").length).toBe(0);
     handle.update(vm());
-    expect(qa(host, "article.task").length).toBe(2);
+    expect(qa(host, ".task[data-task-id]").length).toBe(2);
   });
 
   it("no workspaces at all", () => {
@@ -49,12 +50,12 @@ describe("B15 data-* from raw values", () => {
   const accentTask = (accent: string) => mkTask("a", { accent: accent as never, status: "blocked", attention: "now" });
   it.each(["violet", "a", "abcdefghijklmnop"])("valid-looking unknown accent %j is rendered raw", (accent) => {
     const { host } = mount(withTasks([accentTask(accent)]));
-    expect(attr(q(host, "article.task"), "data-accent")).toBe(accent);
+    expect(attr(q(host, ".task[data-task-id]"), "data-accent")).toBe(accent);
   });
 
   it.each(["", "Rose", "ROSE", "has space", "x_y", "a-b", "<abc", "<img src=x>", "abcdefghijklmnopq", "r0se", "\"onmouseover=\"x", "rose\n"])("invalid accent %j: data-accent omitted", (accent) => {
     const { host } = mount(withTasks([accentTask(accent)], { view: "wall" }));
-    expect(q(host, "article.task").hasAttribute("data-accent")).toBe(false);
+    expect(q(host, ".task[data-task-id]").hasAttribute("data-accent")).toBe(false);
   });
 
   it("invalid accent omitted everywhere it is used (workspace, agenda, diary, archive)", () => {
@@ -74,16 +75,16 @@ describe("B15 data-* from raw values", () => {
 
   it("unknown status values: data-status carries the raw value when it matches ^[a-z]{1,16}$", () => {
     const { host } = mount(withTasks([mkTask("a", { status: "paused" as never, attention: "now" })]));
-    expect(attr(q(host, "article.task"), "data-status")).toBe("paused");
-    expect(attr(q(host, "article.task span.status"), "data-status")).toBe("paused");
+    expect(attr(q(host, ".task[data-task-id]"), "data-status")).toBe("paused");
+    expect(attr(q(host, ".task[data-task-id] span.status"), "data-status")).toBe("paused");
     expect(attr(q(host, "li.focus-item"), "data-status")).toBe("paused");
-    expect(txt(q(host, "article.task span.status-label"))).not.toMatch(/undefined|null/);
+    expect(txt(q(host, ".task[data-task-id] span.status-label"))).not.toMatch(/undefined|null/);
   });
 
   it.each(["Paused", "in progress", "x1", "<b>", "abcdefghijklmnopq", ""])("invalid status %j: data-status omitted on article, pill and focus item", (status) => {
     const { host } = mount(withTasks([mkTask("a", { status: status as never, attention: "now" })]));
-    expect(q(host, "article.task").hasAttribute("data-status")).toBe(false);
-    expect(q(host, "article.task span.status").hasAttribute("data-status")).toBe(false);
+    expect(q(host, ".task[data-task-id]").hasAttribute("data-status")).toBe(false);
+    expect(q(host, ".task[data-task-id] span.status").hasAttribute("data-status")).toBe(false);
     expect(q(host, "li.focus-item").hasAttribute("data-status")).toBe(false);
   });
 
@@ -101,8 +102,8 @@ describe("B15 data-* from raw values", () => {
 
   it("unknown attention: no throw; data-attention is never an unsafe value", () => {
     const { host } = mount(withTasks([mkTask("a", { attention: "urgent" as never }), mkTask("b", { attention: "Very Urgent!" as never })]));
-    for (const a of qa(host, "article.task")) safeOrAbsent(a, "data-attention");
-    expect(qa(host, "article.task").length).toBe(2);
+    for (const a of qa(host, ".task[data-task-id]")) safeOrAbsent(a, "data-attention");
+    expect(qa(host, ".task[data-task-id]").length).toBe(2);
   });
 
   it("unknown lens on a workspace: data-lens is never an unsafe value", () => {

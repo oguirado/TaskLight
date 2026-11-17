@@ -1,3 +1,4 @@
+// A-Q1: U148/U150 named non-article task roots retain their classes and identity hooks.
 // U42 items 4 and 6 (DOM): the chat drawer is closed by default and opens on a task click / its Chat button;
 // the rail "running" counter counts agents whose task is in progress.
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -21,7 +22,7 @@ async function start(events: unknown[]) {
   await settle(10);
   return { store, wallHost, chatHost, post };
 }
-const card = (host: HTMLElement, agent: string) => host.querySelector<HTMLElement>(`article.task[data-task-id="agent:viewpoint:${agent}"]`);
+const card = (host: HTMLElement, agent: string) => host.querySelector<HTMLElement>(`.task[data-task-id="agent:viewpoint:${agent}"]`);
 
 const TWO = [
   plan("github-agent", "GitHub · Search GitHub", ["a", "b"]), step("github-agent", 0, "active"),
@@ -39,21 +40,24 @@ describe("chat drawer (item 4)", () => {
     store.ingest(step("github-agent", 0, "done", "verified")); wall!.refresh(); await settle(10);
     expect(chatHost.getAttribute("data-open")).toBe("false");
   });
-  it("every task card has a Chat button; clicking it opens the drawer on that task", async () => {
+  it("Wall cards have no Chat button; Messages opens the chosen task", async () => {
     const { wallHost, chatHost } = await start(TWO);
     const btns = [...wallHost.querySelectorAll<HTMLButtonElement>("button.task-chat")];
-    expect(btns).toHaveLength(2);
-    for (const b of btns) expect(b.getAttribute("type")).toBe("button");
-    card(wallHost, "gemini-agent")!.querySelector<HTMLButtonElement>("button.task-chat")!.click();
+    // A-R41: removed per-card chat; retain task selection through legacy Messages.
+    expect(btns).toHaveLength(0);
+    openLegacyMessages(wallHost, "agent:viewpoint:gemini-agent");
     expect(chatHost.getAttribute("data-open")).toBe("true");
     expect(chatHost.querySelector(".agent-chat-title")?.textContent?.trim()).toBe("Gemini · Ask Gemini");
   });
-  it("clicking a card body opens that task; sending goes to the selected agent", async () => {
+  it("card clicks stay read-only; Messages sends to the selected agent", async () => {
     const { wallHost, chatHost, post } = await start(TWO);
+    // A-R41: title/background clicks cannot open chat.
     card(wallHost, "github-agent")!.querySelector<HTMLElement>(".task-title")!.click();
+    expect(chatHost.getAttribute("data-open")).toBe("false");
+    openLegacyMessages(wallHost, "agent:viewpoint:github-agent");
     expect(chatHost.getAttribute("data-open")).toBe("true");
     expect(chatHost.querySelector(".agent-chat-title")?.textContent?.trim()).toBe("GitHub · Search GitHub");
-    card(wallHost, "gemini-agent")!.click();
+    openLegacyMessages(wallHost, "agent:viewpoint:gemini-agent");
     expect(chatHost.querySelector(".agent-chat-title")?.textContent?.trim()).toBe("Gemini · Ask Gemini");
     const ta = chatHost.querySelector<HTMLTextAreaElement>("textarea");
     expect(ta).not.toBeNull();
@@ -65,7 +69,8 @@ describe("chat drawer (item 4)", () => {
   });
   it("Close returns it to closed, and a refresh does not reopen it", async () => {
     const { wallHost, chatHost } = await start(TWO);
-    card(wallHost, "github-agent")!.click();
+    // A-R41: drawer close coverage starts from the retained legacy route.
+    openLegacyMessages(wallHost, "agent:viewpoint:github-agent");
     expect(chatHost.getAttribute("data-open")).toBe("true");
     chatHost.querySelector<HTMLButtonElement>(".agent-chat-close")!.click();
     expect(chatHost.getAttribute("data-open")).toBe("false");
@@ -114,3 +119,13 @@ describe("rail running counter (item 6)", () => {
     expect(running(wallHost)).toBe("1 running"); // only `helper` (open, no plan yet)
   });
 });
+
+// A-R41: task conversations open only inside the expanded Messages (legacy) entry.
+function openLegacyMessages(host: HTMLElement, taskId?: string): void {
+  const toggle = host.querySelector<HTMLButtonElement>(".messages-toggle")!;
+  if (toggle.getAttribute("aria-expanded") !== "true") toggle.click();
+  const button = taskId === undefined ? host.querySelector<HTMLButtonElement>(".messages-open")
+    : [...host.querySelectorAll<HTMLButtonElement>(".messages-task")]
+      .find(node => node.getAttribute("data-task-vm-id") === taskId);
+  expect(button).toBeDefined(); button!.click();
+}

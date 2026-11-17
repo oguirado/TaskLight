@@ -1,4 +1,5 @@
 """Public MCP behavior; stdlib only, bounded child processes, no network."""
+import copy
 import hashlib
 import io
 import json
@@ -169,7 +170,21 @@ class Contract(unittest.TestCase):
 
     def test_m3_preserve_entire_twenty_tool_prefix(self):
         tools = self.rpc('tools/list')['result']['tools']
-        canonical = json.dumps(tools[:20], sort_keys=True, separators=(',', ':'), ensure_ascii=False)
+        # A-U109c: (a) only the two optional claim fences amend the frozen prefix, M2/M4.
+        prefix = copy.deepcopy(tools[:20])
+        for tool in prefix:
+            if tool['name'] in ('task_release', 'microtask_set'):
+                schema = tool['inputSchema']
+                self.assertNotIn('claim_lamport', schema['required'])
+                self.assertEqual(schema['properties'].pop('claim_lamport'),
+                                 {'type': 'integer', 'minimum': 1, 'maximum': 9007199254740991})
+        # A-U140r1: SPEC_U140 (review B3) adds the optional plan-generation fence; strip it with an exact schema check.
+        for tool in prefix:
+            fence = tool['inputSchema'].get('properties', {}).pop('expected_opened_lamport', None)
+            if fence is not None:
+                self.assertNotIn('expected_opened_lamport', tool['inputSchema'].get('required', []))
+                self.assertEqual((fence.get('type'), fence.get('minimum')), ('integer', 1))
+        canonical = json.dumps(prefix, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
         self.assertEqual(hashlib.sha256(canonical.encode()).hexdigest(), PREFIX_SHA)
 
     def test_m3_new_tool_schemas(self):
@@ -216,6 +231,8 @@ class Contract(unittest.TestCase):
 
     def assert_closed(self, expected_outcome, **extra):
         self.create()
+        # A-U109c: (a) archive only explicitly terminal work; cancellation is not done, M6.
+        self.edit('T01', state='cancelled')
         before = len(self.log().splitlines())
         payload = self.ok('plan_close', base_rev=self.rev(), **extra)
         self.assertIn('rev', payload)
@@ -246,6 +263,8 @@ class Contract(unittest.TestCase):
 
     def test_m3_close_replay_does_not_duplicate_archive(self):
         self.create()
+        # A-U109c: (a) replay probes start from an eligible close, M6/M7.
+        self.edit('T01', state='cancelled')
         args = dict(base_rev=self.rev(), op_id='close_0001', outcome=CANARY)
         self.ok('plan_close', **args)
         before = self.log()
@@ -298,6 +317,9 @@ class Contract(unittest.TestCase):
         self.edit('T02', deps=['T01'])
         self.edit('T03', state='blocked', reason='Wait')
         self.edit('T04', state='cancelled')
+        # A-U109c: (a) done, blocked and prerequisite writes all require claims, M3.
+        for task_id in ('T01', 'T05', 'T06'):
+            self.ok('task_claim', task_id=task_id)
         self.ok('microtask_set', id='T05.M01', state='done')
         self.ok('microtask_set', id='T06.M01', state='blocked')
         self.assertEqual([m['id'] for m in self.ok('next_work')['items']], ['T01.M01'])

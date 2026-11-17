@@ -1,3 +1,4 @@
+// A-Q1: U148/U150 named non-article task roots retain their classes and identity hooks.
 // U38 G5: the human user (rooms.agent, default wall-user) is never an agent task; user messages show only in the chat of the agent they were sent to.
 import { afterEach, describe, expect, it } from "vitest";
 import { createAgentStore, toChatVM, toWallVM } from "../../../src/app/agent_store";
@@ -55,7 +56,7 @@ describe("G5 end to end (real store, wall and chat)", () => {
   }
   it("the wall shows exactly one task card (the agent), no 'wall-user' card, banner, or text", async () => {
     const { wallHost } = await run();
-    expect(wallHost.querySelectorAll("article.task")).toHaveLength(1);
+    expect(wallHost.querySelectorAll(".task[data-task-id]")).toHaveLength(1);
     expect([...wallHost.querySelectorAll(".project-name")].map((e) => e.textContent)).toEqual(["worker-1"]);
     expect(wallHost.textContent ?? "").not.toContain(USER);
     expect(wallHost.querySelector(".view-sub")?.textContent ?? "").toContain("1 open tasks");

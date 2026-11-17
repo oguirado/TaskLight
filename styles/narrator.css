@@ -1,0 +1,90 @@
+/* Shared tokens provide the light and dark palettes. The swarm mount owns this stylesheet. */
+.narrator {
+  display: grid;
+  gap: var(--sp-3);
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  padding: var(--sp-4);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-3);
+  background: var(--c-surface-1);
+  color: var(--c-text-1);
+  font-family: var(--font-ui);
+  font-size: var(--fs-3);
+  line-height: var(--lh-body);
+  overflow-wrap: anywhere;
+}
+
+.narrator,
+.narrator *,
+.narrator *::before,
+.narrator *::after {
+  box-sizing: border-box;
+}
+
+.narrator :where(h3, p) {
+  min-inline-size: 0;
+  margin: 0;
+}
+
+.narrator-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  min-inline-size: 0;
+}
+
+.narrator-title {
+  font-size: var(--fs-4);
+  font-weight: var(--fw-semibold);
+}
+
+.narrator-source,
+.narrator-reason {
+  color: var(--c-text-2);
+  font-size: var(--fs-2);
+}
+
+.narrator-text {
+  white-space: pre-wrap;
+}
+
+.narrator-refresh {
+  min-block-size: var(--touch);
+  max-inline-size: 100%;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-2);
+  background: var(--c-surface-2);
+  color: var(--c-text-1);
+  font: inherit;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.narrator-refresh:hover {
+  border-color: var(--c-focus);
+  background: var(--c-hover);
+}
+
+.narrator-refresh:active {
+  background: var(--c-press);
+}
+
+.narrator-refresh:focus-visible {
+  outline: 2px solid var(--c-focus);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .narrator,
+  .narrator *,
+  .narrator *::before,
+  .narrator *::after {
+    animation: none;
+    transition: none;
+  }
+}

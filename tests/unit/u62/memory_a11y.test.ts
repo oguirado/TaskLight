@@ -103,7 +103,10 @@ describe("O7 navigation and lifecycle", () => {
     const { host } = mount(wall({ plan: undefined }), { onOpenTask, onOpenModels, onWorkspace });
     const card = q(host, ".task"); expect(text(card)).toContain("Build release");
     expect(card.querySelector(".steps .step-row")).not.toBeNull(); expect(card.querySelector(".source")).not.toBeNull();
-    card.click(); expect(onOpenTask).toHaveBeenCalledExactlyOnceWith("T01");
+    // A-R41: legacy card clicks are read-only; Messages retains keyboard chat access.
+    card.click(); expect(onOpenTask).not.toHaveBeenCalled();
+    q(host, ".messages-toggle").click(); q(host, ".messages-open").click();
+    expect(onOpenTask).toHaveBeenCalledTimes(1); expect(onOpenTask.mock.calls[0]![0]).toBe("T01");
     const model = q(host, 'button[aria-controls="model-sheet"]'); model.click();
     expect(onOpenModels).toHaveBeenCalledExactlyOnceWith(model);
     q(host, '.workspace[data-wsid="w1"]').click(); expect(onWorkspace).toHaveBeenCalledExactlyOnceWith("w1");

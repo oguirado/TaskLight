@@ -1,0 +1,245 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TaskLight benchmark observation",
+  "type": "object",
+  "required": [
+    "schema",
+    "benchmark",
+    "variant",
+    "status",
+    "reason",
+    "base",
+    "candidate",
+    "seed",
+    "fixture_sha256",
+    "journal_bytes",
+    "samples_ms",
+    "p50_ms",
+    "p95_ms",
+    "p99_ms",
+    "peak_rss_bytes",
+    "load5",
+    "correctness",
+    "counts",
+    "bytes_per_committed_event"
+  ],
+  "properties": {
+    "schema": {
+      "const": "tasklight-bench/v1"
+    },
+    "benchmark": {
+      "type": "string"
+    },
+    "variant": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "PASS",
+        "BLOCK",
+        "INCONCLUSIVE"
+      ]
+    },
+    "reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "base": {
+      "type": "string"
+    },
+    "candidate": {
+      "type": "string"
+    },
+    "seed": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "fixture_sha256": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "journal_bytes": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "samples_ms": {
+      "type": "object",
+      "required": [
+        "base",
+        "candidate"
+      ],
+      "properties": {
+        "base": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "minimum": 0
+              }
+            }
+          ]
+        },
+        "candidate": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "minimum": 0
+              }
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "p50_ms": {
+      "type": "object",
+      "required": [
+        "base",
+        "candidate"
+      ],
+      "properties": {
+        "base": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "candidate": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "p95_ms": {
+      "type": "object",
+      "required": [
+        "base",
+        "candidate"
+      ],
+      "properties": {
+        "base": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "candidate": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "p99_ms": {
+      "type": "object",
+      "required": [
+        "base",
+        "candidate"
+      ],
+      "properties": {
+        "base": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "candidate": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "peak_rss_bytes": {
+      "type": "object",
+      "required": [
+        "base",
+        "candidate"
+      ],
+      "properties": {
+        "base": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "candidate": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "load5": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "correctness": {
+      "type": "object",
+      "required": [
+        "ok",
+        "expected",
+        "actual"
+      ],
+      "properties": {
+        "ok": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      }
+    },
+    "counts": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "bytes_per_committed_event": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    }
+  },
+  "additionalProperties": true
+}

@@ -1,4 +1,7 @@
-"""CW CLI: bridge.room __main__."""
+"""CW CLI: bridge.room __main__.
+
+The session pin prevents accidental cross-agent calls. It is not authentication. Agent identity remains caller-asserted within the same-user CW_HOME boundary.
+"""
 
 import argparse
 import json
@@ -22,8 +25,11 @@ def _emit(obj):
     sys.stdout.flush()
 
 
-def _refuse(code):
-    _emit({"ok": False, "code": code})
+def _refuse(code, detail=None):
+    payload = {"ok": False, "code": code}
+    if detail is not None:
+        payload["detail"] = detail
+    _emit(payload)
     return 2
 
 
@@ -45,6 +51,10 @@ class _JsonParser(argparse.ArgumentParser):
 
 
 def main(argv=None):
+    try:
+        pin = app.session_pin_from_env()
+    except RoomError as e:
+        return _refuse(e.code, str(e))
     argv = list(sys.argv[1:]) if argv is None else argv
     if not argv:
         _emit({"ok": False, "code": "bad_args"})
@@ -64,6 +74,7 @@ def main(argv=None):
             ap.add_argument("--plan-file", default=None)
             ap.add_argument("--step-json", default=None)
             args = ap.parse_args(rest)
+            app.guard_session(vars(args), pin=pin, agent_required=True)
             plan = None
             if args.plan_file is not None:
                 try:
@@ -91,6 +102,7 @@ def main(argv=None):
             ap.add_argument("--since", type=int, default=0)
             ap.add_argument("--json", action="store_true")
             args = ap.parse_args(rest)
+            app.guard_session(vars(args), pin=pin)
             try:
                 if _missing(args.room):
                     _emit({"ok": False, "code": "not_found"})
@@ -110,6 +122,7 @@ def main(argv=None):
             ap.add_argument("--to", default=None)
             ap.add_argument("--timeout", type=float, default=30.0)
             args = ap.parse_args(rest)
+            app.guard_session({"agent": args.agent} if args.agent is not None else {}, pin=pin)
             try:
                 if _missing(args.room):
                     _emit({"ok": False, "code": "not_found"})
@@ -128,6 +141,7 @@ def main(argv=None):
             ap = _JsonParser(prog="status")
             ap.add_argument("--room", required=True)
             args = ap.parse_args(rest)
+            app.guard_session(vars(args), pin=pin)
             try:
                 if _missing(args.room):
                     _emit({"ok": False, "code": "not_found"})
@@ -143,6 +157,7 @@ def main(argv=None):
             ap.add_argument("--room", required=True)
             ap.add_argument("--out", required=True)
             args = ap.parse_args(rest)
+            app.guard_session(vars(args), pin=pin)
             from bridge.room.ext import export as _export
             try:
                 result = _export.export_room(args.room, args.out)
@@ -154,6 +169,7 @@ def main(argv=None):
             _emit(result)
             return 0
         elif verb == "tools":
+            app.guard_session({}, pin=pin)
             if rest:
                 _emit({"ok": False, "code": "bad_args"})
                 return 2
@@ -176,7 +192,7 @@ def main(argv=None):
                 _emit({"ok": False, "code": "bad_args"})
                 return 2
             try:
-                payload = app.dispatch(tool_name, call_args)
+                payload = app.dispatch(tool_name, call_args, pin=pin)
             except RoomError as e:
                 try:
                     detail = str(e)
@@ -197,6 +213,8 @@ def main(argv=None):
             return 2
     except SystemExit:
         raise
+    except RoomError as e:
+        return _refuse(e.code, str(e))
     except Exception:
         # Never crash with non-JSON; map to generic refusal.
         try:

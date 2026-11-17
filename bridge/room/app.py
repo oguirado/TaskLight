@@ -5,6 +5,8 @@ tool. This module performs no stdin/stdout I/O and never imports
 ``bridge.room.mcp``.
 """
 import copy
+from collections.abc import Mapping
+from types import MappingProxyType
 import json
 import math
 import os
@@ -23,6 +25,60 @@ _ext.load()
 
 VERSION = "0.2.0"
 CLOSE_OUTCOME_MAX = 240  # A-U43: close_task outcome is one line, <= 240 characters
+
+SESSION_PIN_NOTICE = (
+    "The session pin prevents accidental cross-agent calls. It is not authentication. "
+    "Agent identity remains caller-asserted within the same-user CW_HOME boundary."
+)
+
+
+def _pin_values(agent, role):
+    # Preserve startup validation order and reject values without normalization.
+    if agent is None or agent == "" or role is None or role == "":
+        raise RoomError("bad_args", "CW_PIN_AGENT and CW_PIN_ROLE must both be non-empty")
+    store._check_agent(agent)
+    if not isinstance(role, str) or role not in ("harness", "executor"):
+        raise RoomError("bad_args", "CW_PIN_ROLE must be harness or executor")
+    return agent, role
+
+
+def session_pin_from_env():
+    """Capture an immutable launch context before any input or room access."""
+    agent = os.environ.get("CW_PIN_AGENT")
+    role = os.environ.get("CW_PIN_ROLE")
+    if agent is None and role is None:
+        return None
+    agent, role = _pin_values(agent, role)
+    return MappingProxyType({"agent": agent, "role": role})
+
+
+def guard_session(args, *, pin=None, agent_required=False, lifecycle=False):
+    """Check trusted context before handlers, room access, or replay lookup.
+
+    Callers supply the pin separately from request fields. Legacy CLI commands
+    also use this guard before their direct store calls.
+    """
+    if not isinstance(args, dict):
+        raise RoomError("bad_args", "arguments must be object")
+    if pin is None:
+        return
+    if not isinstance(pin, Mapping) or set(pin) != {"agent", "role"}:
+        raise RoomError("bad_args", "session pin must contain agent and role")
+    agent, role = _pin_values(pin["agent"], pin["role"])
+    if lifecycle and role != "harness":
+        raise RoomError("bad_agent", "session pin for %r is executor; agent_lifecycle requires a harness session" % agent)
+    if "agent" not in args and not agent_required and not lifecycle:
+        return
+    actor = args.get("agent")
+    if lifecycle:
+        # Only harness lifecycle bookkeeping treats agent as a target.
+        try:
+            store._check_agent(actor)
+        except RoomError:
+            raise RoomError("bad_agent", "session pin for %r requires a valid lifecycle target agent" % agent) from None
+    elif not isinstance(actor, str) or actor != agent:
+        raise RoomError("bad_agent", "session pin requires agent %r; supply that agent or restart with the intended CW_PIN_AGENT and CW_PIN_ROLE" % agent)
+
 
 _SAFE_MAX = 9007199254740991
 _OP_ID_RE = re.compile(r"[A-Za-z0-9_-]{8,64}")
@@ -212,12 +268,14 @@ NEW_TOOLS = [
      "inputSchema": _schema({"room": _s("string"), "agent": _s("string")}, ["room"])},
     {"name": "task_add", "description": "Add a task to the active plan.",
      "inputSchema": _schema({"room": _s("string"), "agent": _s("string"),
+                             "expected_opened_lamport": _s("integer", minimum=1, maximum=_SAFE_MAX),
                             "base_rev": _s("integer"),
                             **_field_properties(_TASK_FIELDS, "add"), "op_id": _s("string")},
                           ["room", "agent"] + _required_fields(_TASK_FIELDS, "add"),
                           additional=False)},
     {"name": "task_update", "description": "Update a task.",
      "inputSchema": _schema({"room": _s("string"), "agent": _s("string"),
+                             "expected_opened_lamport": _s("integer", minimum=1, maximum=_SAFE_MAX),
                             "task_id": _s("string"), "base_rev": _s("integer"),
                             "title": _s("string"), "type": _s("string"),
                             "phase": _s("string"), "accept": _s("string"),
@@ -227,16 +285,20 @@ NEW_TOOLS = [
                           ["room", "agent", "task_id", "base_rev"])},
     {"name": "task_claim", "description": "Claim a task.",
      "inputSchema": _schema({"room": _s("string"), "agent": _s("string"),
+                             "expected_opened_lamport": _s("integer", minimum=1, maximum=_SAFE_MAX),
                             "task_id": _s("string"), "base_rev": _s("integer"),
                             "takeover": _s("boolean"), "op_id": _s("string")},
                           ["room", "agent", "task_id"])},
     {"name": "task_release", "description": "Release a claimed task.",
      "inputSchema": _schema({"room": _s("string"), "agent": _s("string"),
+                             "expected_opened_lamport": _s("integer", minimum=1, maximum=_SAFE_MAX),
                             "task_id": _s("string"), "base_rev": _s("integer"),
+                            "claim_lamport": _s("integer", minimum=1, maximum=_SAFE_MAX),
                             "op_id": _s("string")},
                           ["room", "agent", "task_id"])},
     {"name": "microtask_add", "description": "Add a microtask to a task.",
      "inputSchema": _schema({"room": _s("string"), "agent": _s("string"),
+                             "expected_opened_lamport": _s("integer", minimum=1, maximum=_SAFE_MAX),
                             "task_id": _s("string"),
                             **_field_properties(_MICRO_FIELDS, "standalone"),
                             "base_rev": _s("integer"),
@@ -245,7 +307,9 @@ NEW_TOOLS = [
                           additional=False)},
     {"name": "microtask_set", "description": "Set microtask state.",
      "inputSchema": _schema({"room": _s("string"), "agent": _s("string"),
+                             "expected_opened_lamport": _s("integer", minimum=1, maximum=_SAFE_MAX),
                             "id": _s("string"), "state": _s("string"),
+                            "claim_lamport": _s("integer", minimum=1, maximum=_SAFE_MAX),
                             "outcome": _s("string"), "took": _s("string"),
                             "evidence": _s("array"), "op_id": _s("string")},
                           ["room", "agent", "id", "state"])},
@@ -264,11 +328,13 @@ NEW_TOOLS = [
 PLAN_PHASE_CLOSE_TOOLS = [
     {"name": "plan_phase", "description": "Advance the active plan phase.",
      "inputSchema": _schema({"room": _s("string"), "agent": _s("string"),
+                             "expected_opened_lamport": _s("integer", minimum=1, maximum=_SAFE_MAX),
                             "phase": _s("string"), "base_rev": _s("integer"),
                             "op_id": _s("string")},
                           ["room", "agent", "phase", "base_rev"])},
     {"name": "plan_close", "description": "Close the active plan.",
      "inputSchema": _schema({"room": _s("string"), "agent": _s("string"),
+                             "expected_opened_lamport": _s("integer", minimum=1, maximum=_SAFE_MAX),
                             "outcome": _s("string"), "base_rev": _s("integer"),
                             "op_id": _s("string")},
                           ["room", "agent", "base_rev"])},
@@ -341,6 +407,12 @@ def _check_op_id(args):
         return v
     return None
 
+def _check_claim_lamport(args):
+    if "claim_lamport" in args:
+        value = args["claim_lamport"]
+        if not _is_safe_int(value) or value < 1:
+            raise RoomError("bad_op", "bad claim_lamport")
+
 def _check_safe_rev_value(v):
     if not _is_safe_int(v):
         raise RoomError("bad_op", "bad base_rev")
@@ -380,9 +452,14 @@ def _find_task(proj, task_id):
             return t
     return None
 
-def _post_one(room, agent, op):
+def _post_one(room, agent, op, *, args=None):
+    fence = {}
+    if args is not None and "expected_opened_lamport" in args:
+        store._validate_expected_opened_lamport(args["expected_opened_lamport"])
+        fence["expected_opened_lamport"] = args["expected_opened_lamport"]
     try:
-        return store.post(room, agent, "op", "", op=op)
+        from .ext import admission
+        return admission.post(room, agent, op, **fence)
     except RoomError as e:
         if e.code == "bad_op" and isinstance(op, dict) and op.get("base_rev") == 0:
             try:
@@ -741,7 +818,7 @@ def _build_task_add_op(t):
 
 def _do_task_add(args):
     fields = _field_properties(_TASK_FIELDS, "add")
-    _check_allowed(args, {"room", "agent", "base_rev", "op_id"} | fields.keys())
+    _check_allowed(args, {"expected_opened_lamport", "room", "agent", "base_rev", "op_id"} | fields.keys())
     _check_required(args, ["room", "agent"] + _required_fields(_TASK_FIELDS, "add"))
     room = _check_room(args)
     agent = _check_agent_req(args)
@@ -755,11 +832,11 @@ def _do_task_add(args):
         op["base_rev"] = args["base_rev"]
     if op_id is not None:
         op["op_id"] = op_id
-    ev = _post_one(room, agent, op)
+    ev = _post_one(room, agent, op, args=args)
     return _single_payload(room, ev)
 
 def _do_task_update(args):
-    _check_allowed(args, {"room", "agent", "task_id", "base_rev", "title", "type", "phase", "accept", "deps", "estimate", "state", "reason", "op_id"})
+    _check_allowed(args, {"expected_opened_lamport", "room", "agent", "task_id", "base_rev", "title", "type", "phase", "accept", "deps", "estimate", "state", "reason", "op_id"})
     _check_required(args, ["room", "agent", "task_id", "base_rev"])
     room = _check_room(args)
     agent = _check_agent_req(args)
@@ -810,11 +887,11 @@ def _do_task_update(args):
             op[k] = args[k]
     if op_id is not None:
         op["op_id"] = op_id
-    ev = _post_one(room, agent, op)
+    ev = _post_one(room, agent, op, args=args)
     return _single_payload(room, ev)
 
 def _do_task_claim(args):
-    _check_allowed(args, {"room", "agent", "task_id", "base_rev", "takeover", "op_id"})
+    _check_allowed(args, {"expected_opened_lamport", "room", "agent", "task_id", "base_rev", "takeover", "op_id"})
     _check_required(args, ["room", "agent", "task_id"])
     room = _check_room(args)
     agent = _check_agent_req(args)
@@ -832,29 +909,32 @@ def _do_task_claim(args):
         op["takeover"] = args["takeover"]
     if op_id is not None:
         op["op_id"] = op_id
-    ev = _post_one(room, agent, op)
+    ev = _post_one(room, agent, op, args=args)
     return _single_payload(room, ev)
 
 def _do_task_release(args):
-    _check_allowed(args, {"room", "agent", "task_id", "base_rev", "op_id"})
+    _check_allowed(args, {"expected_opened_lamport", "room", "agent", "task_id", "base_rev", "op_id", "claim_lamport"})
     _check_required(args, ["room", "agent", "task_id"])
     room = _check_room(args)
     agent = _check_agent_req(args)
     op_id = _check_op_id(args)
+    _check_claim_lamport(args)
     if not isinstance(args["task_id"], str):
         raise RoomError("bad_op", "task_id must be string")
     if "base_rev" in args:
         _check_safe_rev_value(args["base_rev"])
     op = {"kind": "task.release", "task_id": args["task_id"]}
+    if "claim_lamport" in args:
+        op["claim_lamport"] = args["claim_lamport"]
     if "base_rev" in args:
         op["base_rev"] = args["base_rev"]
     if op_id is not None:
         op["op_id"] = op_id
-    ev = _post_one(room, agent, op)
+    ev = _post_one(room, agent, op, args=args)
     return _single_payload(room, ev)
 
 def _do_microtask_add(args):
-    _check_allowed(args, {"room", "agent", "task_id", "base_rev", "op_id"} | _MICRO_FIELDS.keys())
+    _check_allowed(args, {"expected_opened_lamport", "room", "agent", "task_id", "base_rev", "op_id"} | _MICRO_FIELDS.keys())
     _check_required(args, ["room", "agent", "task_id"] + _required_fields(_MICRO_FIELDS, "standalone") + ["base_rev"])
     room = _check_room(args)
     agent = _check_agent_req(args)
@@ -869,15 +949,16 @@ def _do_microtask_add(args):
         op["accept"] = args["accept"]
     if op_id is not None:
         op["op_id"] = op_id
-    ev = _post_one(room, agent, op)
+    ev = _post_one(room, agent, op, args=args)
     return _single_payload(room, ev)
 
 def _do_microtask_set(args):
-    _check_allowed(args, {"room", "agent", "id", "state", "outcome", "took", "evidence", "op_id"})
+    _check_allowed(args, {"expected_opened_lamport", "room", "agent", "id", "state", "outcome", "took", "evidence", "op_id", "claim_lamport"})
     _check_required(args, ["room", "agent", "id", "state"])
     room = _check_room(args)
     agent = _check_agent_req(args)
     op_id = _check_op_id(args)
+    _check_claim_lamport(args)
     if not isinstance(args["id"], str):
         raise RoomError("bad_op", "id must be string")
     if args["state"] not in ("pending", "active", "blocked", "done"):
@@ -891,7 +972,7 @@ def _do_microtask_set(args):
             raise RoomError("bad_op", "took must be string")
         _check_len_le(args["took"], 32)
     op = {"kind": "micro.set", "micro_id": args["id"], "state": args["state"]}
-    for k in ("outcome", "took"):
+    for k in ("outcome", "took", "claim_lamport"):
         if k in args:
             op[k] = args[k]
     if "evidence" in args:
@@ -906,11 +987,11 @@ def _do_microtask_set(args):
         op["evidence"] = store._validate_evidence(raw, rdir)
     if op_id is not None:
         op["op_id"] = op_id
-    ev = _post_one(room, agent, op)
+    ev = _post_one(room, agent, op, args=args)
     return _single_payload(room, ev)
 
 def _do_plan_phase(args):
-    _check_allowed(args, {"room", "agent", "phase", "base_rev", "op_id"})
+    _check_allowed(args, {"expected_opened_lamport", "room", "agent", "phase", "base_rev", "op_id"})
     _check_required(args, ["room", "agent", "phase", "base_rev"])
     room = _check_room(args)
     agent = _check_agent_req(args)
@@ -921,11 +1002,11 @@ def _do_plan_phase(args):
     op = {"kind": "plan.phase", "phase": args["phase"], "base_rev": args["base_rev"]}
     if op_id is not None:
         op["op_id"] = op_id
-    ev = _post_one(room, agent, op)
+    ev = _post_one(room, agent, op, args=args)
     return _single_payload(room, ev)
 
 def _do_plan_close(args):
-    _check_allowed(args, {"room", "agent", "outcome", "base_rev", "op_id"})
+    _check_allowed(args, {"expected_opened_lamport", "room", "agent", "outcome", "base_rev", "op_id"})
     _check_required(args, ["room", "agent", "base_rev"])
     room = _check_room(args)
     agent = _check_agent_req(args)
@@ -940,7 +1021,7 @@ def _do_plan_close(args):
         op["outcome"] = args["outcome"]
     if op_id is not None:
         op["op_id"] = op_id
-    ev = _post_one(room, agent, op)
+    ev = _post_one(room, agent, op, args=args)
     return _single_payload(room, ev)
 
 def _do_next_work(args):
@@ -1074,6 +1155,15 @@ def _do_close_task(args):
         raise RoomError("bad_args", "outcome must not be empty")
     if len(outcome) > CLOSE_OUTCOME_MAX:
         raise RoomError("text_too_long", "outcome > %d" % CLOSE_OUTCOME_MAX)
+    store._check_room(room)
+    store._check_agent(agent)
+    proj = _fold(room)
+    if proj.get("plan") is not None and proj["plan"].get("state") == "active":
+        tasks = proj.get("tasks", [])
+        # The legacy close targets the caller's work, not other agents' claims.
+        own = any(t.get("assignee") == agent for t in tasks)
+        if not own and any(t.get("assignee") not in (None, agent) for t in tasks):
+            raise RoomError("claimed_by_other", "claimed")
     ev = store.post(room, agent, "close", outcome)
     return {"event": _wrap(ev)}
 
@@ -1151,8 +1241,15 @@ def _load_extensions():
 _load_extensions()
 
 
-def dispatch(name, args):
-    _load_extensions()
+def dispatch(name, args, *, pin=None):
+    if not isinstance(name, str) or not isinstance(args, dict):
+        raise RoomError("bad_args", "registered tool name and object arguments required")
+    tool = next((tool for tool in list_tools() if tool["name"] == name), None)
+    if tool is None:
+        raise RoomError("bad_args", "unknown tool")
+    guard_session(args, pin=pin,
+                  agent_required="agent" in tool["inputSchema"].get("required", ()),
+                  lifecycle=name == "agent_lifecycle")
     if name in LEGACY_DISPATCH:
         return LEGACY_DISPATCH[name](args)
     handler = V2_DISPATCH.get(name)

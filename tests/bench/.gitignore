@@ -1,0 +1,4 @@
+.cache/
+.scratch/
+artifacts/
+__pycache__/

@@ -14,6 +14,63 @@ describe("B12 keyboard", () => {
     expect(spies.onView.mock.calls).toEqual([[view]]);
   });
 
+  // A-U152: complete vertical tabs also retain the legacy Left/Right shortcuts.
+  it.each([
+    ["ArrowRight", "archive"], ["ArrowDown", "archive"], ["ArrowLeft", "agenda"],
+    ["ArrowUp", "agenda"], ["Home", "wall"], ["End", "memory"],
+  ] as const)("tab %s selects and focuses %s", (value, view) => {
+    const { host, handle, spies } = mountSpied(vm({ view: "diary" }));
+    const button = host.querySelector<HTMLButtonElement>('button[data-nav="diary"]')!;
+    button.focus();
+    expect(key(button, value).defaultPrevented).toBe(true);
+    expect(spies.onView).toHaveBeenCalledExactlyOnceWith(view);
+    handle.update(vm({ view }));
+    const selected = host.querySelector<HTMLButtonElement>(`button[data-nav="${view}"]`)!;
+    expect(document.activeElement).toBe(selected);
+    expect(selected.tabIndex).toBe(0);
+    expect(host.querySelectorAll('[role="tab"][tabindex="0"]')).toHaveLength(1);
+    expect(totalCalls(spies)).toBe(1);
+  });
+
+  // A-U152: the panel supplies a keyboard route into the view through live refreshes.
+  it("keeps focus on the selected panel across a background refresh", () => {
+    const { host, handle } = mountSpied();
+    const panel = host.querySelector<HTMLElement>('.view[role="tabpanel"]')!;
+    expect(panel.tabIndex).toBe(0);
+    panel.focus();
+    handle.update(vm({ now: "12:34" }));
+    expect(document.activeElement).toBe(document.getElementById(panel.id));
+    expect((document.activeElement as HTMLElement).hidden).toBe(false);
+  });
+
+  // A-U152: the disclosure survives refresh and Escape returns focus to its opener.
+  it("preserves an open navigation menu across refresh and closes it with Escape", () => {
+    const { host, handle, spies } = mountSpied();
+    const toggle = host.querySelector<HTMLButtonElement>(".nav-toggle")!;
+    toggle.click();
+    host.querySelector<HTMLButtonElement>('button[data-nav="agenda"]')!.focus();
+    handle.update(vm({ now: "12:34" }));
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    const focused = host.querySelector<HTMLButtonElement>('button[data-nav="agenda"]')!;
+    expect(document.activeElement).toBe(focused);
+    expect(key(focused, "Escape").defaultPrevented).toBe(true);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(host.querySelector(".navigation-panel")?.getAttribute("data-expanded")).toBe("false");
+    expect(document.activeElement).toBe(toggle);
+    expect(totalCalls(spies)).toBe(0);
+  });
+
+  // A-U152: number shortcuts retain their order and close an open disclosure.
+  it("shortcut 6 closes navigation and selects Swarm once", () => {
+    const { host, spies } = mountSpied();
+    const toggle = host.querySelector<HTMLButtonElement>(".nav-toggle")!;
+    toggle.click();
+    key(toggle, "6");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(spies.onView).toHaveBeenCalledExactlyOnceWith("swarm");
+    expect(totalCalls(spies)).toBe(1);
+  });
+
   it("works when dispatched straight at the document", () => {
     const { spies } = mountSpied();
     key(document, "3");
@@ -26,7 +83,15 @@ describe("B12 keyboard", () => {
     expect(host.querySelector(".app")?.getAttribute("data-view")).toBe("wall");
   });
 
-  it.each(["0", "5", "9", "a", "Enter", "Tab", "ArrowRight", " ", "F1", "!", "Escape"])("other key %j does nothing", (k) => {
+  // A-R40: shortcut 5 selects Memory; 6 selects secondary Swarm, U138 M1.
+  it.each([["5", "memory"], ["6", "swarm"]])("shortcut %s selects %s", (k, view) => {
+    const { spies } = mountSpied();
+    key(document.body, k!);
+    expect(spies.onView).toHaveBeenCalledExactlyOnceWith(view);
+    expect(totalCalls(spies)).toBe(1);
+  });
+
+  it.each(["0", "9", "a", "Enter", "Tab", "ArrowRight", " ", "F1", "!", "Escape"])("other key %j does nothing", (k) => {
     const { spies } = mountSpied();
     key(document.body, k);
     expect(totalCalls(spies)).toBe(0);

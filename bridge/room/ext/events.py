@@ -40,6 +40,9 @@ def _project(e):
     op = e.get("op")
     if isinstance(op, dict):
         item["op"] = op
+    for key in ("to", "re"):
+        if key in e:
+            item[key] = e[key]
     return item
 
 
@@ -91,43 +94,45 @@ def handler(args) -> dict:
     if wait_ms > 0:
         deadline = time.monotonic() + wait_ms / 1000.0
 
+    version = None
+    head = 0
     while True:
-        events, _malformed = store._read_all(None, room)
-        events = [e for e in events if e["room"] == room]
-        head = max((e["lamport"] for e in events), default=0)
-        if after > head:
-            return {
-                "events": [],
-                "next_after": head,
-                "head": head,
-                "has_more": False,
-                "resync": True,
-            }
-        ordered = sorted(events, key=lambda e: e["lamport"])
-        matches = []
-        for e in ordered:
-            if e["lamport"] <= after:
-                continue
-            if acts is not None and e.get("act") not in acts:
-                continue
-            if ops is not None:
-                op = e.get("op")
-                if not isinstance(op, dict):
+        if store._journal_stamp(None, room) != version:
+            events, head, version = store._read_event_view(None, room, after)
+            events = [e for e in events if e["room"] == room]
+            if after > head:
+                return {
+                    "events": [],
+                    "next_after": head,
+                    "head": head,
+                    "has_more": False,
+                    "resync": True,
+                }
+            ordered = sorted(events, key=lambda e: e["lamport"])
+            matches = []
+            for e in ordered:
+                if e["lamport"] <= after:
                     continue
-                if op.get("kind") not in ops:
+                if acts is not None and e.get("act") not in acts:
                     continue
-            matches.append(e)
-        if matches:
-            page = matches[:limit]
-            has_more = len(matches) > len(page)
-            next_after = page[-1]["lamport"] if has_more else head
-            return {
-                "events": [_project(e) for e in page],
-                "next_after": next_after,
-                "head": head,
-                "has_more": has_more,
-                "resync": False,
-            }
+                if ops is not None:
+                    op = e.get("op")
+                    if not isinstance(op, dict):
+                        continue
+                    if op.get("kind") not in ops:
+                        continue
+                matches.append(e)
+            if matches:
+                page = matches[:limit]
+                has_more = len(matches) > len(page)
+                next_after = page[-1]["lamport"] if has_more else head
+                return {
+                    "events": [_project(e) for e in page],
+                    "next_after": next_after,
+                    "head": head,
+                    "has_more": has_more,
+                    "resync": False,
+                }
         if wait_ms == 0 or deadline is None:
             return {
                 "events": [],

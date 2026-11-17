@@ -1,0 +1,324 @@
+{
+  "template": {
+    "v": 1,
+    "id": "neutral",
+    "name": "Neutral",
+    "summary": "A neutral workflow",
+    "lens_id": "neutral",
+    "brief_fields": [
+      {
+        "id": "goal",
+        "label": "Goal",
+        "required": true
+      }
+    ],
+    "phases": [
+      {
+        "id": "start",
+        "label": "Start",
+        "exit": "Ready"
+      },
+      {
+        "id": "finish",
+        "label": "Finish",
+        "exit": "Complete"
+      }
+    ],
+    "task_types": [
+      {
+        "id": "action",
+        "label": "Action",
+        "accept_required": true,
+        "evidence_required": true,
+        "micro_hints": [
+          "Take a step"
+        ]
+      }
+    ],
+    "granularity": {
+      "tasks_max": 40,
+      "micro_min": 1,
+      "micro_max": 12,
+      "rule": "Small steps"
+    },
+    "memory_sections": [
+      {
+        "id": "notes",
+        "label": "Notes",
+        "required": true,
+        "max_chars": 100,
+        "hint": "Keep decisions"
+      }
+    ],
+    "hash": "bc21815d772de0d05df4b2e78c58438de8ede7f321daa5ecf8424d1e92f0a945"
+  },
+  "events": [
+    {
+      "id": "e-0000000000000001",
+      "room": "synthetic-bench",
+      "agent": "alice",
+      "act": "op",
+      "text": "",
+      "ts": 1700000000001,
+      "lamport": 1,
+      "op": {
+        "kind": "plan.open",
+        "title": "Synthetic benchmark plan",
+        "template_id": "neutral",
+        "template_hash": "bc21815d772de0d05df4b2e78c58438de8ede7f321daa5ecf8424d1e92f0a945",
+        "brief": {
+          "goal": "Ship TaskLight"
+        },
+        "phase": "start"
+      }
+    },
+    {
+      "id": "e-0000000000000002",
+      "room": "synthetic-bench",
+      "agent": "alice",
+      "act": "op",
+      "text": "",
+      "ts": 1700000000002,
+      "lamport": 2,
+      "op": {
+        "kind": "task.add",
+        "title": "First task",
+        "type": "action",
+        "phase": "start",
+        "accept": "Evidence retained",
+        "microtasks": [
+          {
+            "text": "First microtask",
+            "accept": "Verified"
+          }
+        ]
+      }
+    },
+    {
+      "id": "e-0000000000000003",
+      "room": "synthetic-bench",
+      "agent": "alice",
+      "act": "op",
+      "text": "",
+      "ts": 1700000000003,
+      "lamport": 3,
+      "op": {
+        "kind": "task.add",
+        "title": "Second task",
+        "type": "action",
+        "phase": "start",
+        "accept": "Verified",
+        "microtasks": [
+          {
+            "text": "Second microtask"
+          }
+        ]
+      }
+    },
+    {
+      "id": "e-0000000000000004",
+      "room": "synthetic-bench",
+      "agent": "alice",
+      "act": "op",
+      "text": "",
+      "ts": 1700000000004,
+      "lamport": 4,
+      "op": {
+        "kind": "task.claim",
+        "task_id": "T01"
+      }
+    },
+    {
+      "id": "e-0000000000000005",
+      "room": "synthetic-bench",
+      "agent": "alice",
+      "act": "op",
+      "text": "",
+      "ts": 1700000000005,
+      "lamport": 5,
+      "op": {
+        "kind": "micro.set",
+        "micro_id": "T01.M01",
+        "state": "active"
+      }
+    },
+    {
+      "id": "e-0000000000000006",
+      "room": "synthetic-bench",
+      "agent": "alice",
+      "act": "op",
+      "text": "",
+      "ts": 1700000000006,
+      "lamport": 6,
+      "op": {
+        "kind": "memory.set",
+        "section": "goal",
+        "text": "Ship TaskLight",
+        "base_rev": 0
+      }
+    },
+    {
+      "id": "e-0000000000000007",
+      "room": "synthetic-bench",
+      "agent": "alice",
+      "act": "op",
+      "text": "",
+      "ts": 1700000000007,
+      "lamport": 7,
+      "op": {
+        "kind": "memory.set",
+        "section": "decisions",
+        "text": "Keep evidence and uncertainty visible",
+        "base_rev": 0
+      }
+    },
+    {
+      "id": "e-0000000000000008",
+      "room": "synthetic-bench",
+      "agent": "alice",
+      "act": "op",
+      "text": "",
+      "ts": 1700000000008,
+      "lamport": 8,
+      "op": {
+        "kind": "micro.set",
+        "micro_id": "T01.M01",
+        "state": "done",
+        "outcome": "Verified",
+        "took": "1m",
+        "evidence": [
+          {
+            "path": "tests/bench/README.md",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      }
+    },
+    {
+      "id": "e-0000000000000009",
+      "room": "synthetic-bench",
+      "agent": "alice",
+      "act": "heartbeat",
+      "text": "",
+      "ts": 1700000600000,
+      "lamport": 9
+    },
+    {
+      "id": "e-000000000000000a",
+      "room": "synthetic-bench",
+      "agent": "alice",
+      "act": "question",
+      "text": "<img src=x onerror=alert(1)>",
+      "ts": 1700000000010,
+      "lamport": 10,
+      "to": "bob"
+    },
+    {
+      "id": "e-000000000000000b",
+      "room": "synthetic-bench",
+      "agent": "bob",
+      "act": "op",
+      "text": "",
+      "ts": 1700000700000,
+      "lamport": 11,
+      "op": {
+        "kind": "task.claim",
+        "task_id": "T01",
+        "takeover": true
+      }
+    },
+    {
+      "id": "e-000000000000000c",
+      "room": "synthetic-bench",
+      "agent": "alice",
+      "act": "op",
+      "text": "",
+      "ts": 1700000000012,
+      "lamport": 12,
+      "op": {
+        "kind": "memory.set",
+        "section": "goal",
+        "text": "must not win",
+        "base_rev": 999
+      }
+    },
+    {
+      "id": "e-000000000000000d",
+      "room": "synthetic-bench",
+      "agent": "bob",
+      "act": "op",
+      "text": "",
+      "ts": 1700000000013,
+      "lamport": 13,
+      "op": {
+        "kind": "task.claim",
+        "task_id": "T01"
+      }
+    }
+  ],
+  "expected": {
+    "title": "Synthetic benchmark plan",
+    "task_ids": [
+      "T01",
+      "T02"
+    ],
+    "states": [
+      "done",
+      "pending"
+    ],
+    "owners": [
+      "alice",
+      null
+    ],
+    "claim_lamports": [
+      4,
+      null
+    ],
+    "micro_states": [
+      [
+        "done"
+      ],
+      [
+        "pending"
+      ]
+    ],
+    "progress_pct": 50,
+    "tasks_total": 2,
+    "micro_total": 2,
+    "micro_done": 1,
+    "memory": {
+      "goal": {
+        "text": "Ship TaskLight",
+        "rev": 6
+      },
+      "decisions": {
+        "text": "Keep evidence and uncertainty visible",
+        "rev": 7
+      }
+    },
+    "rejections": [
+      {
+        "id": "e-000000000000000b",
+        "lamport": 11,
+        "code": "claimed_by_other"
+      },
+      {
+        "id": "e-000000000000000c",
+        "lamport": 12,
+        "code": "stale_rev"
+      },
+      {
+        "id": "e-000000000000000d",
+        "lamport": 13,
+        "code": "claimed_by_other"
+      }
+    ],
+    "last_lamport": 13,
+    "counts": {
+      "applied": 8,
+      "rejected": 3,
+      "invalid": 0,
+      "replayed": 0
+    }
+  }
+}

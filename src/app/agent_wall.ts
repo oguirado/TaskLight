@@ -5,36 +5,54 @@ import { readTheme, writeTheme } from "../ui/theme_store";
 import { mountAgentChat } from "../agentsui";
 import type { AgentChatHandlers, AgentChatHandle, AgentChatVM, ChatMessageVM } from "../agentsui/types";
 import { mountWall } from "../views";
-import type { WallHandle, ViewId, WallVM } from "../views/types";
+import type { WallMountHandle, WallMountVM, WallViewId, WorkspaceGuidanceVM } from "../views";
+import { deriveSwarmViewModel } from "./swarm_vm";
+import type { WallVM } from "../views/types";
 import type { AgentState, DriftVerdict, TemplateMemorySectionMeta } from "../agents/types";
 import { toChatVM, toWallVM } from "./agent_store";
 import type { AgentLink } from "./agent_link";
 import type { AgentStore } from "./agent_store";
 import type { DriftReviewer } from "./agent_drift";
-import type { Clock } from "./types";
+import type { Clock, WallPortState } from "./types";
 import type { PlanProjectionResult } from "./agent_store";
 import type { PlanTask } from "../plan/types";
 
-export interface AgentWallDeps {
+export interface WorkspaceStatus {
+  link: WallPortState | null;
+  rooms: readonly string[];
+  synced: readonly string[];
+}
+
+interface AgentWallBaseDeps {
   wallHost: HTMLElement;
   chatHost: HTMLElement;
-  link: Pick<AgentLink, "post">;
+  link: Pick<AgentLink, "post"> & Partial<Pick<AgentLink, "state">>;
   store: AgentStore;
   reviewer: DriftReviewer;
   clock: Clock;
   userAgent: string;
   /** Escalation target agent; default "orchestrator". */
   orchestrator?: string | (() => string | undefined);
-  initialView?: ViewId;
+  initialView?: WallViewId;
+  /** Current transport, hello membership and completed replay; absence is unknown. */
+  workspaceStatus?: () => WorkspaceStatus;
+  /** Read-only availability for the active workspace, independent of chat selection. */
+  modelAvailability?: (room: string) => string;
   /** Undefined while the configured device model is still checking. */
   modelStatus?: () => WallVM["model"] | undefined;
   planVerdicts?: ReadonlyMap<string, DriftVerdict> | (() => ReadonlyMap<string, DriftVerdict>);
   planBriefs?: ReadonlyMap<string, { text: string; source: string }> | (() => ReadonlyMap<string, { text: string; source: string }>);
   templateMemorySections?: (templateId: string) => readonly TemplateMemorySectionMeta[] | undefined;
 }
+/** The Models integration is optional for standalone and legacy hosts. */
+export type AgentWallDeps = AgentWallBaseDeps | (AgentWallBaseDeps & {
+  onOpenModels(trigger: HTMLElement): void;
+});
 export interface AgentWall {
   /** Re-reads the store and re-renders (call after store.ingest). */
   refresh(): void;
+  /** Repaint model health and availability without requesting a review. */
+  refreshModels?(): void;
   /** Currently open plan-task drawer; legacy drawers have no plan selection. */
   selection(): { room: string; taskId: string; assignee: string | null } | null;
   /** Live S1 composer; unavailable after destruction. */
@@ -45,29 +63,66 @@ export interface AgentWall {
 export const WALL_REFRESH_MS = 30_000 as const;
 
 function readPlanFeed<T>(feed: ReadonlyMap<string, T> | (() => ReadonlyMap<string, T>) | undefined): ReadonlyMap<string, T> | undefined {
-  try { return typeof feed === "function" ? feed() : feed; } catch { return undefined; }
+  const map = readPort(() => typeof feed === "function" ? feed() : feed, value =>
+    value != null && typeof value.get === "function" && typeof value.has === "function"
+    && typeof value[Symbol.iterator] === "function" && Number.isInteger(value.size) && value.size >= 0);
+  // Copy a ReadonlyMap at the boundary; rendering only calls our local map.
+  return map === undefined ? undefined : readPort(() => new Map(map), value => value instanceof Map);
 }
 
+function readPort<T>(read: () => T, valid: (value: T) => boolean): T | undefined {
+  try {
+    const value = read();
+    if (valid(value)) return value;
+    // A synchronous port may accidentally return an asynchronous failure. Observe
+    // rejection without waiting, while still rejecting its invalid result type.
+    if (value !== null && (typeof value === "object" || typeof value === "function")
+      && typeof (value as { then?: unknown }).then === "function") {
+      void Promise.resolve(value).catch(() => undefined);
+    }
+    return undefined;
+  } catch { return undefined; }
+}
+
+const isVoid = (value: unknown): boolean => value === undefined;
+const isTimerId = (value: number): boolean => Number.isFinite(value) && value >= 0;
+const isMountHandle = (value: unknown): value is WallMountHandle => value !== null && typeof value === "object"
+  && typeof (value as WallMountHandle).update === "function" && typeof (value as WallMountHandle).destroy === "function";
+const isVerdict = (value: unknown): value is DriftVerdict => {
+  if (value === null || typeof value !== "object") return false;
+  const v = value as DriftVerdict;
+  return (v.verdict === "on_track" || v.verdict === "drift" || v.verdict === "needs_user")
+    && typeof v.reason === "string" && ["device", "cloud", "local", "remote", "rules"].includes(v.source);
+};
+
 const ESCALATE_TEXT = "Escalation: the user asks the orchestrator to step in.";
+const CLOCK_UNAVAILABLE = "Clock unavailable. Your message was not sent. Please try again.";
 
 const MODEL_TIMEOUT_MS = 10_000 as const;
+
+function isWallView(value: unknown): value is WallViewId {
+  return value === "wall" || value === "agenda" || value === "diary"
+    || value === "archive" || value === "memory" || value === "swarm";
+}
 
 export function startAgentWall(d: AgentWallDeps): AgentWall {
   const { wallHost, chatHost, link, store, reviewer, clock, userAgent } = d;
   let destroyed = false;
   let sending = false;
-  let currentTheme = readTheme();
+  let currentTheme = readPort(readTheme, value => value === "light" || value === "dark") ?? "light";
   wallHost.ownerDocument.documentElement.dataset.theme = currentTheme;
   let modelTimedOut = false;
   let suggestNoticeMsg = "";
-  let wallHandle: WallHandle | null = null;
+  let wallHandle: WallMountHandle | null = null;
+  let swarmTimer: number | undefined;
+  let swarmTimerGen = 0;
   let chatHandle: AgentChatHandle | null = null;
   const verdicts = new Map<string, DriftVerdict>();
   const accepted = new Map<string, DriftVerdict>();
   const reviewState = new Map<string, { gen: number; hash: string | undefined }>();
   let reviewGen = 0;
 
-  let currentView: ViewId = d.initialView ?? "wall";
+  let currentView: WallViewId = isWallView(d.initialView) ? d.initialView : "wall";
   let currentWorkspace: string | undefined = undefined;
   let currentArchiveScope: "workspace" | "all" = "workspace";
 
@@ -80,6 +135,15 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
   let lastWorkspace: string | undefined = undefined;
   let lastRenderedKey = "";
   let lastPlanAssignee: string | null | undefined = undefined;
+  const readStates = (): AgentState[] => (readPort(() => store.states(), Array.isArray) ?? []).filter(state =>
+    typeof state?.room === "string" && typeof state?.agent === "string");
+  const readEvents = (room: string) => readPort(() => store.events(room), Array.isArray);
+  const readNow = (): number | undefined => readPort(() => clock.now(), now =>
+    typeof now === "number" && Number.isFinite(now) && Number.isFinite(new Date(now).getTime()));
+  const readModelStatus = (): WallVM["model"] | undefined => readPort(() => d.modelStatus?.(), status =>
+    status != null && typeof status === "object" && typeof status.label === "string"
+    && (status.state === "ready" || status.state === "downloading" || status.state === "unavailable"));
+
   const targetOf = (states: AgentState[]): AgentState | undefined =>
     selected !== null
       ? states.find((s) => s.agent !== userAgent && verdictKey(s) === selected)
@@ -88,13 +152,9 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
   const TASK_ID_RE = /^T[0-9]+$/;
   const ROOM_SLUG_RE = /^[a-z0-9][a-z0-9-]{0,47}$/;
 
-  const safePlan = (room: string): PlanProjectionResult | undefined => {
-    try {
-      const cand = (store as unknown as Record<string, unknown>)["plan"];
-      if (typeof cand !== "function") return undefined;
-      return store.plan(room);
-    } catch { return undefined; }
-  };
+  const safePlan = (room: string): PlanProjectionResult | undefined => readPort(() => store.plan(room), value =>
+    value != null && typeof value === "object" && typeof value.room === "string"
+    && value.projection != null && typeof value.projection === "object");
 
   // Exact-membership resolution through the public projection seam only.
   // Array scanning never performs prototype-chain lookups.
@@ -177,7 +237,7 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
     if (key === notifiedSelection) return;
     notifiedSelection = key;
     for (const listener of [...selectionListeners]) {
-      try { listener(); } catch { /* isolate selection subscribers */ }
+      readPort(listener, isVoid);
     }
   };
 
@@ -195,17 +255,14 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
   };
 
   const resolveLegacyTarget = (): AgentState | undefined => {
-    const target = targetOf(store.states());
+    const target = targetOf(readStates());
     if (selected !== null && target === undefined) rejectSelection();
     return target;
   };
 
   const clearComposer = (): void => {
     suggestNoticeMsg = "";
-    try {
-      const setDraft = (chatHandle as unknown as { setDraft?: (t: string) => void } | null)?.setDraft;
-      if (typeof setDraft === "function") setDraft.call(chatHandle, "");
-    } catch { /* composing without a mounted handle is fine */ }
+    readPort(() => chatHandle?.setDraft(""), isVoid);
   };
 
   interface OutgoingRecord {
@@ -243,33 +300,26 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
   };
 
   const safeGetDraft = (): string => {
-    try {
-      const g = (chatHandle as unknown as { getDraft?: () => string } | null)?.getDraft;
-      const v = typeof g === "function" ? g.call(chatHandle) : "";
-      return typeof v === "string" ? v : "";
-    } catch { return ""; }
+    return readPort(() => chatHandle?.getDraft(), value => typeof value === "string") ?? "";
   };
 
   let internalDraftWrite = false;
   const trySetDraft = (t: string): void => {
     const previous = internalDraftWrite;
     internalDraftWrite = true;
-    try {
-      const s = (chatHandle as unknown as { setDraft?: (t: string) => void } | null)?.setDraft;
-      if (typeof s === "function") s.call(chatHandle, t);
-    } catch { /* composing without a mounted handle is fine */ }
+    try { readPort(() => chatHandle?.setDraft(t), isVoid); }
     finally { internalDraftWrite = previous; }
   };
 
-  const wrapSetDraft = (): void => {
-    if (chatHandle === null) return;
+  const wrapSetDraft = (handle: AgentChatHandle | null): void => {
+    if (handle === null) return;
     try {
-      const orig = (chatHandle as unknown as { setDraft?: (t: string) => void }).setDraft;
+      const orig = (handle as unknown as { setDraft?: (t: string) => void }).setDraft;
       if (typeof orig !== "function") return;
-      (chatHandle as unknown as { setDraft: (t: string) => void }).setDraft = (t: string): void => {
+      (handle as unknown as { setDraft: (t: string) => void }).setDraft = (t: string): void => {
         const key = currentKey();
         if (!internalDraftWrite && key !== null) stateFor(key).seq += 1;
-        try { orig.call(chatHandle, t); } catch { /* inert */ }
+        readPort(() => orig.call(handle, t), isVoid);
       };
     } catch { /* handle already settled */ }
   };
@@ -307,12 +357,8 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
   };
 
   const postRecord = (record: OutgoingRecord): void => {
-    let result: Promise<unknown>;
-    try {
-      result = link.post({ room: record.room, to: record.to, text: record.text }) as Promise<unknown>;
-    } catch {
-      result = Promise.reject(new Error("post failed"));
-    }
+    const result = readPort(() => Promise.resolve(link.post({ room: record.room, to: record.to, text: record.text })),
+      value => value instanceof Promise);
     void Promise.resolve(result).then(
       (v) => { settleRecord(record, v, false); },
       () => { settleRecord(record, undefined, true); },
@@ -346,10 +392,17 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
     if (destroyed) return;
     const st = stateFor(key);
     if (st.records.some((r) => r.status === "sending" && r.text.trim() === text.trim())) return;
+    const nowMs = readNow();
+    if (nowMs === undefined) {
+      suggestNoticeMsg = CLOCK_UNAVAILABLE;
+      render();
+      return;
+    }
+    if (suggestNoticeMsg === CLOCK_UNAVAILABLE) suggestNoticeMsg = "";
     clientSeq += 1;
     const record: OutgoingRecord = {
       clientId: `c${clientSeq}`, taskKey: key, raw, seqAtSend: st.seq,
-      createdAt: new Date(clock.now()).toISOString(), room, to, text, status: "sending",
+      createdAt: new Date(nowMs).toISOString(), room, to, text, status: "sending",
     };
     st.records.push(record);
     render();
@@ -394,7 +447,7 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
       const task = resolvePlanTask(plan.room, plan.taskId);
       if (task === undefined || task.assignee !== record.to || plan.room !== record.room) return;
     } else {
-      const target = targetOf(store.states());
+      const target = targetOf(readStates());
       if (target === undefined || target.agent !== record.to || target.room !== record.room) return;
     }
     record.status = "sending";
@@ -405,7 +458,18 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
     postRecord(record);
   };
 
+  let guidanceForView: WorkspaceGuidanceVM | undefined;
   const wallHandlers = {
+    workspaceGuidance: () => guidanceForView,
+    onOpenModels: (trigger: HTMLElement): void => {
+      if (!destroyed && "onOpenModels" in d) readPort(() => d.onOpenModels?.(trigger), isVoid);
+    },
+    onOpenMessages: (): void => {
+      if (destroyed) return;
+      currentView = "wall";
+      drawerOpen = true;
+      render();
+    },
     onOpenTask: (id: string): void => {
       if (destroyed) return;
       try {
@@ -413,15 +477,17 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
         if (parsed.kind === "plan") {
           if (resolvePlanTask(parsed.room, parsed.taskId) === undefined) { rejectSelection(); return; }
           selected = `plan:${parsed.room}:${parsed.taskId}`;
+          currentView = "wall";
           invalidSelection = false;
           drawerOpen = true;
           render();
           return;
         }
         if (parsed.kind === "legacy") {
-          const found = store.states().find((s) => s.agent !== userAgent && verdictKey(s) === id);
+          const found = readStates().find((s) => s.agent !== userAgent && verdictKey(s) === id);
           if (found === undefined) { rejectSelection(); return; }
           selected = id;
+          currentView = "wall";
           invalidSelection = false;
           drawerOpen = true;
           render();
@@ -430,11 +496,12 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
         rejectSelection();
       } catch { try { rejectSelection(); } catch { return; } }
     },
-    onView: (v: ViewId): void => {
+    onView: (v: WallViewId): void => {
       if (destroyed) return;
       try {
-        if (v === "wall" || v === "agenda" || v === "diary" || v === "archive" || v === "memory") {
+        if (isWallView(v)) {
           currentView = v;
+          if (v !== "wall") drawerOpen = false;
           render();
         }
       } catch { return; }
@@ -461,7 +528,7 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
       if (destroyed) return;
       currentTheme = currentTheme === "dark" ? "light" : "dark";
       wallHost.ownerDocument.documentElement.dataset.theme = currentTheme;
-      writeTheme(currentTheme);
+      readPort(() => writeTheme(currentTheme), isVoid);
       render();
     },
     onSelectPhase: (phaseId: string): void => {
@@ -483,42 +550,155 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
   chatHost.setAttribute("aria-label", "Agent chat");
   chatHost.setAttribute("data-open", "false");
 
+  let observationKey = "";
+  const readWorkspaceStatus = (): WorkspaceStatus | undefined => readPort(() => {
+    const status = d.workspaceStatus?.();
+    if (status == null || !Array.isArray(status.rooms) || !Array.isArray(status.synced)
+      || !status.rooms.every(room => typeof room === "string")
+      || !status.synced.every(room => typeof room === "string")
+      || (status.link !== null && !["connecting", "linked", "resyncing", "unreachable"].includes(status.link?.kind))) return undefined;
+    return { link: status.link === null ? null : { ...status.link }, rooms: [...status.rooms], synced: [...status.synced] };
+  }, value => value !== undefined);
+
   const renderContent = (): void => {
     if (destroyed) return;
-    const states = store.states();
-    const nowMs = clock.now();
-    let plans: import("./agent_store").PlanProjectionResult[] | undefined;
-    try {
-      const cand = (store as unknown as Record<string, unknown>)["plans"];
-      if (typeof cand === "function") plans = (store as AgentStore).plans();
-    } catch { plans = undefined; }
+    const status = readWorkspaceStatus();
+    observationKey = JSON.stringify(status ?? null);
+    const states = readStates();
+    const nowMs = readNow() ?? Number.NaN;
+    const plans = readPort(() => store.plans(), Array.isArray);
     const planVerdicts = readPlanFeed(d.planVerdicts);
     const planBriefs = readPlanFeed(d.planBriefs);
     const unavailable = { state: "unavailable" as const, label: "Gemini Nano: not available on this device — enable the on-device model flags in Chrome. Rules is the active reviewer." };
     let model: WallVM["model"] = { state: "unavailable", label: "" };
     if (d.modelStatus !== undefined) {
-      let status: WallVM["model"] | undefined;
-      try { status = d.modelStatus(); } catch { /* no verdict yet */ }
+      const status = readModelStatus();
       model = status ?? (modelTimedOut ? unavailable : { state: "unavailable", label: "Gemini Nano: checking…" });
     }
-    const wallVm = toWallVM(states, verdicts, {
+    // Select before conversion so a hello-only room cannot borrow another room's plan.
+    const workspace = currentWorkspace ?? plans?.[0]?.room ?? states[0]?.room ?? status?.rooms[0] ?? "";
+    if (workspace) currentWorkspace = workspace;
+    const baseVm = toWallVM(states, verdicts, {
       nowMs,
       model,
-      network: "online",
+      // Internet reachability is independent of the bridge and model availability.
+      network: readPort(() => wallHost.ownerDocument.defaultView?.navigator.onLine, value => typeof value === "boolean") === false ? "offline" : "online",
       userAgent,
-      view: currentView,
-      ...(currentWorkspace !== undefined ? { workspace: currentWorkspace } : {}),
+      view: currentView === "swarm" ? "wall" : currentView,
+      workspace,
       archiveScope: currentArchiveScope,
       ...(planVerdicts !== undefined ? { planVerdicts } : {}),
       ...(planBriefs !== undefined ? { planBriefs } : {}),
-      ...(d.templateMemorySections !== undefined ? { templateMemorySections: d.templateMemorySections } : {}),
-    } as import("./agent_store").PlanWallOpts, plans);
-    // Preserve caller-requested workspace if the vm chose a different one but user explicitly selected
-    if (currentWorkspace !== undefined && wallVm.workspace !== currentWorkspace) {
-      try { (wallVm as unknown as Record<string, unknown>)["workspace"] = currentWorkspace; } catch { /* ignore */ }
+      ...(d.templateMemorySections !== undefined ? {
+        templateMemorySections: (templateId: string) => readPort(() => d.templateMemorySections?.(templateId), Array.isArray),
+      } : {}),
+    }, plans);
+    const workspaces = [...baseVm.workspaces];
+    for (const room of status?.rooms ?? []) {
+      if (!workspaces.some(item => item.id === room)) workspaces.push({ id: room, name: room, lens: "dev", accent: "slate" });
     }
-    try { (wallVm as unknown as Record<string, unknown>)["view"] = currentView; } catch { /* ignore */ }
-    try { (wallVm as unknown as Record<string, unknown>)["archiveScope"] = currentArchiveScope; } catch { /* ignore */ }
+    const availability = readPort(() => d.modelAvailability?.(workspace), value => typeof value === "string")
+      ?? "Models unavailable";
+    const wallVm: WallMountVM = { ...baseVm, workspaces, view: currentView, workspace,
+      archiveScope: currentArchiveScope, availability };
+    if (baseVm.workspace !== workspace) {
+      delete wallVm.plan;
+      delete wallVm.memory;
+      delete wallVm.diary;
+    }
+    let events: ReturnType<AgentStore["events"]> | undefined;
+    let result: PlanProjectionResult | undefined;
+    let readFailed = false;
+    let error: string | undefined;
+    try {
+      events = store.events(workspace);
+      result = store.plan(workspace);
+      readFailed = !Array.isArray(events) || (result !== undefined
+        && (result.room !== workspace || result.projection == null
+          || !Array.isArray(result.projection.tasks) || result.projection.plan === undefined
+          || result.invalidOps > 0 || (result.rejectedOps ?? 0) > 0
+          || (result.errors?.length ?? 0) > 0 || (result.projection.rejected?.length ?? 0) > 0));
+    } catch (cause) {
+      readFailed = true;
+      error = readPort(() => cause instanceof Error ? cause.message : String(cause), value => typeof value === "string");
+    }
+    const projection = result?.projection ?? plans?.find(item => item.room === workspace)?.projection ?? null;
+    const connected = status?.link?.kind === "linked" && status.rooms.includes(workspace);
+    const synced = connected && status?.synced.includes(workspace) === true;
+    const guidance: WorkspaceGuidanceVM = {
+      room: workspace, heading: null, action: null, connected,
+      saved: !connected && (wallVm.plan !== undefined || wallVm.tasks.some(task => task.workspace === workspace)
+        || (events?.length ?? 0) > 0), notices: [],
+    };
+    const state = (heading: string, action: string): void => { guidance.heading = heading; guidance.action = action; };
+    if (status?.link == null) state("Connection unknown", "Open workspace help");
+    else if (status.link.kind === "connecting") state("Connecting to bridge", "Check workspace connection setup");
+    else if (status.link.kind === "unreachable") state("Bridge disconnected", "Open workspace help");
+    else if (!synced) state("Syncing workspace", "Wait for room replay");
+    else if (readFailed || events === undefined) state("Workspace unavailable", "Ask the harness to inspect the room");
+    else if (events.length === 0) state("Empty workspace", "Open workspace help");
+    else if (result === undefined && events.some(event => event.act === "op")) {
+      state("Workspace unavailable", "Ask the harness to inspect the room");
+    } else if (result?.projection.plan === null && events.some(event => event.act === "op"
+      && ["memory.set", "agent.lifecycle"].includes(event.op?.kind ?? ""))) {
+      state("No plan yet", "Ask the harness to seed required memory and create a plan");
+    } else if (result === undefined || result.source === "legacy" || result.projection.plan === null) {
+      state("Legacy activity only", "Ask the harness to create a shared plan");
+    } else if (result.projection.tasks.length === 0) state("No tasks yet", "Ask the harness to add work");
+    if (guidance.heading === "Workspace unavailable" && error !== undefined) guidance.error = error;
+    if (["No plan yet", "Legacy activity only", "No tasks yet"].includes(guidance.heading ?? "")) {
+      guidance.body = "Use the swarm_coordinator prompt in your harness to coordinate shared planning.";
+    }
+    // Registration and active deployment are independent, room-scoped observations.
+    // Neither ownership, activity, nor a browser connection substitutes for a lifecycle map.
+    if (synced && !readFailed && guidance.heading !== "Workspace unavailable") {
+      // Completed replay with no planning projection has no lifecycle events;
+      // an existing projection that omits the field still means unavailable data.
+      const lifecycle = result === undefined ? {} : result.projection.agent_lifecycle;
+      if (lifecycle === undefined || lifecycle === null || typeof lifecycle !== "object" || Array.isArray(lifecycle)) {
+        guidance.notices.push({ heading: "Harness registration unknown", action: "Harness registration data is unavailable for this room" },
+          { heading: "Agent deployment unknown", action: "Agent deployment data is unavailable for this room" });
+      } else {
+        const records = Object.values(lifecycle);
+        if (!records.some(record => typeof record?.harness === "string" && record.harness.trim().length > 0)) {
+          guidance.notices.push({ heading: "No harness connected", action: "No harness registration recorded here; live MCP connection status is unknown" });
+        }
+        if (!records.some(record => record?.lifecycle === "deployed" || record?.lifecycle === "alive")) {
+          guidance.notices.push({ heading: "No agents deployed", action: "No active deployment recorded; ask your harness to deploy agents",
+            body: "Ask your harness to follow the documented hook setup in docs/HARNESS_HOOKS.md." });
+        }
+      }
+    }
+    guidanceForView = guidance;
+    const previousSwarmTimer = swarmTimer;
+    swarmTimer = undefined;
+    const timerGen = ++swarmTimerGen;
+    if (previousSwarmTimer !== undefined) readPort(() => clock.clearTimeout(previousSwarmTimer), isVoid);
+    if (currentView === "wall" || currentView === "swarm") {
+      // Preserve liveness in legacy hosts; this never certifies workspace connection.
+      const activityConnected = d.workspaceStatus !== undefined ? connected : link.state === undefined
+        || readPort(() => link.state?.(), value => value != null && typeof value === "object"
+          && typeof value.kind === "string")?.kind === "linked";
+      try {
+        if (Array.isArray(events)) {
+          wallVm.swarm = deriveSwarmViewModel({ room: workspace, projection, events, nowMs, connected: activityConnected });
+          // The frozen renderer uses null progress to distinguish a room without a plan.
+          if (projection?.plan === null) wallVm.swarm = { ...wallVm.swarm, progress: null };
+        }
+      } catch { /* Optional agent data is unavailable. */ }
+      if (currentView === "swarm" && wallVm.swarm === undefined) {
+        // A failed optional reader must not prevent the controlling guidance rendering.
+        wallVm.swarm = { room: workspace, agents: [], progress: null, refresh_at_ms: null };
+      }
+      const deadline = wallVm.swarm?.refresh_at_ms;
+      if (deadline !== undefined && deadline !== null && Number.isFinite(deadline) && Number.isFinite(nowMs)) swarmTimer = readPort(() => clock.setTimeout(() => {
+        if (destroyed || timerGen !== swarmTimerGen) return;
+        swarmTimer = undefined;
+        if (!destroyed) {
+          try { render(); } catch { /* A read port may fail during expiry. */ }
+        }
+      }, Math.max(0, deadline - nowMs)), isTimerId);
+    }
     try {
       const ws = wallVm.workspace;
       if (typeof ws === "string" && ws.length > 0) lastWorkspace = ws;
@@ -529,19 +709,30 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
       wallVm.tasks = wallVm.tasks.filter(task => task.workspace === wallVm.workspace);
     }
     if (wallHandle === null) {
-      wallHandle = mountWall(wallHost, wallVm, wallHandlers);
+      wallHandle = readPort(() => mountWall(wallHost, wallVm, wallHandlers), isMountHandle) ?? null;
     } else {
-      wallHandle.update(wallVm);
+      readPort(() => wallHandle?.update(wallVm), isVoid);
     }
 
     const showChat = (vm: AgentChatVM, restoreDraft: string | null = null): void => {
       vm = { ...vm, deliveryAnnouncements: drawerOpen };
       chatHost.setAttribute("aria-label", vm.title);
       if (chatHandle === null) {
-        chatHandle = mountAgentChat(chatHost, vm, chatHandlers);
-        wrapSetDraft();
+        const mounted = readPort(() => mountAgentChat(chatHost, vm, chatHandlers), isMountHandle);
+        if (mounted !== undefined) {
+          // The public composer handle must be as contained as controller-owned calls.
+          chatHandle = {
+            update: next => { readPort(() => mounted.update(next), isVoid); },
+            destroy: () => { readPort(() => mounted.destroy(), isVoid); },
+            getDraft: () => readPort(() => mounted.getDraft(), value => typeof value === "string") ?? "",
+            setDraft: text => { readPort(() => mounted.setDraft(text), isVoid); },
+          };
+          // Track edits through the original adapter handle as well as our facade.
+          // Legacy adapters may omit the draft seam; each use remains guarded.
+          wrapSetDraft(mounted);
+        }
       } else {
-        chatHandle.update(vm);
+        readPort(() => chatHandle?.update(vm), isVoid);
       }
       if (restoreDraft !== null) trySetDraft(restoreDraft);
       // U42: open only after the user picked a task; Close returns it to closed.
@@ -604,11 +795,7 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
         }), restoreDraft);
         return;
       }
-      let roomEvents: import("../agents/types").RoomEvent[] = [];
-      try {
-        const ev = store.events(plan.room);
-        roomEvents = Array.isArray(ev) ? ev : [];
-      } catch { roomEvents = []; }
+      const roomEvents = readEvents(plan.room) ?? [];
       const synthetic: AgentState = {
         room: plan.room, agent: assignee, stepStates: [], outcomes: [], took: [],
         lastSeen: nowMs, openQuestions: [], closed: false,
@@ -638,7 +825,7 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
     const opts: { userAgent: string; nowMs: number; sending: boolean; drift?: DriftVerdict; suggestNotice?: string } =
       drift !== undefined ? { userAgent, nowMs, sending: targetSending, drift } : { userAgent, nowMs, sending: targetSending };
     if (suggestNoticeMsg.length > 0) opts.suggestNotice = suggestNoticeMsg;
-    const vm: AgentChatVM = toChatVM(target, store.events(target.room), opts);
+    const vm: AgentChatVM = toChatVM(target, readEvents(target.room) ?? [], opts);
     showChat(withLocal(legacyTaskKey, vm), restoreDraftLegacy);
   };
 
@@ -656,20 +843,15 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
       sending = false;
       try { render(); } catch { return; }
     };
-    let result: Promise<unknown>;
-    try {
-      result = link.post({ room, to, text });
-    } catch {
-      result = Promise.resolve(undefined);
-    }
+    const result = readPort(() => Promise.resolve(link.post({ room, to, text })), value => value instanceof Promise);
     void Promise.resolve(result).then(done, done);
   };
 
   const resolveOrchestrator = (): string => {
-    const o = d.orchestrator;
-    if (typeof o === "function") return (o as () => string | undefined)() ?? "orchestrator";
-    if (typeof o === "string" && o.length > 0) return o;
-    return "orchestrator";
+    return readPort(() => {
+      const o = d.orchestrator;
+      return typeof o === "function" ? o() : o;
+    }, value => typeof value === "string" && value.length > 0) ?? "orchestrator";
   };
 
   const chatHandlers: AgentChatHandlers = {
@@ -752,24 +934,19 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
 
   const refresh = (): void => {
     if (destroyed) return;
-    const states = store.states();
+    const states = readStates();
     const pending: Array<Promise<void>> = states.map((s) => {
       const key = verdictKey(s);
       reviewGen += 1;
       const gen = reviewGen;
       const hash = s.contract?.hash;
       reviewState.set(key, { gen, hash });
-      let review: Promise<DriftVerdict | undefined>;
-      try {
-        review = reviewer.review(s);
-      } catch {
-        review = Promise.resolve(undefined);
-      }
-      return review.then((v) => {
-        if (v === undefined) return;
+      const review = readPort(() => Promise.resolve(reviewer.review(s)), value => value instanceof Promise);
+      return Promise.resolve(review).then((v) => {
+        if (!isVerdict(v)) return;
         const current = reviewState.get(key);
         if (current === undefined || current.gen !== gen || current.hash !== hash) return;
-        const fresh = store.states().find((x) => verdictKey(x) === key);
+        const fresh = readStates().find((x) => verdictKey(x) === key);
         if (fresh === undefined || fresh.contract?.hash !== hash) return;
         verdicts.set(key, v);
       });
@@ -781,50 +958,51 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
   };
 
   let interval: number | undefined;
+  let workspaceTimer: number | undefined;
   let modelTimer: number | undefined;
   const destroy = (): void => {
     if (destroyed) return;
     destroyed = true;
-    let failed = false;
-    let firstError: unknown;
-    const attempt = (cleanup: () => void): void => {
-      try { cleanup(); } catch (error) {
-        if (!failed) { failed = true; firstError = error; }
-      }
-    };
-    // Each resource gets a cleanup attempt even if a previous port throws.
-    attempt(() => { if (interval !== undefined) clock.clearInterval(interval); });
-    attempt(() => { if (modelTimer !== undefined) clock.clearTimeout(modelTimer); });
-    attempt(() => { wallHandle?.destroy(); });
-    attempt(() => { chatHandle?.destroy(); });
-    wallHandle = null;
-    chatHandle = null;
+    const attempt = (cleanup: () => void): void => { readPort(cleanup, isVoid); };
+    // Retire ownership before invoking cleanup; every resource gets an attempt.
+    const oldInterval = interval, oldWorkspaceTimer = workspaceTimer, oldModelTimer = modelTimer, oldSwarmTimer = swarmTimer;
+    interval = undefined; workspaceTimer = undefined; modelTimer = undefined; swarmTimer = undefined;
+    swarmTimerGen += 1;
+    const oldWall = wallHandle, oldChat = chatHandle;
+    wallHandle = null; chatHandle = null;
+    if (oldInterval !== undefined) readPort(() => clock.clearInterval(oldInterval), isVoid);
+    if (oldWorkspaceTimer !== undefined) readPort(() => clock.clearInterval(oldWorkspaceTimer), isVoid);
+    if (oldModelTimer !== undefined) readPort(() => clock.clearTimeout(oldModelTimer), isVoid);
+    if (oldSwarmTimer !== undefined) readPort(() => clock.clearTimeout(oldSwarmTimer), isVoid);
+    readPort(() => oldWall?.destroy(), isVoid);
+    readPort(() => oldChat?.destroy(), isVoid);
     notifySelection();
     selectionListeners.clear();
     attempt(() => { chatHost.classList.remove("chat-drawer"); });
     attempt(() => { chatHost.removeAttribute("data-open"); });
     attempt(() => { chatHost.removeAttribute("role"); });
     attempt(() => { chatHost.removeAttribute("aria-label"); });
-    if (failed) throw firstError;
   };
 
-  try {
-    interval = clock.setInterval(refresh, WALL_REFRESH_MS);
-    if (d.modelStatus !== undefined) modelTimer = clock.setTimeout(() => {
-      if (destroyed) return;
-      try { if (d.modelStatus?.() !== undefined) return; } catch { /* no verdict yet */ }
-      modelTimedOut = true;
-      render();
-    }, MODEL_TIMEOUT_MS);
-    refresh();
-  } catch (error) {
-    // Preserve the startup error after best-effort rollback.
-    try { destroy(); } catch { /* all cleanup steps were attempted */ }
-    throw error;
-  }
+  interval = readPort(() => clock.setInterval(refresh, WALL_REFRESH_MS), isTimerId);
+  if (d.workspaceStatus !== undefined) workspaceTimer = readPort(() => clock.setInterval(() => {
+    if (destroyed) return;
+    const next = readWorkspaceStatus();
+    if (JSON.stringify(next ?? null) !== observationKey) {
+      // M4: transport-only changes repaint without asking the reviewer or a provider.
+      try { render(); } catch { /* Observation failure is represented as unknown. */ }
+    }
+  }, 500), isTimerId);
+  if (d.modelStatus !== undefined) modelTimer = readPort(() => clock.setTimeout(() => {
+    modelTimer = undefined;
+    if (destroyed || readModelStatus() !== undefined) return;
+    modelTimedOut = true;
+    render();
+  }, MODEL_TIMEOUT_MS), isTimerId);
+  refresh();
 
   return {
-    refresh, destroy, selection,
+    refresh, destroy, selection, refreshModels: () => { if (!destroyed) render(); },
     chat: () => destroyed ? null : chatHandle,
     onSelection: (listener) => {
       if (destroyed) return () => undefined;

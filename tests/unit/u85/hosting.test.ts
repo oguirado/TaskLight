@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentStore, AgentStoreOptions } from "../../../src/app/agent_store";
 import type { AgentLink, AgentLinkDeps } from "../../../src/app/agent_link";
+import type { RoomEvent } from "../../../src/agents/types";
 import { createAgentRelay } from "../../../extension/src/agent_relay";
 import { FakePort } from "../u13/harness";
 import { EXT_ID, FakeExtClock, FakeNative, HELLO, PagePort, event, eventFrame, fixture, gapFrame,
@@ -92,7 +93,128 @@ function reconnect(p: PagePort): PagePort {
   return next;
 }
 
+// Fixed entropy is essential: random UUIDs do not reliably trigger the detector.
+const RUN_PREFIX = "0123456789abcdef0123456789abcdef";
+const EXECUTORS = ["exec-a", "exec-b", "exec-c", "exec-d", "exec-e"] as const;
+function runIdentityHistory(): RoomEvent[] {
+  const events = [fixture()[0]!];
+  const append = (agent: string, op: Record<string, unknown>): void => {
+    const n = events.length + 1;
+    events.push({ ...opEvent(n, { ...op, op_id: `u157-op-${n}` }), agent });
+  };
+  for (let i = 1; i <= 30; i += 1) append("alice", {
+    kind: "task.add", title: `Capsule task ${i}`, type: "action", phase: "start",
+    accept: "Verified", microtasks: [{ text: "Produce fixture", accept: "Verified" },
+      { text: "Verify fixture", accept: "Verified" }],
+  });
+  for (const agent of EXECUTORS) append(agent, { kind: "agent.lifecycle", state: "deployed",
+    run_id: `${RUN_PREFIX}-${agent}`, harness: "external", swarm: "capsule" });
+  // A successor must remain distinct from the terminal run of the same agent.
+  append("exec-a", { kind: "agent.lifecycle", state: "failed", run_id: `${RUN_PREFIX}-exec-a` });
+  append("exec-a", { kind: "agent.lifecycle", state: "deployed",
+    run_id: `${RUN_PREFIX}-exec-a-next`, harness: "external", swarm: "capsule" });
+  for (const [index, agent] of EXECUTORS.entries()) {
+    const task = `T0${index + 1}`;
+    const run = `${RUN_PREFIX}-${agent}${agent === "exec-a" ? "-next" : ""}`;
+    append(agent, { kind: "task.claim", task_id: task });
+    append(agent, { kind: "micro.set", micro_id: `${task}.M01`, state: "active" });
+    append(agent, { kind: "activity.beat", task_id: task, micro_id: `${task}.M01`, run_id: run });
+    append(agent, { kind: "agent.lifecycle", state: "alive", run_id: run });
+  }
+  append("exec-c", { kind: "agent.lifecycle", state: "failed", run_id: `${RUN_PREFIX}-exec-c` });
+  append("exec-c", { kind: "task.release", task_id: "T03" });
+  // Beats and late alive delivery cannot revive a terminal or retired run.
+  append("exec-c", { kind: "activity.beat", task_id: "T03", micro_id: "T03.M01",
+    run_id: `${RUN_PREFIX}-exec-c` });
+  append("exec-c", { kind: "agent.lifecycle", state: "alive", run_id: `${RUN_PREFIX}-exec-c` });
+  append("exec-a", { kind: "agent.lifecycle", state: "alive", run_id: `${RUN_PREFIX}-exec-a` });
+  return events;
+}
+
 describe("M5/M6 hosting and A3/A5/A7 visible uncertainty", () => {
+  it.each(["live", "replay"])(
+    "U157 %s real relay-extension-link-store preserves run identity and Wall/Swarm truth", async mode => {
+      const history = runIdentityHistory();
+      vi.setSystemTime(history.at(-1)!.ts + 13_600);
+      const port = await boot();
+      const ingest = vi.spyOn(store(), "ingestChecked");
+      const native = new FakeNative();
+      const extension = createAgentRelay({ native, clock: new FakeExtClock() });
+      const extensionPort = new FakePort();
+      const deliver = extensionPort.postMessage.bind(extensionPort);
+      extensionPort.postMessage = frame => { deliver(frame); port.emit(frame); };
+      const post = port.postMessage.bind(port);
+      port.postMessage = frame => {
+        post(frame);
+        if ((frame as { t?: unknown }).t === "room_sync") extension.onPortMessage(extensionPort, frame);
+      };
+      try {
+        extension.onPortMessage(extensionPort, { t: "room_sync", v: 1,
+          rid: rid(port), since: { demo: 0 } });
+        native.emit(HELLO);
+        const result = pythonRelay({ events: history, mode });
+        expect(result.projection.rejected).toEqual([]);
+        expect(result.frames.filter(f => f.t === "room_gap")).toEqual([]);
+        expect(result.frames.filter(f => f.t === "room_event")).toHaveLength(history.length);
+        const send = () => {
+          const relayRid = native.ofType("room_sync").at(-1)!["rid"];
+          for (const frame of result.frames) native.emit(frame["rid"] === undefined
+            ? frame : { ...frame, rid: relayRid });
+        };
+        send();
+        expect(ingest).toHaveBeenCalledTimes(history.length);
+        expect(ingest.mock.results.map(result => result.value)).toEqual(history.map(() => "accepted"));
+        expect(store().events("demo")).toHaveLength(history.length);
+        const projection = store().plan("demo")!.projection;
+        expect(projection.rejected).toEqual([]);
+        expect(projection.tasks).toHaveLength(30);
+        const registrations = projection.agent_lifecycle!;
+        expect(Object.keys(registrations).sort()).toEqual([...EXECUTORS]);
+        const runs = EXECUTORS.map(agent => registrations[agent]!.run_id);
+        expect(new Set(runs).size).toBe(EXECUTORS.length);
+        for (const run of runs) {
+          expect(run).toMatch(/^[A-Za-z0-9_-]{1,64}$/);
+          expect(run).not.toContain(RUN_PREFIX);
+        }
+        expect(registrations["exec-a"]!.retired_run_ids).toHaveLength(1);
+        expect(registrations["exec-a"]!.retired_run_ids).not.toContain(registrations["exec-a"]!.run_id);
+        expect(registrations["exec-c"]!.lifecycle).toBe("failed");
+        expect(projection.tasks.some(task => task.assignee === "exec-c")).toBe(false);
+        for (const agent of EXECUTORS.filter(agent => agent !== "exec-c")) {
+          const task = projection.tasks.find(task => task.assignee === agent)!;
+          expect(task.microtasks[0]!.live?.run_id).toBe(registrations[agent]!.run_id);
+        }
+        expect(document.querySelectorAll(".agent-strip-row")).toHaveLength(5);
+        for (const agent of EXECUTORS) {
+          const row = document.querySelector(`.agent-strip-row[data-agent-id="${agent}"]`)!;
+          expect(row, `Wall retains ${agent}`).not.toBeNull();
+          expect(row.textContent).toContain("external");
+          expect(row.textContent).toContain(agent === "exec-c" ? "Failed · tasks released" : "Working");
+          expect(row.textContent).toContain(agent === "exec-c" ? "No beat observed" : "13s ago");
+        }
+        expect(notice()).toBeUndefined();
+        document.querySelector<HTMLButtonElement>('button[data-nav="swarm"]')!.click();
+        expect(document.querySelectorAll(".swarm-card")).toHaveLength(5);
+        for (const agent of EXECUTORS) {
+          const card = [...document.querySelectorAll(".swarm-card")]
+            .find(node => node.querySelector(".swarm-agent-name")?.textContent === agent)!;
+          expect(card.textContent).toContain("external");
+          expect(card.textContent).toContain(agent === "exec-c" ? "Failed · tasks released" : "Working");
+          expect(card.textContent).toContain(agent === "exec-c" ? "No beat observed" : "13s ago");
+        }
+        // Duplicate history must preserve the exact transported identities and projection.
+        const beforeReplay = structuredClone(projection);
+        native.emit(HELLO);
+        send();
+        expect(ingest.mock.results.slice(history.length).map(result => result.value))
+          .toEqual(history.map(() => "duplicate"));
+        expect(store().plan("demo")!.projection).toEqual(beforeReplay);
+        expect(notice()).toBeUndefined();
+      } finally {
+        extension.onPortClosed(extensionPort);
+      }
+    }, 30_000);
+
   it.each(["sanitize_failed", "oversize"])("A3 real relay %s gap shows interval and pins recovery cursor before 8", async reason => {
     const port = await boot();
     sendFixture(port, 7);

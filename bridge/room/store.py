@@ -1,6 +1,7 @@
 """U33 agent room storage: append-only JSONL with Lamport order."""
 
 import copy
+from collections import OrderedDict, namedtuple
 import errno
 from . import _lock
 from ._lock import _backend as fcntl  # Compatibility for existing backend probes.
@@ -10,6 +11,8 @@ import math
 import os
 import re
 import secrets
+import stat
+import threading
 import time
 
 try:
@@ -20,10 +23,14 @@ except Exception:  # pragma: no cover
     PlanError = Exception
 
 CAP = 8 * 1024 * 1024
+SEMANTIC_RESERVE_BYTES = 512 * 1024
 ROOM_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,47}")
 AGENT_RE = re.compile(r"[a-z0-9][a-z0-9._-]{0,47}")
 CRED_RE = re.compile(r"(token|secret|credential|password|\.env|id_rsa|auth\.json)", re.I)
 ACTS = {"open", "plan", "step", "question", "answer", "handoff", "ack", "heartbeat", "verdict", "close", "op"}
+MESSAGE_ACTS = frozenset({"question", "answer", "handoff", "ack"})
+EVIDENCE_MAX_BYTES = 8 * 1024 * 1024
+SHA256_RE = re.compile(r"[0-9a-f]{64}")
 STEP_STATES = {"done", "active", "blocked", "pending"}
 SILENT_AFTER_S = 600
 OP_KINDS = frozenset({"plan.open", "plan.close", "plan.phase", "task.add", "task.set", "task.claim", "task.release", "micro.add", "micro.set", "memory.set", "activity.beat"})  # S4 (orchestrator): U90 op kind; validated by bridge/plan/ops.py
@@ -32,6 +39,7 @@ OP_MAX_BYTES = 8192
 
 _SAFE_MAX = 9007199254740991
 _TS_MAX = 8640000000000000
+_UNFENCED = object()
 
 
 class RoomError(Exception):
@@ -82,6 +90,11 @@ def _is_int(v):
 
 def _is_safe_int(v):
     return _is_int(v) and abs(v) <= _SAFE_MAX
+
+
+def _validate_expected_opened_lamport(value):
+    if value is not _UNFENCED and (not _is_safe_int(value) or value < 1):
+        raise RoomError("bad_op", "expected_opened_lamport must be a positive safe integer")
 
 
 def _is_safe_ts(v):
@@ -165,6 +178,119 @@ def _validate_evidence(evidence, room_dir):
                 h.update(chunk)
         out.append({"path": resolved, "sha256": h.hexdigest()})
     return out
+
+
+def _message_evidence(evidence, home):
+    """Check typed evidence structure and paths without hashing file bytes."""
+    if not isinstance(evidence, list) or len(evidence) > 8:
+        raise RoomError("bad_evidence", "evidence must be an array of at most 8 objects")
+    root = os.path.realpath(_home(home))
+    out = []
+    for item in evidence:
+        if not isinstance(item, dict) or set(item) != {"path", "sha256"}:
+            raise RoomError("bad_evidence", "evidence needs exactly path and sha256")
+        path, digest = item["path"], item["sha256"]
+        if (not isinstance(path, str) or not isinstance(digest, str)
+                or not SHA256_RE.fullmatch(digest)):
+            raise RoomError("bad_evidence", "invalid evidence path or digest")
+        try:
+            path.encode("utf-8")
+            if not os.path.isabs(path):
+                raise RoomError("bad_evidence", "path must be absolute")
+            resolved = os.path.realpath(path)
+            if os.path.islink(path) or resolved != os.path.abspath(path):
+                raise RoomError("bad_evidence", "symlink evidence is not allowed")
+            if CRED_RE.search(os.path.basename(resolved)):
+                raise RoomError("bad_evidence", "credential basename")
+            if os.path.commonpath((root, resolved)) == root:
+                raise RoomError("bad_evidence", "evidence under room home")
+            info = os.stat(resolved)
+            if not stat.S_ISREG(info.st_mode) or info.st_size > EVIDENCE_MAX_BYTES:
+                raise RoomError("bad_evidence", "evidence must be a bounded regular file")
+        except (OSError, ValueError, UnicodeError) as exc:
+            raise RoomError("bad_evidence", "invalid evidence file") from exc
+        out.append({"path": resolved, "sha256": digest})
+    return out
+
+
+def _verify_message_evidence(evidence, home):
+    """Hash new messages only, after replay lookup under the writer lock."""
+    for item in _message_evidence(evidence, home):
+        try:
+            flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+            with os.fdopen(os.open(item["path"], flags), "rb") as stream:
+                info = os.fstat(stream.fileno())
+                if not stat.S_ISREG(info.st_mode) or info.st_size > EVIDENCE_MAX_BYTES:
+                    raise RoomError("bad_evidence", "evidence must be a bounded regular file")
+                digest = hashlib.sha256()
+                total = 0
+                while True:
+                    chunk = stream.read(65536)
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    if total > EVIDENCE_MAX_BYTES:
+                        raise RoomError("bad_evidence", "evidence file too large")
+                    digest.update(chunk)
+        except (OSError, ValueError) as exc:
+            raise RoomError("bad_evidence", "cannot read evidence file") from exc
+        if digest.hexdigest() != item["sha256"]:
+            raise RoomError("bad_evidence", "evidence digest mismatch")
+
+
+def _question_root(by_id, reference):
+    """Resolve an acyclic, same-room ack chain to its question, if any."""
+    seen = set()
+    while isinstance(reference, str) and reference not in seen:
+        seen.add(reference)
+        target = by_id.get(reference)
+        if target is None:
+            return None
+        if target.get("act") == "question":
+            return reference
+        if target.get("act") != "ack":
+            return None
+        reference = target.get("re")
+    return None
+
+
+def _check_message_reference(events, room, agent, act, reference):
+    if reference is None:
+        return
+    by_id = {event["id"]: event for event in events if event.get("room") == room}
+    target = by_id.get(reference)
+    if target is None or target.get("act") not in MESSAGE_ACTS:
+        raise RoomError("bad_re", "reference must name a same-room message")
+    if act in ("ack", "answer"):
+        if target.get("to") is not None and target["to"] != agent:
+            raise RoomError("bad_re", "sender is not the target recipient")
+        if act == "ack" and target["act"] not in ("question", "handoff"):
+            raise RoomError("bad_re", "ack must reference question or handoff")
+        if act == "answer" and _question_root(by_id, reference) is None:
+            raise RoomError("bad_re", "answer must reference question or its ack chain")
+
+
+def _message_payload(event):
+    return (event.get("to"), event.get("act"), event.get("text"),
+            event.get("re"), event.get("evidence") or [])
+
+
+def _message_replay(events, room, agent, op_id, payload):
+    for event in events:
+        if event.get("room") != room or event.get("agent") != agent:
+            continue
+        identities = [event.get("op_id")]
+        for key in ("op", "batch"):
+            record = event.get(key)
+            if isinstance(record, dict):
+                identities.append(record.get("op_id"))
+        if op_id not in identities:
+            continue
+        if (event.get("op_id") != op_id or event.get("act") not in MESSAGE_ACTS
+                or _message_payload(event) != payload):
+            raise RoomError("bad_op", "op_id conflict")
+        return copy.deepcopy(event)
+    return None
 
 
 _ID_RE = re.compile(r"e-[0-9a-f]{16}")
@@ -316,6 +442,155 @@ def _read_all(home, room):
     return _parse_events_bytes(data)
 
 
+# Retain proofs, never journal payloads or an index on disk. A smaller retained
+# suffix leaves room for appends within the per-query I/O and parser budgets.
+_TAIL_READ_BYTES = 524288
+_TAIL_RECORDS = 512
+_TAIL_CACHE_SIZE = 16
+_TailProof = namedtuple("_TailProof", "stamp offset prefix_head boundary end")
+_tail_cache = OrderedDict()
+_tail_lock = threading.Lock()
+
+
+def _view_metadata(st):
+    # ctime additionally catches in-place rewrites whose mtime was restored.
+    return (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
+
+
+def _journal_stamp(home, room):
+    root = os.path.realpath(_home(home))
+    try:
+        st = os.stat(_events_path(root, room))
+    except (FileNotFoundError, NotADirectoryError):
+        return root, room, None
+    return root, room, None if stat.S_ISDIR(st.st_mode) else _view_metadata(st)
+
+
+def _remember_tail(key, proof):
+    with _tail_lock:
+        _tail_cache.pop(key, None)
+        if proof is not None:
+            _tail_cache[key] = proof
+            if len(_tail_cache) > _TAIL_CACHE_SIZE:
+                _tail_cache.popitem(last=False)
+
+
+def _tail_start(data):
+    """Choose a line boundary retaining half of each budget, including bad rows."""
+    parts = data.rsplit(b"\n", _TAIL_RECORDS // 2 + 1)
+    offset = len(parts[0]) + 1 if len(parts) == _TAIL_RECORDS // 2 + 2 else 0
+    floor = max(offset, len(data) - _TAIL_READ_BYTES // 2)
+    if floor > offset:
+        boundary = data.find(b"\n", floor - 1)
+        if boundary < 0:
+            return None  # An oversized torn record cannot be a bounded suffix.
+        offset = boundary + 1
+    return offset
+
+
+def _boundary_digest(data):
+    return hashlib.sha256(data[-64:]).digest()
+
+
+def _read_event_view(home, room, after=None):
+    """Return physical-order events, room head and a coherent metadata stamp.
+
+    A cold full scan proves monotonicity and the omitted prefix's maximum.
+    Only cursors covering that prefix may reuse the proof. Historical cursors,
+    disorder, oversized suffixes and invalidated proofs take a complete scan.
+    Each capture is checked before/after reading and again after parsing, with
+    at most three retries. All parsing uses the existing acceptance rules.
+    """
+    force_full = False
+    for _ in range(4):
+        stamp = _journal_stamp(home, room)
+        key, meta = stamp[:2], stamp[2]
+        if meta is None:
+            _remember_tail(key, None)
+            return [], 0, stamp
+        with _tail_lock:
+            proof = _tail_cache.get(key)
+        offset, prefix_head, boundary = 0, None, b""
+        if proof is not None and after is not None and not force_full:
+            old = proof.stamp[2]
+            unchanged = meta == old
+            appended = meta[:2] == old[:2] and meta[2] > old[2]
+            if ((unchanged or appended)
+                    and (proof.prefix_head is None or after >= proof.prefix_head)
+                    and meta[2] - proof.offset <= _TAIL_READ_BYTES - 64):
+                offset, prefix_head = proof.offset, proof.prefix_head
+            else:
+                proof = None
+        else:
+            proof = None
+        try:
+            with open(_events_path(stamp[0], room), "rb") as f:
+                if _view_metadata(os.fstat(f.fileno())) != meta:
+                    continue
+                if proof is not None:
+                    f.seek(max(0, offset - 64))
+                    boundary = f.read(min(64, offset))
+                    f.seek(offset)
+                    data = f.read(meta[2] - offset)
+                    old_end = old[2] - offset
+                    if (len(data) != meta[2] - offset
+                            or _boundary_digest(boundary) != proof.boundary
+                            or _boundary_digest(boundary + data[:old_end]) != proof.end
+                            or data.count(b"\n") > _TAIL_RECORDS):
+                        proof = None
+                if proof is None:
+                    offset, prefix_head, boundary = 0, None, b""
+                    f.seek(0)
+                    data = f.read(meta[2])
+                stable = (len(data) == meta[2] - offset
+                          and _view_metadata(os.fstat(f.fileno())) == meta)
+        except (FileNotFoundError, NotADirectoryError, IsADirectoryError):
+            _remember_tail(key, None)
+            continue
+        if not stable or _journal_stamp(home, room) != stamp:
+            _remember_tail(key, None)
+            continue
+
+        cut = _tail_start(data)
+        front, _ = _parse_events_bytes(data[:cut]) if cut is not None else ([], 0)
+        back, _ = _parse_events_bytes(data[cut:]) if cut is not None else _parse_events_bytes(data)
+        events = front + back
+        previous, monotonic = prefix_head, True
+        new_prefix_head = prefix_head
+        for e in front:
+            if e["room"] == room:
+                new_prefix_head = (e["lamport"] if new_prefix_head is None
+                                   else max(new_prefix_head, e["lamport"]))
+        for e in events:
+            if e["room"] != room:
+                continue
+            lamport = e["lamport"]
+            if previous is not None and lamport < previous:
+                monotonic = False
+            previous = lamport
+        values = [e["lamport"] for e in events if e["room"] == room]
+        if prefix_head is not None:
+            values.append(prefix_head)
+        head = max(values, default=0)
+        if _journal_stamp(home, room) != stamp:
+            # Parsing cannot alter the bytes already captured under stable
+            # metadata. Return that coherent view, but never cache its proof.
+            _remember_tail(key, None)
+            return events, head, stamp
+        if proof is not None and not monotonic:
+            _remember_tail(key, None)
+            force_full = True
+            continue
+        fresh = None
+        if monotonic and cut is not None:
+            fresh = _TailProof(stamp, offset + cut, new_prefix_head,
+                               _boundary_digest(boundary + data[:cut]),
+                               _boundary_digest(boundary + data))
+        _remember_tail(key, fresh)
+        return events, head, stamp
+    raise RoomError("internal", "journal changed during read")
+
+
 def _max_lamport_from_bytes(data):
     """Max top-level integer lamport over complete lines plus a parseable torn tail."""
     if not data:
@@ -465,9 +740,29 @@ def _plan_template_ids(events):
     return ids
 
 
+def _check_plan_generation(events, expected_opened_lamport, *, home=None, templates=None):
+    """Compare against the committed projection while holding the writer lock."""
+    if expected_opened_lamport is _UNFENCED:
+        return
+    _validate_expected_opened_lamport(expected_opened_lamport)
+    if fold_plan is None:
+        raise RoomError("bad_op", "plan fold unavailable")
+    try:
+        state = fold_plan(events, **_tpl_kw(home, templates, _plan_template_ids(events)))
+    except RoomError:
+        raise
+    except Exception as exc:
+        _raise_op(exc)
+    plan = state.get("plan")
+    if not isinstance(plan, dict) or plan.get("opened_lamport") != expected_opened_lamport:
+        raise RoomError("stale_rev", "plan generation does not match expected_opened_lamport")
+
+
 def _validate_op_static(op):
     if not isinstance(op, dict):
         raise RoomError("bad_op", "op must be object")
+    if {"request_sha256", "batch"}.intersection(op):
+        raise RoomError("bad_op", "server-owned operation metadata")
     try:
         data = json.dumps(op, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
         raw = data.encode("utf-8")
@@ -531,7 +826,56 @@ def _has_cycle(graph):
     return False
 
 
+def _request_hash(request):
+    """Bind a caller's normalized JSON content before generating event fields."""
+    try:
+        raw = json.dumps(request, sort_keys=True, separators=(",", ":"),
+                         ensure_ascii=False, allow_nan=False).encode("utf-8")
+    except (ValueError, TypeError, UnicodeError, RecursionError) as exc:
+        raise RoomError("bad_op", str(exc)) from exc
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _request_evidence(evidence):
+    """Snapshot legacy evidence paths without opening or resolving any file."""
+    if evidence is None:
+        return []
+    if isinstance(evidence, str):
+        raise RoomError("bad_evidence", "evidence must be list")
+    try:
+        items = list(evidence)
+    except TypeError as exc:
+        raise RoomError("bad_evidence", "evidence must be list") from exc
+    if len(items) > 8:
+        raise RoomError("bad_evidence", "too many evidence")
+    for path in items:
+        if not isinstance(path, str) or not os.path.isabs(path):
+            raise RoomError("bad_evidence", "path must be an absolute string")
+        try:
+            path.encode("utf-8")
+        except UnicodeError as exc:
+            raise RoomError("bad_evidence", "invalid evidence path") from exc
+    return items
+
+
+def _journal_ceiling(events):
+    for event in events:
+        op = event.get("op")
+        if (event.get("act") == "heartbeat" or isinstance(op, dict) and (
+                op.get("kind") == "activity.beat" or
+                op.get("kind") == "agent.lifecycle" and op.get("state") == "alive")):
+            return CAP - SEMANTIC_RESERVE_BYTES
+    return CAP
+
+
 def _write_all(fd, payload, original_size):
+    # Independently admitted lifecycle records share this append primitive.
+    try:
+        events = [json.loads(line) for line in payload.splitlines() if line]
+    except (ValueError, UnicodeError) as exc:
+        raise RoomError("internal", "invalid journal payload") from exc
+    if original_size + len(payload) > _journal_ceiling(events):
+        raise RoomError("room_full", "room file cap exceeded")
     view = memoryview(payload)
     total = 0
     try:
@@ -543,36 +887,30 @@ def _write_all(fd, payload, original_size):
             if n is None or n <= 0:
                 raise RoomError("internal", "short write")
             total += n
-    except RoomError:
+        os.fsync(fd)
+    except (RoomError, OSError) as exc:
+        # Attempt both rollback steps, preserving the original failure even if
+        # truncation or the rollback sync itself fails.
         try:
             os.ftruncate(fd, original_size)
-            try:
-                os.fsync(fd)
-            except OSError:
-                pass
         except OSError:
             pass
-        raise
-    except OSError as e:
         try:
-            os.ftruncate(fd, original_size)
-            try:
-                os.fsync(fd)
-            except OSError:
-                pass
+            os.fsync(fd)
         except OSError:
             pass
-        raise RoomError("internal", str(e)) from e
+        if isinstance(exc, RoomError):
+            raise
+        raise RoomError("internal", str(exc)) from exc
 
 
-
-def _op_identity_index(events, agent):
-    """Index both member and batch identities, preserving first stored matches."""
+def _op_identity_index(events, agent, room=None):
+    """Index message, operation, member and batch identities in one namespace."""
     found = {}
     for event in events:
-        if event.get("act") != "op" or event.get("agent") != agent:
+        if event.get("agent") != agent or (room is not None and event.get("room") != room):
             continue
-        for record in (event.get("batch"), event.get("op")):
+        for record in (event, event.get("batch"), event.get("op")):
             if isinstance(record, dict):
                 oid = record.get("op_id")
                 if isinstance(oid, str):
@@ -580,21 +918,65 @@ def _op_identity_index(events, agent):
     return found
 
 
-def _replay_batch(events, event, agent):
-    member_ids = event["batch"].get("member_ids")
-    if not isinstance(member_ids, list) or not member_ids:
+def _single_replay(event, digest, *, typed=False, plan=None, step=None):
+    if ("batch" in event or event.get("plan") != plan or event.get("step") != step):
+        raise RoomError("bad_op", "op_id conflict")
+    if "request_sha256" in event:
+        equal = event["request_sha256"] == digest
+    else:
+        # Historical singles retain their original operation and envelope.
+        # Legacy path evidence stored the server digest rather than caller JSON.
+        evidence = event.get("evidence") or []
+        if not typed:
+            if (not isinstance(evidence, list) or
+                    any(not isinstance(item, dict) or not isinstance(item.get("path"), str)
+                        for item in evidence)):
+                raise RoomError("bad_op", "op_id conflict")
+            evidence = [item["path"] for item in evidence]
+        legacy = {"act": event["act"], "text": event["text"],
+                  "re": event.get("re"), "to": event.get("to"),
+                  "evidence": evidence, "op": event.get("op")}
+        equal = _request_hash(legacy) == digest
+    if not equal:
+        raise RoomError("bad_op", "op_id conflict")
+    return dict(copy.deepcopy(event), replayed=True)
+
+
+def _replay_batch(events, event, agent, digest=None):
+    batch = event["batch"]
+    # Receipt consumers may already have verified their own request identity.
+    # They still require a complete, content-bound stored batch.
+    if digest is None:
+        digest = batch.get("request_sha256")
+    if not isinstance(digest, str) or not SHA256_RE.fullmatch(digest):
+        raise RoomError("bad_op", "op_id conflict")
+    member_ids = batch.get("member_ids")
+    if (not isinstance(member_ids, list) or not member_ids
+            or any(not isinstance(eid, str) for eid in member_ids)
+            or len(set(member_ids)) != len(member_ids)
+            or batch.get("request_sha256") != digest):
         raise RoomError("bad_op", "op_id conflict")
     by_id = {ev["id"]: ev for ev in events
              if ev.get("act") == "op" and ev.get("agent") == agent
+             and ev.get("room") == event.get("room")
              and isinstance(ev.get("batch"), dict)
              and ev["batch"].get("member_ids") == member_ids}
-    if any(eid not in by_id for eid in member_ids):
-        raise RoomError("bad_op", "op_id conflict")
+    for seq, eid in enumerate(member_ids):
+        member = by_id.get(eid)
+        if member is None:
+            raise RoomError("bad_op", "op_id conflict")
+        record = member["batch"]
+        if (record.get("request_sha256") != digest
+                or record.get("op_id") != batch.get("op_id")
+                or record.get("count") != len(member_ids) or record.get("seq") != seq):
+            raise RoomError("bad_op", "op_id conflict")
     return [dict(copy.deepcopy(by_id[eid]), replayed=True) for eid in member_ids]
 
 
 def post(room, agent, act, text, *, re=None, to=None, evidence=(), plan=None, step=None,
-         op=None, home=None, clock=None, templates=None):
+         op=None, home=None, clock=None, templates=None, op_id=None, _typed_message=False,
+         expected_opened_lamport=_UNFENCED):
+    _validate_expected_opened_lamport(expected_opened_lamport)
     _check_room(room)
     _check_agent(agent)
     if to is not None:
@@ -609,6 +991,13 @@ def post(room, agent, act, text, *, re=None, to=None, evidence=(), plan=None, st
         raise RoomError("bad_op", "text must be valid UTF-8") from None
     if len(text_bytes) > 4096:
         raise RoomError("text_too_long", "text too long")
+    if _typed_message:
+        if act not in MESSAGE_ACTS:
+            raise RoomError("bad_act", "invalid coordination act")
+        if not text.strip():
+            raise RoomError("bad_op", "message text must not be blank")
+    if op_id is not None and (not isinstance(op_id, str) or not OP_ID_RE.fullmatch(op_id)):
+        raise RoomError("bad_op", "invalid op_id")
     # op contamination / exclusivity (frozen legacy semantics above it)
     if op is not None and act != "op":
         raise RoomError("bad_op", "op only for act op")
@@ -632,25 +1021,47 @@ def post(room, agent, act, text, *, re=None, to=None, evidence=(), plan=None, st
         if op is None:
             raise RoomError("bad_op", "op required for act op")
         _validate_op_static(op)
-        ts = _resolve_ts(clock, True)
+        op = copy.deepcopy(op)
     else:
         ts = None
-    # evidence validation (before creating anything)
+    request_oid = op.get("op_id") if isinstance(op, dict) else None
+    if op_id is not None:
+        if request_oid is not None and request_oid != op_id:
+            raise RoomError("bad_op", "op_id conflict")
+        request_oid = op_id
     rdir = _room_dir(home, room)
-    ev_list = _validate_evidence(evidence, rdir) if evidence else []
-    if evidence is not None and len(list(evidence)) == 0:
+    if _typed_message:
+        ev_list = _message_evidence(evidence, home)
+        request_evidence = ev_list
+    else:
+        evidence = _request_evidence(evidence)
+        request_evidence = evidence
         ev_list = []
+    request = {"act": act, "text": text, "re": re, "to": to,
+               "evidence": request_evidence, "op": op}
+    if expected_opened_lamport is not _UNFENCED:
+        request["expected_opened_lamport"] = expected_opened_lamport
+    request_sha256 = _request_hash(request) if request_oid is not None else None
+    if act == "op":
+        ts = _resolve_ts(clock, True)
+    # Identified retries compare caller paths before evidence-file I/O.
+    if not _typed_message and request_oid is None:
+        ev_list = _validate_evidence(evidence, rdir) if evidence else []
     # re existence pre-check (avoids creating room on bad_re)
     if re is not None:
         if not isinstance(re, str):
             raise RoomError("bad_re", "re must be string")
-        tgt = _find_by_id(home, room, re)
-        if tgt is None:
-            raise RoomError("bad_re", "re not found")
-        if act == "answer" and tgt.get("act") != "question":
-            raise RoomError("bad_re", "answer must reference question")
-        if act == "ack" and tgt.get("act") != "handoff":
-            raise RoomError("bad_re", "ack must reference handoff")
+        if _typed_message:
+            if not _ID_RE.fullmatch(re):
+                raise RoomError("bad_re", "invalid reference id")
+        elif request_oid is None:
+            tgt = _find_by_id(home, room, re)
+            if tgt is None:
+                raise RoomError("bad_re", "re not found")
+            if act == "answer" and tgt.get("act") != "question":
+                raise RoomError("bad_re", "answer must reference question")
+            if act == "ack" and tgt.get("act") != "handoff":
+                raise RoomError("bad_re", "ack must reference handoff")
     # ts for legacy acts
     if act != "op":
         ts = _resolve_ts(clock, False)
@@ -659,13 +1070,19 @@ def post(room, agent, act, text, *, re=None, to=None, evidence=(), plan=None, st
     rdir = _ensure_dirs(home, room)
     epath = os.path.join(rdir, "events.jsonl")
     lpath = os.path.join(rdir, "events.lock")
-    lockfd = os.open(lpath, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        lockfd = os.open(lpath, os.O_CREAT | os.O_RDWR, 0o600)
+    except OSError as exc:
+        raise RoomError("internal", str(exc)) from exc
     try:
         try:
             os.chmod(lpath, 0o600)
         except OSError:
             pass
-        _lock.lock_exclusive(lockfd)
+        try:
+            _lock.lock_exclusive(lockfd)
+        except TimeoutError as exc:
+            raise RoomError("internal", "room lock timeout") from exc
         try:
             try:
                 with open(epath, "rb") as f:
@@ -676,14 +1093,29 @@ def post(room, agent, act, text, *, re=None, to=None, evidence=(), plan=None, st
             mx = _max_lamport_from_bytes(data)
             lamport = mx + 1
             parsed, _ = _parse_events_bytes(data)
-            if act == "op" and isinstance(op, dict) and op.get("op_id") is not None:
-                matched = _op_identity_index(parsed, agent).get(op["op_id"])
+            _check_plan_generation(parsed, expected_opened_lamport, home=home, templates=templates)
+            if request_oid is not None:
+                matched = _op_identity_index(parsed, agent, room).get(request_oid)
                 if matched is not None:
-                    if isinstance(matched.get("batch"), dict):
-                        raise RoomError("bad_op", "op_id conflict")
-                    replay = copy.deepcopy(matched)
-                    replay["replayed"] = True
-                    return replay
+                    if _typed_message:
+                        payload = (to, act, text, re, ev_list)
+                        _message_replay(parsed, room, agent, request_oid, payload)
+                    return _single_replay(matched, request_sha256, typed=_typed_message,
+                                          plan=plan, step=step)
+            if _typed_message:
+                _check_message_reference(parsed, room, agent, act, re)
+                _verify_message_evidence(ev_list, home)
+            else:
+                if request_oid is not None:
+                    ev_list = _validate_evidence(evidence, rdir) if evidence else []
+                if re is not None and request_oid is not None:
+                    tgt = next((ev for ev in parsed if ev["id"] == re and ev["room"] == room), None)
+                    if tgt is None:
+                        raise RoomError("bad_re", "re not found")
+                    if act == "answer" and tgt.get("act") != "question":
+                        raise RoomError("bad_re", "answer must reference question")
+                    if act == "ack" and tgt.get("act") != "handoff":
+                        raise RoomError("bad_re", "ack must reference handoff")
             event = {
                 "id": eid,
                 "lamport": lamport,
@@ -693,6 +1125,10 @@ def post(room, agent, act, text, *, re=None, to=None, evidence=(), plan=None, st
                 "act": act,
                 "text": text,
             }
+            if op_id is not None:
+                event["op_id"] = op_id
+            if request_sha256 is not None:
+                event["request_sha256"] = request_sha256
             if re is not None:
                 event["re"] = re
             if to is not None:
@@ -723,7 +1159,7 @@ def post(room, agent, act, text, *, re=None, to=None, evidence=(), plan=None, st
                     _raise_op(e)
             line = json.dumps(event, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n"
             lb = sep + line.encode("utf-8")
-            if len(data) + len(lb) > CAP:
+            if len(data) + len(lb) > _journal_ceiling([event]):
                 raise RoomError("room_full", "room file cap exceeded")
             fd = os.open(epath, os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o600)
             try:
@@ -732,14 +1168,6 @@ def post(room, agent, act, text, *, re=None, to=None, evidence=(), plan=None, st
                 except OSError:
                     pass
                 _write_all(fd, lb, len(data))
-                try:
-                    os.fsync(fd)
-                except OSError as e:
-                    try:
-                        os.ftruncate(fd, len(data))
-                    except OSError:
-                        pass
-                    raise RoomError("internal", str(e)) from e
             finally:
                 os.close(fd)
             return event
@@ -748,6 +1176,8 @@ def post(room, agent, act, text, *, re=None, to=None, evidence=(), plan=None, st
                 _lock.unlock(lockfd)
             except OSError:
                 pass
+    except OSError as exc:
+        raise RoomError("internal", str(exc)) from exc
     finally:
         try:
             os.close(lockfd)
@@ -755,11 +1185,20 @@ def post(room, agent, act, text, *, re=None, to=None, evidence=(), plan=None, st
             pass
 
 
-def post_ops(room, agent, ops, *, strict=False, home=None, clock=None, templates=None):
+def post_ops(room, agent, ops, *, strict=False, home=None, clock=None, templates=None,
+             expected_opened_lamport=_UNFENCED, admit=None):
+    """Commit a batch, optionally admitting its locked pre-commit projection.
+
+    Exact replays return before admission. New batches run the callback while
+    holding events.lock, before simulation or any journal append.
+    """
+    _validate_expected_opened_lamport(expected_opened_lamport)
     _check_room(room)
     _check_agent(agent)
     if not isinstance(ops, list) or not ops:
         raise RoomError("bad_op", "ops must be non-empty list")
+    if not isinstance(strict, bool):
+        raise RoomError("bad_op", "strict must be boolean")
     try:
         raw_ops = [copy.deepcopy(o) for o in ops]
     except RecursionError as e:
@@ -806,17 +1245,27 @@ def post_ops(room, agent, ops, *, strict=False, home=None, clock=None, templates
         raise RoomError("bad_op", str(e))
     for item in val_ops:
         _validate_op_static(item)
+    request = {"strict": strict, "ops": raw_ops}
+    if expected_opened_lamport is not _UNFENCED:
+        request["expected_opened_lamport"] = expected_opened_lamport
+    request_sha256 = _request_hash(request)
     ts = _resolve_ts(clock, True)
     rdir = _ensure_dirs(home, room)
     epath = os.path.join(rdir, "events.jsonl")
     lpath = os.path.join(rdir, "events.lock")
-    lockfd = os.open(lpath, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        lockfd = os.open(lpath, os.O_CREAT | os.O_RDWR, 0o600)
+    except OSError as exc:
+        raise RoomError("internal", str(exc)) from exc
     try:
         try:
             os.chmod(lpath, 0o600)
         except OSError:
             pass
-        _lock.lock_exclusive(lockfd)
+        try:
+            _lock.lock_exclusive(lockfd)
+        except TimeoutError as exc:
+            raise RoomError("internal", "room lock timeout") from exc
         try:
             try:
                 with open(epath, "rb") as f:
@@ -826,19 +1275,19 @@ def post_ops(room, agent, ops, *, strict=False, home=None, clock=None, templates
             sep = b"\n" if (data and not data.endswith(b"\n")) else b""
             mx = _max_lamport_from_bytes(data)
             parsed, _ = _parse_events_bytes(data)
+            _check_plan_generation(parsed, expected_opened_lamport, home=home, templates=templates)
             # One namespace for individually posted ops and batch members.
-            identities = _op_identity_index(parsed, agent)
+            identities = _op_identity_index(parsed, agent, room)
             member_oids = [o["op_id"] for o in raw_ops if "op_id" in o]
             if len(set(member_oids)) != len(member_oids):
                 raise RoomError("bad_op", "op_id conflict")
             _batch_oid = raw_ops[0].get("op_id")
-            matched = identities.get(_batch_oid)
+            matched = next((identities[oid] for oid in member_oids if oid in identities), None)
             if matched is not None:
-                if not isinstance(matched.get("batch"), dict):
+                if (not isinstance(matched.get("batch"), dict)
+                        or matched["batch"].get("op_id") != _batch_oid):
                     raise RoomError("bad_op", "op_id conflict")
-                return _replay_batch(parsed, matched, agent)
-            if any(o.get("op_id") in identities for o in raw_ops[1:]):
-                raise RoomError("bad_op", "op_id conflict")
+                return _replay_batch(parsed, matched, agent, request_sha256)
             # Rewrite batch so the persisted sequence is exactly the validated
             # sequence: allocate task ids, reorder creators before referrers,
             # remap every task reference, then simulate wire ops verbatim.
@@ -859,6 +1308,8 @@ def post_ops(room, agent, ops, *, strict=False, home=None, clock=None, templates
                     needed.append(o["template_id"])
             tpl_kw = _tpl_kw(home, templates, needed, strict=strict)
             prior_state = fold_plan(parsed, **tpl_kw)
+            if admit is not None:
+                admit(prior_state)
             prior_tasks = prior_state.get("tasks", []) if isinstance(prior_state, dict) else []
             has_open = any(isinstance(o, dict) and o.get("kind") == "plan.open" for o in ops)
             prior_count = 0 if has_open else len(prior_tasks)
@@ -1004,7 +1455,7 @@ def post_ops(room, agent, ops, *, strict=False, home=None, clock=None, templates
             batch_oid = _batch_oid
             if fold_plan is None or apply_op_event is None:
                 raise RoomError("bad_op", "plan fold unavailable")
-            state = fold_plan(parsed, **tpl_kw)
+            state = prior_state
             last_by = _op_max_activity(parsed)
             new_events = []
             lamport = mx
@@ -1056,7 +1507,7 @@ def post_ops(room, agent, ops, *, strict=False, home=None, clock=None, templates
                     "op": cand,
                 }
                 try:
-                    state, _ = apply_op_event(state, cand_event, last_by_agent=last_by, **tpl_kw)
+                    state, _ = apply_op_event(copy.deepcopy(state), cand_event, last_by_agent=last_by, **tpl_kw)
                 except RoomError:
                     raise
                 except Exception as e:
@@ -1106,6 +1557,7 @@ def post_ops(room, agent, ops, *, strict=False, home=None, clock=None, templates
             if isinstance(_pr, dict):
                 _plan_rev = _pr.get("rev")
             _base = {"op_id": batch_oid, "count": len(new_events),
+                     "request_sha256": request_sha256,
                      "member_ids": list(_member_ids),
                      "key_map": dict(local_to_final)}
             if _plan_rev is not None:
@@ -1122,7 +1574,7 @@ def post_ops(room, agent, ops, *, strict=False, home=None, clock=None, templates
             for ev in new_events:
                 line_bytes.append((json.dumps(ev, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n").encode("utf-8"))
             payload = sep + b"".join(line_bytes)
-            if len(data) + len(payload) > CAP:
+            if len(data) + len(payload) > _journal_ceiling(new_events):
                 raise RoomError("room_full", "room file cap exceeded")
             fd = os.open(epath, os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o600)
             try:
@@ -1131,14 +1583,6 @@ def post_ops(room, agent, ops, *, strict=False, home=None, clock=None, templates
                 except OSError:
                     pass
                 _write_all(fd, payload, len(data))
-                try:
-                    os.fsync(fd)
-                except OSError as e:
-                    try:
-                        os.ftruncate(fd, len(data))
-                    except OSError:
-                        pass
-                    raise RoomError("internal", str(e)) from e
             finally:
                 os.close(fd)
             return new_events
@@ -1147,6 +1591,8 @@ def post_ops(room, agent, ops, *, strict=False, home=None, clock=None, templates
                 _lock.unlock(lockfd)
             except OSError:
                 pass
+    except OSError as exc:
+        raise RoomError("internal", str(exc)) from exc
     finally:
         try:
             os.close(lockfd)
@@ -1174,24 +1620,27 @@ def wait(room, since, *, act=None, agent=None, exclude_agent=None, to=None, time
     poll_s = _check_timing(poll_s, "poll_s")
     _check_room(room)
     deadline = time.monotonic() + timeout_s
+    version = None
     while True:
-        events, _ = _read_all(home, room)
-        for e in events:
-            lam = e.get("lamport")
-            if not _is_int(lam) or lam <= since:
-                continue
-            if act is not None and e.get("act") != act:
-                continue
-            if agent is not None and e.get("agent") != agent:
-                continue
-            if exclude_agent is not None and e.get("agent") == exclude_agent:
-                continue
-            if to is not None and e.get("to") != to:
-                continue
-            return e
-        if time.monotonic() >= deadline:
+        if _journal_stamp(home, room) != version:
+            events, _head, version = _read_event_view(home, room)
+            for e in events:
+                lam = e.get("lamport")
+                if not _is_int(lam) or lam <= since:
+                    continue
+                if act is not None and e.get("act") != act:
+                    continue
+                if agent is not None and e.get("agent") != agent:
+                    continue
+                if exclude_agent is not None and e.get("agent") == exclude_agent:
+                    continue
+                if to is not None and e.get("to") != to:
+                    continue
+                return e
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
             return None
-        time.sleep(poll_s if poll_s > 0 else 0.05)
+        time.sleep(min(poll_s if poll_s > 0 else 0.05, remaining))
 
 
 def inbox(room, agent, since=0, *, home=None):
@@ -1213,11 +1662,15 @@ def status(room, *, home=None):
     evs = [e for e in events if _is_int(e.get("lamport"))]
     answered = set()
     acked = set()
+    by_id = {e["id"]: e for e in evs if e.get("room") == room}
     for e in evs:
         r = e.get("re")
         if isinstance(r, str):
             if e.get("act") == "answer":
                 answered.add(r)
+                root = _question_root(by_id, r)
+                if root is not None:
+                    answered.add(root)
             elif e.get("act") == "ack":
                 acked.add(r)
     open_q = [e for e in evs if e.get("act") == "question" and e.get("id") not in answered]

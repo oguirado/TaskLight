@@ -22,7 +22,18 @@ function event(n: number, operation: Record<string, unknown>) {
   return { id: `e-${n.toString(16).padStart(16, "0")}`, lamport: n,
     ts: 1_700_000_000_000 + n, room: "demo", agent: "alice", act: "op", text: "", op };
 }
-const eventsFor = (fixture: Fixture) => fixture.ops.map((op, index) => event(index + 1, op));
+// A-U109c: (a) active/done, conjunction and terminal fixtures need an owner, M3.
+// Assign only tasks written by these histories; dependency and rollup expectations stay exact.
+const eventsFor = (fixture: Fixture) => {
+  const writtenTasks = new Set(fixture.ops.filter(op => op["kind"] === "micro.set")
+    .map(op => String(op["micro_id"]).split(".")[0]));
+  let ordinal = 0;
+  return fixture.ops.map((op, index) => {
+    if (op["kind"] === "task.add" && writtenTasks.has(`T${String(++ordinal).padStart(2, "0")}`))
+      op = { ...op, assignee: "alice" };
+    return event(index + 1, op);
+  });
+};
 const folded = (events: unknown[]) => foldPlan(events, template).projection;
 function accepted(projection: PlanProjection, item: unknown): PlanProjection {
   const result = applyOp(projection, item, template);

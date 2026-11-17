@@ -66,7 +66,11 @@ class RepairActivityTests(unittest.TestCase):
 
     def test_close_retires_at_task_scope(self):
         self.apply(beat(10))
-        self.apply(event(11, dict(kind="plan.close", base_rev=1)))
+        # A-U109c: (a) terminalize both tasks before testing close retirement, M6.
+        for n, task in enumerate(self.state["tasks"], 11):
+            self.apply(event(n, dict(kind="task.set", task_id=task["id"],
+                                    base_rev=task["rev"], state="cancelled")))
+        self.apply(event(13, dict(kind="plan.close", base_rev=1)))
         self.assertIn("run_A", self.state["replayed_ops"]["activity.retired"]["T01"])
         self.assertNotIn("live", self.state["tasks"][0]["microtasks"][0])
 

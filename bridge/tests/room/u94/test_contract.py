@@ -61,7 +61,19 @@ with patch.object(socket, 'socket', side_effect=AssertionError('network forbidde
         old = json.loads((HERE / "legacy_tools.json").read_text())
         current = {t["name"]: t for t in mcp.TOOLS}
         for tool in old:
-            self.assertEqual(current[tool["name"]], tool)
+            # A-U109c: (a) preserve descriptors except the specified optional fence, M2/M4.
+            actual = copy.deepcopy(current[tool["name"]])
+            if tool["name"] in ("task_release", "microtask_set"):
+                schema = actual["inputSchema"]
+                self.assertNotIn("claim_lamport", schema["required"])
+                self.assertEqual(schema["properties"].pop("claim_lamport"),
+                                 {"type": "integer", "minimum": 1, "maximum": 9007199254740991})
+            # A-U140r1: SPEC_U140 (review B3) optional plan-generation fence, exact schema checked.
+            fence = actual['inputSchema'].get('properties', {}).pop('expected_opened_lamport', None)
+            if fence is not None:
+                self.assertNotIn('expected_opened_lamport', actual['inputSchema'].get('required', []))
+                self.assertEqual((fence.get('type'), fence.get('minimum')), ('integer', 1))
+            self.assertEqual(actual, tool)
 
     def test_m1_extension_import_boundary(self):
         from bridge.room.ext import export as exports

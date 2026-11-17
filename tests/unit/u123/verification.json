@@ -1,0 +1,239 @@
+{
+  "u123": {
+    "command": "npx vitest run tests/unit/u123 --no-cache --reporter=verbose",
+    "exitCode": 1,
+    "provenance": "MEASURED",
+    "summary": [
+      "Test Files  4 failed | 2 passed (6)",
+      "Tests  22 failed | 39 passed (61)"
+    ],
+    "failingTests": [
+      "FAIL  |unit| tests/unit/u123/ownership.test.ts > U123 A7: elapsed freshness without new ingestion > A7 connected active work remains working at +90000 and unknown at +90001 before and after compaction",
+      "FAIL  |unit| tests/unit/u123/replay.test.ts > U123 A2: activity still controls ownership after display eviction > A2 release/reclaim fences stale micro writes and retires old live activity",
+      "FAIL  |unit| tests/unit/u123/replay.test.ts > U123 A2: activity still controls ownership after display eviction > A2 sibling supersession retires old runs but retired receipts still fence takeover",
+      "FAIL  |unit| tests/unit/u123/replay.test.ts > U123 A2: activity still controls ownership after display eviction > A2 beat receipts on another task protect the same owner's earlier task",
+      "FAIL  |unit| tests/unit/u123/retention.test.ts > U123 A1: pinned operations and a contiguous recent suffix > A1 maxPerRoom:2 combines non-ops and exact activity.beat operations after every arrival",
+      "FAIL  |unit| tests/unit/u123/retention.test.ts > U123 A1: pinned operations and a contiguous recent suffix > A1 default byte budget is 16 MiB and includes envelope and payload",
+      "FAIL  |unit| tests/unit/u123/retention.test.ts > U123 A1: pinned operations and a contiguous recent suffix > A1 rejected semantic operations remain pinned with identity, payload, evidence and order",
+      "FAIL  |unit| tests/unit/u123/retention.test.ts > U123 A4: UTF-8 JSON envelope budgets > A4 oversized owner activity still fences takeover when recent display is empty",
+      "FAIL  |unit| tests/unit/u123/retention.test.ts > U123 A4: UTF-8 JSON envelope budgets > A4 exact suffix uses UTF-8 bytes for é",
+      "FAIL  |unit| tests/unit/u123/retention.test.ts > U123 A4: UTF-8 JSON envelope budgets > A4 exact suffix uses UTF-8 bytes for 😀",
+      "FAIL  |unit| tests/unit/u123/retention.test.ts > U123 A4: UTF-8 JSON envelope budgets > A4 nested operation evidence is exempt when pinned and full envelopes count when recent",
+      "FAIL  |unit| tests/unit/u123/retention.test.ts > U123 A4: UTF-8 JSON envelope budgets > A4 oversized non-op is accepted, updates activity, stays out of display and remains duplicate",
+      "FAIL  |unit| tests/unit/u123/retention.test.ts > U123 A4: UTF-8 JSON envelope budgets > A4 an oversized newest event empties the suffix rather than backfilling older small events",
+      "FAIL  |unit| tests/unit/u123/retention.test.ts > U123 A4: UTF-8 JSON envelope budgets > A4 both budgets apply independently per room after late arrivals",
+      "FAIL  |unit| tests/unit/u123/retention.test.ts > U123 A4: UTF-8 JSON envelope budgets > A4 invalid maxBytesPerRoom=0 throws RangeError",
+      "FAIL  |unit| tests/unit/u123/retention.test.ts > U123 A4: UTF-8 JSON envelope budgets > A4 invalid maxBytesPerRoom=-1 throws RangeError",
+      "FAIL  |unit| tests/unit/u123/retention.test.ts > U123 A4: UTF-8 JSON envelope budgets > A4 invalid maxBytesPerRoom=1.5 throws RangeError",
+      "FAIL  |unit| tests/unit/u123/retention.test.ts > U123 A4: UTF-8 JSON envelope budgets > A4 invalid maxBytesPerRoom=NaN throws RangeError",
+      "FAIL  |unit| tests/unit/u123/retention.test.ts > U123 A4: UTF-8 JSON envelope budgets > A4 invalid maxBytesPerRoom=Infinity throws RangeError",
+      "FAIL  |unit| tests/unit/u123/storage.test.ts > U123 A1/M1/M4/M6: retained raw payloads including warmed caches > A1 default storage retains at most 5000 recent raw objects after 5001 accepted heartbeats",
+      "FAIL  |unit| tests/unit/u123/storage.test.ts > U123 A1/M1/M4/M6: retained raw payloads including warmed caches > A1/M6 small combined recent cap also bounds activity.beat objects held by replay caches",
+      "FAIL  |unit| tests/unit/u123/storage.test.ts > U123 A1/M1/M4/M6: retained raw payloads including warmed caches > A4/M6 byte-evicted raw envelopes are absent internally even after projection refresh"
+    ],
+    "failureKinds": [
+      "AssertionError: expected 1 to be +0 // Object.is equality",
+      "AssertionError: expected [ …(15) ] to deeply equal [ …(11) ]",
+      "AssertionError: expected [ …(2) ] to deeply equal [ { id: 'e-0000000000000065', …(6) } ]",
+      "AssertionError: expected [ …(2) ] to deeply equal [ { id: 'e-0000000000000065', …(8) } ]",
+      "AssertionError: expected [ …(2) ] to deeply equal [ { id: 'e-0000000000000066', …(6) } ]",
+      "AssertionError: expected [ …(2) ] to deeply equal []",
+      "AssertionError: expected [ …(3) ] to deeply equal []",
+      "AssertionError: expected [ …(9) ] to deeply equal [ …(5) ]",
+      "AssertionError: expected [ …(9) ] to deeply equal [ …(8) ]",
+      "AssertionError: expected [Function] to not throw an error but 'Error: raw recent retention exceeds b…' was thrown",
+      "AssertionError: expected function to throw an error, but it didn't",
+      "AssertionError: expected true to be false // Object.is equality",
+      "AssertionError: recent suffix after e-000000000000000c: expected [ …(8) ] to deeply equal [ …(7) ]"
+    ],
+    "assertionFailuresOnly": true,
+    "negativeControlReceipts": [
+      "U123 negative control: display-only replay REJECTED (claimed_by_other lost)",
+      "U123 negative control: hidden raw history REJECTED {\"pinned\":{\"objects\":0,\"jsonBytes\":0,\"shallowBytes\":0},\"recent\":{\"objects\":8,\"jsonBytes\":1264,\"shallowBytes\":704,\"ids\":[\"e-0000000000000064\",\"e-0000000000000065\",\"e-0000000000000066\",\"e-0000000000000067\",\"e-0000000000000068\",\"e-0000000000000069\",\"e-000000000000006a\",\"e-000000000000006b\"]},\"auxiliary\":{\"eventLikeNonEnvelopeObjects\":0,\"shallowBytes\":0,\"exclusiveRetainedBytes\":240},\"exclusiveStoreBytes\":1072}",
+      "U123 negative control: disabled byte budget REJECTED"
+    ],
+    "scope": "Only tests/unit/u123; product remains the unimplemented U123 baseline",
+    "expectedRedReason": "Baseline retains all raw history, pins activity.beat and ignores maxBytesPerRoom; behavior assertions fail without import/setup failures"
+  },
+  "existing": {
+    "command": "npx vitest run tests/unit/u85/store.test.ts tests/unit/u113 --no-cache",
+    "exitCode": 1,
+    "provenance": "MEASURED",
+    "summary": [
+      "Test Files  1 failed | 4 passed (5)",
+      "Tests  4 failed | 56 passed (60)"
+    ],
+    "failingTests": [
+      "FAIL  |unit| tests/unit/u113/replay.test.ts > A1 seeded prefix equivalence > A1 seed 275: mixed reordered arrivals, duplicate ids, two rooms and two instances",
+      "FAIL  |unit| tests/unit/u113/replay.test.ts > A1 seeded prefix equivalence > A1 seed 133: mixed reordered arrivals, duplicate ids, two rooms and two instances",
+      "FAIL  |unit| tests/unit/u113/replay.test.ts > A1 seeded prefix equivalence > A1 seed 51966: mixed reordered arrivals, duplicate ids, two rooms and two instances",
+      "FAIL  |unit| tests/unit/u113/replay.test.ts > A2 late arrival and A4 non-plan invalidation > M6 room memory survives before-plan, close and reopen at every prefix"
+    ],
+    "failureKinds": [
+      "AssertionError: expected 'active' to be 'closed' // Object.is equality",
+      "AssertionError: expected 7 to be 2 // Object.is equality"
+    ],
+    "assertionFailuresOnly": true,
+    "baselineStatus": "PRE_EXISTING_FAILURES: same failures measured before test edits; existing files unchanged"
+  },
+  "typescript": {
+    "command": "npx tsc --noEmit -p .",
+    "exitCode": 1,
+    "provenance": "MEASURED",
+    "u123Diagnostics": [],
+    "preExistingDiagnostics": [
+      "src/ai/config.ts(19,50): error TS7053: Element implicitly has an 'any' type because expression of type '\"mode_digest\" | \"mode_next_action\" | \"mode_plan\" | \"mode_screenshot\" | \"mode_status\" | \"mode_summary\"' can't be used to index type 'Readonly<AiConfig>'.",
+      "src/ai/config.ts(34,7): error TS7053: Element implicitly has an 'any' type because expression of type '\"mode_digest\" | \"mode_next_action\" | \"mode_plan\" | \"mode_screenshot\" | \"mode_status\" | \"mode_summary\"' can't be used to index type 'AiConfig'.",
+      "src/ai/hybrid.ts(81,17): error TS7053: Element implicitly has an 'any' type because expression of type 'TaskId' can't be used to index type 'Readonly<Record<\"digest\" | \"next_action\" | \"screenshot\" | \"status\" | \"summary\", TaskSchema>>'.",
+      "src/ai/parity.ts(25,15): error TS7053: Element implicitly has an 'any' type because expression of type 'TaskId' can't be used to index type 'Readonly<Record<\"digest\" | \"next_action\" | \"screenshot\" | \"status\" | \"summary\", TaskSchema>>'.",
+      "src/ai/parity.ts(181,72): error TS7053: Element implicitly has an 'any' type because expression of type 'TaskId' can't be used to index type 'Readonly<Record<\"digest\" | \"next_action\" | \"screenshot\" | \"status\" | \"summary\", TaskSchema>>'.",
+      "src/ai/parity.ts(182,70): error TS7053: Element implicitly has an 'any' type because expression of type 'TaskId' can't be used to index type 'Readonly<Record<\"digest\" | \"next_action\" | \"screenshot\" | \"status\" | \"summary\", TaskSchema>>'.",
+      "src/ai/parity.ts(202,75): error TS7053: Element implicitly has an 'any' type because expression of type '\"digest\" | \"next_action\" | \"plan\" | \"status\" | \"summary\"' can't be used to index type 'Readonly<Record<\"digest\" | \"next_action\" | \"screenshot\" | \"status\" | \"summary\", TaskSchema>>'.",
+      "src/ai/parity.ts(203,73): error TS7053: Element implicitly has an 'any' type because expression of type '\"digest\" | \"next_action\" | \"plan\" | \"status\" | \"summary\"' can't be used to index type 'Readonly<Record<\"digest\" | \"next_action\" | \"screenshot\" | \"status\" | \"summary\", TaskSchema>>'.",
+      "src/prompts/templates.ts(9,9): error TS2741: Property 'plan' is missing in type 'Readonly<{ status: Readonly<{ header: `Determine the current capsule status for a project.",
+      "tests/unit/u07/build.test.ts(26,13): error TS2345: Argument of type '\"next_action\" | \"plan\" | \"status\" | \"summary\"' is not assignable to parameter of type '\"next_action\" | \"status\" | \"summary\"'.",
+      "tests/unit/u07/versions.test.ts(20,3): error TS2741: Property 'plan' is missing in type '{ status: { header: string; footer: string; }; summary: { header: string; footer: string; }; next_action: { header: string; footer: string; }; screenshot: { header: string; footer: string; }; digest: { header: string; footer: string; }; }' but required in type 'Readonly<Record<TaskId, { header: string; footer: string; }>>'.",
+      "tests/unit/u11/repair1.test.ts(58,32): error TS2352: Conversion of type '{ inference_source: { kind: \"attr\"; slot: string; attr: \"onclick\"; }; attention: FieldRule; headline: FieldRule; next_action: FieldRule; stale: FieldRule; status: FieldRule; summary: FieldRule; updated_at: FieldRule; }' to type 'Readonly<Record<PatchField, FieldRule>>' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.",
+      "tests/unit/u11/repair2.test.ts(82,51): error TS2375: Type '{ tag: \"div\"; slot: string; staticClass: string[]; children: readonly TemplateNode[] | undefined; }' is not assignable to type 'TemplateNode' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.",
+      "tests/unit/u14/harness.ts(174,115): error TS2345: Argument of type 'unknown' is not assignable to parameter of type 'string'.",
+      "tests/unit/u14/harness.ts(179,84): error TS2345: Argument of type 'unknown' is not assignable to parameter of type 'string'.",
+      "tests/unit/u36/archive-source.test.ts(122,55): error TS7053: Element implicitly has an 'any' type because expression of type 'SourceKind' can't be used to index type '{ readonly device: \"Gemini Nano · on device\"; readonly cloud: \"Gemini · cloud fallback\"; }'."
+    ],
+    "scope": "No added U123 diagnostics; unrelated baseline errors are preserved"
+  },
+  "protectedInputs": {
+    "unchanged": true,
+    "provenance": "MEASURED",
+    "sha256": {
+      "src/app/agent_store.ts": "5703f4657d068d835cced246dc43b7b73df2071b4b5f7d936544d272e6f84549",
+      "src/plan/reducer.ts": "ab889ff47d801c3a3c5b90d766b82a7d1a1ffa6e53017c6b86979f40f1590bf7",
+      "src/agents/index.ts": "aa52a9fa9495b8bd9e3923575259ceee985768e0f58fc156228946b62ec49830",
+      "src/app/activity.ts": "d945a7adb8301a17435f83e51f08b63aca9f8d8d85d1455b34ecd7c459a152ef",
+      ".unit/SPEC.md": "6f9372675e46ca42b9746e8682d1055c2b1f2adb61890a3599c2084ce1a688e0",
+      "tests/unit/u85/store.test.ts": "0a70fb95475d16657185877d97fe242acb5f2fafeae99bb2c0ff0bcc42b87ec6",
+      "tests/unit/u113/uncached-reference.ts": "5c142f756da316033b114506901df9dd1946492332e6ccbecbb4448401a56a49",
+      "tests/unit/u113/negative-controls.test.ts": "51d5fe801140d15d7da4ed095d7cdaffb1b944f9a477f1f3bbb2cbb50154eeb8",
+      "tests/unit/u113/histories.ts": "fb660e67420539305bf81ff4a491eadb2309cdf015a4b1bf3f140b0a0c8b7534",
+      "tests/unit/u113/ORACLE.md": "421d4eb623de5b3a2e6859ca66383c5e111b5624168169bd22199d054e96d945",
+      "tests/unit/u113/instrumentation.ts": "dbaf5b3f7c6a8a2adb83f9715fcdc46b8307685e8f0030f871d3a29ceddf3199",
+      "tests/unit/u113/negative-control-receipts.json": "0b38d7c76d3c9c40dd5bb392f5a1a147277978dc5604e7e5c74a87ee3e2cd9e4",
+      "tests/unit/u113/hits.test.ts": "4678d9653b4e7ec412589dc57dac58ae612a44ad14bdb47792d6e7c29fc254bf",
+      "tests/unit/u113/freshness.test.ts": "55f42efcac0ab5dc71ee7d66b1993cef01822508dcd7e7ecdff13e7998546136",
+      "tests/unit/u113/replay.test.ts": "451e23404294a5fba5b9eb1b944cf940e50fb6f4293b4d635b927d3a05e7e005",
+      "tests/unit/u113/verification.md": "38f501521a0efec7b680e292c1f09a10b9c7d1628b04809eb81907e603b53dbb"
+    }
+  },
+  "hardening": {
+    "command": "node --expose-gc --experimental-vm-modules tests/unit/u123/wall-history-soak.mjs --label baseline",
+    "report": "tests/unit/u123/soak-baseline.json",
+    "provenance": "MEASURED",
+    "result": {
+      "label": "baseline",
+      "count": 100000,
+      "seed": 19095277,
+      "runtime": {
+        "node": "v24.14.0",
+        "arch": "arm64",
+        "platform": "linux"
+      },
+      "status": "BLOCK",
+      "heapSlopeBudget": "AUSENTE — no inventar",
+      "comparison": "INCONCLUSIVE: paired run AUSENTE",
+      "startLoad5": 9.44,
+      "fixtureSha256": "f2781bacb8ea18a7ede6c70a402c466e439a1a8e6ba3ba0de79c7951b6545918",
+      "surfaceSha256": "5703f4657d068d835cced246dc43b7b73df2071b4b5f7d936544d272e6f84549",
+      "measurementStartLoad5": 9.44,
+      "storage": {
+        "pinned": {
+          "objects": 9,
+          "jsonBytes": 2013,
+          "shallowBytes": 792
+        },
+        "recent": {
+          "objects": 99991,
+          "jsonBytes": 14675667,
+          "shallowBytes": 8799208
+        },
+        "auxiliary": {
+          "eventLikeNonEnvelopeObjects": 0,
+          "shallowBytes": 0,
+          "exclusiveRetainedBytes": 4569680
+        },
+        "exclusiveStoreBytes": 20710864,
+        "dedup": {
+          "ids": 100000,
+          "idUtf8Bytes": 1800000,
+          "scope": "accepted unique IDs and logical UTF-8 size; allocation layout unspecified"
+        },
+        "replaySummaries": {
+          "scope": "logical public replay metadata; not additive to exclusive heap totals",
+          "receiptEntries": 781,
+          "receiptJsonBytes": 94834,
+          "legacyAgentStates": 2,
+          "legacyStateJsonBytes": 341,
+          "privateAllocationAttribution": "AUSENTE — no inventar"
+        }
+      },
+      "measurements": {
+        "samples": [
+          {
+            "accepted": 1000,
+            "postGcHeapBytes": 10004576,
+            "rssBytes": 98889728,
+            "load5": 9.44
+          },
+          {
+            "accepted": 25000,
+            "postGcHeapBytes": 17275520,
+            "rssBytes": 171233280,
+            "load5": 9.44
+          },
+          {
+            "accepted": 50000,
+            "postGcHeapBytes": 24451808,
+            "rssBytes": 261459968,
+            "load5": 9.44
+          },
+          {
+            "accepted": 100000,
+            "postGcHeapBytes": 39340096,
+            "rssBytes": 304250880,
+            "load5": 9.44
+          }
+        ],
+        "initialPostGcHeapBytes": 9259360,
+        "postGcRetainedHeapBytes": 39178336,
+        "peakRssBytes": 315949056,
+        "heapSlopeBytesPerAcceptedEvent": 295.67532069862506,
+        "heapSlopeIncludes": "store, size map and timing samples; exclusive store bytes are reported separately",
+        "updateLatencyNs": {
+          "p50": 1392,
+          "p95": 2193,
+          "max": 1448920
+        },
+        "readLatencyNs": {
+          "p50": 279574707,
+          "p95": 508257021,
+          "max": 508257021
+        }
+      },
+      "semantic": "PASS",
+      "retention": "BLOCK",
+      "retentionReason": "raw recent retention exceeds budget: objects=99991/5000, bytes=14675667/16777216",
+      "endLoad5": 9.52,
+      "timing": "MEASURED"
+    },
+    "candidate": "PENDING: U123 implementation is outside this oracle task",
+    "comparison": "INCONCLUSIVE: paired run AUSENTE"
+  },
+  "publicFiles": {
+    "scan": "PASS",
+    "policy": "Repository-relative paths only; no environment-specific locations or identifiers"
+  },
+  "lifecycle": {
+    "acceptance": "A8",
+    "status": "PENDING U132",
+    "support": "AUSENTE — no inventar",
+    "countedAsPass": false
+  }
+}

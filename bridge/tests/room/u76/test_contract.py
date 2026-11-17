@@ -189,7 +189,7 @@ class ContractOracle(unittest.TestCase):
         reply, = self.rpc(call("prompts/list"))
         prompts = self.result(reply)["prompts"]  # A-U87b: executor_loop is appended last (U87)
         self.assertEqual(prompts[:3], LEGACY_PROMPTS + [CONTRACT_PROMPT])
-        self.assertEqual([p["name"] for p in prompts[3:]], ["executor_loop"])
+        self.assertEqual([p["name"] for p in prompts[3:4]], ["executor_loop"])  # A-U111b: U111 appends swarm prompts
 
     def test_m4_legacy_prompt_descriptors_unchanged(self):
         reply, = self.rpc(call("prompts/list"))

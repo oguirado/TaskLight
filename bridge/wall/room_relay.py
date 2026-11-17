@@ -26,6 +26,7 @@ ROOM_LIMITS = {
 _RID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 _OP_MAX_DEPTH = 32
 _TEMPLATE_HASH_RE = re.compile(r"[0-9a-f]{64}")
+_ID_SURROGATE_RE = re.compile(r"h-[0-9a-f]{32}")
 
 
 def _op_id_surrogate(value):
@@ -94,8 +95,8 @@ def load_room_config(cfg):
         return None
 
 
-def _redact_str(s):
-    """Redact one field value. Return the masked string, or None for residue."""
+def _redact_str(s, identity=None):
+    """Redact a value, preserving supported transport identities; reject residue."""
     try:
         redacted, _count, _classes = redact(s)
     except Exception:
@@ -110,6 +111,16 @@ def _redact_str(s):
         return None
     if residue_count != 0:
         return None
+    if identity is not None and redacted != s:
+        only_entropy = set(_classes) == {"HIGH_ENTROPY"}
+        # Recognize our emitted identities only after checking secret classes.
+        # Nested values and free text never receive this exemption.
+        if only_entropy and _ID_SURROGATE_RE.fullmatch(s):
+            return s
+        # op_id retains its existing transport contract; run_id must not
+        # turn a credential-class redaction into an accepted run identity.
+        if identity == "op_id" or (identity == "run_id" and only_entropy):
+            return _op_id_surrogate(s)
     return redacted
 
 
@@ -154,11 +165,15 @@ def _sanitize_op(op):
                     if only_entropy:
                         new[rk] = v
                         continue
-                if depth == 1 and k == "op_id" and isinstance(v, str):
-                    rv = _redact_str(v)
+                # Transport run identity consistently across lifecycle and beats.
+                # Invalid run ids must remain invalid at downstream validation.
+                if depth == 1 and isinstance(v, str) and (
+                    k == "op_id" or (k == "run_id" and _RID_RE.fullmatch(v))
+                ):
+                    rv = _redact_str(v, identity=k)
                     if rv is None:
                         return None
-                    new[rk] = rv if rv == v else _op_id_surrogate(v)
+                    new[rk] = rv
                     continue
                 if isinstance(v, dict) or isinstance(v, list):
                     if depth + 1 > _OP_MAX_DEPTH:

@@ -1,3 +1,5 @@
+import type { SwarmViewModel } from "../app/swarm_vm";
+import { agentState, renderAgentChip } from "./agent_strip";
 import type {
   AccentVM,
   ActivityStateVM,
@@ -233,7 +235,7 @@ export function computeProgressPct(done: number, total: number): number {
   const t = typeof total === "number" ? total : Number(total);
   if (!Number.isFinite(d) || !Number.isFinite(t)) return 0;
   if (d <= 0 || t <= 0) return 0;
-  const pct = Math.round((d / t) * 100);
+  const pct = Math.trunc((d / t) * 100); // U162: same truncation as the plan rollup (MCP, Swarm)
   if (!Number.isFinite(pct)) return 0;
   if (pct < PLAN_VIEW_LIMITS.PROGRESS_MIN) return 0;
   if (pct > PLAN_VIEW_LIMITS.PROGRESS_MAX) return 100;
@@ -493,7 +495,8 @@ export function renderPlanBand(doc: Document, plan: PlanVM, opts?: { onSelectPha
     prog.appendChild(track);
     head.appendChild(prog);
     sec.appendChild(head);
-    const phases = validPhases(raw.phases).slice(0, PLAN_VIEW_LIMITS.PHASES_MAX);
+    const allPhases = validPhases(raw.phases);
+    const phases = allPhases.slice(0, PLAN_VIEW_LIMITS.PHASES_MAX);
     const phasesWrap = el(doc, "div", "plan-phases");
     phasesWrap.setAttribute("role", "group");
     phasesWrap.setAttribute("aria-label", "Phases");
@@ -531,6 +534,18 @@ export function renderPlanBand(doc: Document, plan: PlanVM, opts?: { onSelectPha
       phasesWrap.appendChild(chip);
     }
     sec.appendChild(phasesWrap);
+    const labelFor = (id: unknown): string => {
+      const phase = allPhases.find((ph) => ph.id === id);
+      return phase === undefined ? "Unknown" : asStr(phase.label);
+    };
+    sec.appendChild(el(doc, "p", "plan-current-phase", `Current phase: ${labelFor(raw.phaseId)}`));
+    const selectedPhase = opts?.selectedPhase;
+    sec.appendChild(el(doc, "p", "plan-phase-filter",
+      `Phase filter: ${selectedPhase == null ? "All phases" : labelFor(selectedPhase)}`));
+    if (selectedPhase != null && !allPhases.some((ph) => ph.id === selectedPhase)) {
+      sec.appendChild(el(doc, "p", "plan-phase-filter-note",
+        "This phase filter is unavailable in the current plan. Use Show all phases to see available tasks."));
+    }
     const agents = Array.isArray(raw.agents) ? (raw.agents as unknown[]) : [];
     const agentsWrap = el(doc, "div", "plan-agents");
     for (const a of agents) {
@@ -543,6 +558,7 @@ export function renderPlanBand(doc: Document, plan: PlanVM, opts?: { onSelectPha
       dot.setAttribute("data-agent", name);
       dot.setAttribute("data-active", active ? "true" : "false");
       if (isSafe(accent)) dot.setAttribute("data-accent", accent as string);
+      if (agentsWrap.childNodes.length > 0) agentsWrap.appendChild(doc.createTextNode(", "));
       agentsWrap.appendChild(dot);
     }
     sec.appendChild(agentsWrap);
@@ -590,10 +606,11 @@ function renderStepRow(doc: Document, step: StepVM, taskId: string, idx: number,
     btn.setAttribute("data-micro-id", microId);
     const panelId = `step-${microId}`;
     btn.setAttribute("aria-controls", panelId);
-    btn.setAttribute("aria-label", `${label} · ${ACTIVITY_LABEL[act]}`);
+    btn.setAttribute("aria-label", `${microId} ${label}`);
+    btn.setAttribute("aria-description", `${ACTIVITY_LABEL[act]} — ${stepLabel(state)}`);
     btn.appendChild(activityIcon(doc, "step-indicator", act));
     const stxt = el(doc, "span", "step-text");
-    stxt.appendChild(el(doc, "span", "step-label", label));
+    stxt.appendChild(el(doc, "span", "step-label", `${microId} ${label}`));
     stxt.appendChild(el(doc, "span", "step-activity-label", ` · ${ACTIVITY_LABEL[act]}`));
     stxt.appendChild(el(doc, "span", "visually-hidden", ` — ${stepLabel(state)}`));
     btn.appendChild(stxt);
@@ -647,9 +664,13 @@ function renderStepRow(doc: Document, step: StepVM, taskId: string, idx: number,
     const divRow = el(doc, "div", "step-row");
     divRow.setAttribute("data-task-id", taskId);
     divRow.setAttribute("data-step-idx", String(idx));
+    divRow.setAttribute("data-micro-id", microId);
+    divRow.setAttribute("role", "group");
+    divRow.setAttribute("aria-label", `${microId} ${label}`);
+    divRow.setAttribute("aria-description", `${ACTIVITY_LABEL[act]} — ${stepLabel(state)}`);
     divRow.appendChild(activityIcon(doc, "step-indicator", act));
     const stxt = el(doc, "span", "step-text");
-    stxt.appendChild(el(doc, "span", "step-label", label));
+    stxt.appendChild(el(doc, "span", "step-label", `${microId} ${label}`));
     stxt.appendChild(el(doc, "span", "step-activity-label", ` · ${ACTIVITY_LABEL[act]}`));
     stxt.appendChild(el(doc, "span", "visually-hidden", ` — ${stepLabel(state)}`));
     divRow.appendChild(stxt);
@@ -661,10 +682,12 @@ function renderStepRow(doc: Document, step: StepVM, taskId: string, idx: number,
   return li;
 }
 
-export function renderPhaseTaskCards(doc: Document, groups: readonly PhaseGroupVM[], handlers?: PlanCardHandlers, opts?: { syncStale?: boolean }): HTMLElement {
+export function renderPhaseTaskCards(doc: Document, groups: readonly PhaseGroupVM[], handlers?: PlanCardHandlers, opts?: { syncStale?: boolean; swarm?: SwarmViewModel }): HTMLElement {
   const wrap = el(doc, "div", "phase-groups");
   const stale = opts?.syncStale === true;
   try {
+    const agents = new Map(opts?.swarm?.agents.map(agent => [agent.agent, agent] as const));
+    const tasks = new Map(opts?.swarm?.agents.flatMap(agent => agent.tasks.map(task => [task.id, task] as const)));
     const safe = safeGroups(groups);
     let rendered = 0;
     for (const g of safe) {
@@ -689,12 +712,20 @@ export function renderPhaseTaskCards(doc: Document, groups: readonly PhaseGroupV
         const taskType = asStr(trec.taskType);
         const assignee = asStr(trec.assignee);
         const estimate = trunc(asStr(trec.estimate), PLAN_VIEW_LIMITS.ESTIMATE_MAX);
-        const waits = taskWaitsFor(t as TaskVM);
+        const waits = taskWaitsFor(t as TaskVM).map(asStr).filter(id => id.length > 0)
+          .slice(0, PLAN_VIEW_LIMITS.DEPS_MAX);
         const waitsText = formatWaitsFor(waits);
         const status = asStr(trec.status);
         const blockedReason = asStr(trec.blockedReason);
-        const taskAct = trec.operatorQuestion !== undefined && trec.operatorQuestion !== null ? "needs_you" : displayActivity(trec.activity, stale);
-        const art = el(doc, "article", "task");
+        const questionRaw = trec.operatorQuestion;
+        const question = questionRaw !== null && typeof questionRaw === "object" && !Array.isArray(questionRaw)
+          ? questionRaw as Record<string, unknown> : undefined;
+        const taskAct = question !== undefined ? "needs_you" : displayActivity(trec.activity, stale);
+        const steps = taskSteps(t as TaskVM);
+        const doneCount = steps.filter(step => asStr(step.state) === "done").length;
+        const art = el(doc, "div", "task");
+        art.setAttribute("role", "group");
+        art.setAttribute("aria-label", `Task ${tid}: ${title}`);
         art.setAttribute("data-task-id", tid);
         art.setAttribute("data-task-vm-id", vmId);
         art.setAttribute("data-activity", taskAct);
@@ -703,22 +734,53 @@ export function renderPhaseTaskCards(doc: Document, groups: readonly PhaseGroupV
         if (isSafe(status)) art.setAttribute("data-status", status);
         const head = el(doc, "div", "task-head");
         if (tid.length > 0) head.appendChild(el(doc, "span", "task-id", tid));
-        if (taskType.length > 0) head.appendChild(el(doc, "span", "task-type", taskType));
-        head.appendChild(el(doc, "h3", "task-title", title));
-        if (assignee.length > 0) head.appendChild(el(doc, "span", "assignee", assignee));
-        if (estimate.length > 0) head.appendChild(el(doc, "span", "estimate", estimate));
-        const st = el(doc, "span", "status", statusLabel(status));
-        if (isSafe(status)) st.setAttribute("data-status", status);
-        head.appendChild(st);
+        // Native disclosure remains operable when the Wall clones this subtree.
+        const detail = el(doc, "details", "task-detail");
+        const titleControl = el(doc, "summary", "task-detail-toggle");
+        titleControl.setAttribute("data-task-vm-id", vmId);
+        titleControl.setAttribute("aria-label", `View task ${tid}: ${title}`);
+        titleControl.appendChild(el(doc, "h3", "task-title", title));
+        detail.appendChild(titleControl);
+        const detailBody = el(doc, "div", "task-detail-body");
+        detailBody.appendChild(el(doc, "p", "task-summary", asStr(trec.summary) || title));
+        if (taskType.length > 0) detailBody.appendChild(el(doc, "span", "task-type", taskType));
+        if (estimate.length > 0) detailBody.appendChild(el(doc, "p", "estimate", `Estimate: ${estimate}`));
+        detail.appendChild(detailBody);
+        head.appendChild(detail);
+        head.appendChild(el(doc, "span", "task-progress", `${doneCount}/${steps.length} steps done`));
+        const candidate = agents.get(assignee);
+        const owner = candidate?.tasks.some(task => task.id === tid && task.assignee === assignee)
+          ? candidate : undefined;
+        const ownerState = owner === undefined ? undefined : agentState(owner);
+        const taskState = statusLabel(status);
+        // Ordinary progress is already described by the chip and task ring.
+        const showStatus = status !== "running" && taskState.length > 0 && taskState !== ownerState;
         head.appendChild(activityIcon(doc, "status-icon", taskAct));
-        head.appendChild(el(doc, "span", "activity-label", ACTIVITY_LABEL[taskAct]));
+        head.appendChild(renderAgentChip(doc, owner, assignee || "unassigned"));
+        if (showStatus) {
+          const st = el(doc, "span", "status", taskState);
+          if (isSafe(status)) st.setAttribute("data-status", status);
+          head.appendChild(st);
+        }
+        const taskActivity = ACTIVITY_LABEL[taskAct];
+        if (taskActivity !== ownerState && (!showStatus || taskActivity !== taskState)) {
+          head.appendChild(el(doc, "span", "task-activity", `Task: ${taskActivity}`));
+        }
         art.appendChild(head);
-        if (waitsText.length > 0) art.appendChild(el(doc, "p", "waits-for", waitsText));
+        if (opts?.swarm !== undefined) {
+          // Existing readiness supplies the dependency IDs. The agent snapshot
+          // supplies ownership, never an additional readiness predicate.
+          for (const upstreamId of waits) {
+            const wait = owner?.waiting_on.find(item => item.task_id === tid && item.upstream_id === upstreamId);
+            const upstream = tasks.get(upstreamId);
+            const upstreamOwner = wait !== undefined ? wait.owner : upstream?.assignee;
+            const label = wait?.missing === true ? "Missing task" : asStr(upstreamOwner) || "unassigned";
+            art.appendChild(el(doc, "p", "waits-for", `Waiting on ${upstreamId} · ${label}`));
+          }
+        } else if (waitsText.length > 0) art.appendChild(el(doc, "p", "waits-for", waitsText));
         if (blockedReason.length > 0) art.appendChild(el(doc, "p", "blocked-reason", blockedReason));
-        const questionRaw = trec.operatorQuestion;
-        if (questionRaw && typeof questionRaw === "object") {
-          const qrec = questionRaw as Record<string, unknown>;
-          const qtext = asStr(qrec.text);
+        if (question !== undefined) {
+          const qtext = asStr(question.text);
           const qwrap = el(doc, "div", "operator-question");
           qwrap.appendChild(el(doc, "span", "operator-question-text", qtext));
           art.appendChild(qwrap);
@@ -735,52 +797,20 @@ export function renderPhaseTaskCards(doc: Document, groups: readonly PhaseGroupV
           vwrap.appendChild(sourcechip(doc, vrec.source));
           art.appendChild(vwrap);
         }
-        const steps = taskSteps(t as TaskVM).slice(0, PLAN_VIEW_LIMITS.MICRO_MAX);
         const ol = el(doc, "ol", "steps");
-        steps.forEach((s, i) => {
+        steps.slice(0, PLAN_VIEW_LIMITS.MICRO_MAX).forEach((s, i) => {
           ol.appendChild(renderStepRow(doc, s, tid, i, handlers, stale));
         });
         art.appendChild(ol);
-        const foot = el(doc, "div", "task-foot");
-        const stepsArr = taskSteps(t as TaskVM);
-        const firstMicro = stepsArr.length > 0 ? microIdOf(tid, 0, stepsArr[0] as StepVM) : undefined;
-        let chatBtn: HTMLButtonElement | undefined;
-        if (handlers && typeof handlers.onOpenTask === "function") {
-          chatBtn = el(doc, "button", "task-chat", "Chat");
-          chatBtn.setAttribute("type", "button");
-          chatBtn.setAttribute("data-task-id", tid);
-          chatBtn.setAttribute("data-task-vm-id", vmId);
-          if (firstMicro !== undefined) chatBtn.setAttribute("data-micro-id", firstMicro);
-          chatBtn.id = `chat-${tid}`;
-          chatBtn.setAttribute("aria-label", `Open chat: ${title}`);
-          foot.appendChild(chatBtn);
-        }
-        art.appendChild(foot);
-        if (handlers && typeof handlers.onOpenTask === "function" && chatBtn !== undefined) {
-          const cb = handlers.onOpenTask;
-          const openId = vmId;
-          const chatId = chatBtn.id;
-          const btn = chatBtn;
-          btn.addEventListener("click", (e: MouseEvent) => {
-            e.preventDefault();
-            const trig: { triggerId: string; taskId: string; microId?: string } = { triggerId: chatId, taskId: tid };
-            if (firstMicro !== undefined) trig.microId = firstMicro;
-            containViewCallback(() => cb(openId, chatId, trig));
-          });
-          art.addEventListener("click", (e: MouseEvent) => {
-            const target = e.target as Element | null;
-            if (target && typeof (target as Element).closest === "function") {
-              const inside = (target as Element).closest("button");
-              if (inside && art.contains(inside)) return;
-            }
-            containViewCallback(() => cb(openId));
-          });
-        }
         list.appendChild(art);
         rendered += 1;
       }
       sec.appendChild(list);
       wrap.appendChild(sec);
+    }
+    if (rendered === 0) {
+      wrap.appendChild(el(doc, "p", "phase-filter-empty",
+        "No tasks match this view. If a phase filter is selected, use Show all phases to see tasks in other phases."));
     }
   } catch { /* contained: never throw */ }
   return wrap;
@@ -858,11 +888,16 @@ export function renderPlanDiary(doc: Document, groups: readonly DiaryDayGroupVM[
         const author = asStr(erec.author);
         const li = el(doc, "li", "entry");
         if (kind) li.setAttribute("data-kind", kind);
-        if (at.length > 0) li.appendChild(el(doc, "time", "entry-time", at));
-        li.appendChild(el(doc, "p", "entry-title", title));
-        if (outcome.length > 0) li.appendChild(el(doc, "p", "entry-outcome", outcome));
-        if (took.length > 0) li.appendChild(el(doc, "span", "entry-took", took));
-        if (author.length > 0) li.appendChild(el(doc, "span", "entry-author", author));
+        li.appendChild(el(doc, "time", "entry-time", at));
+        const body = el(doc, "div", "entry-body");
+        body.appendChild(el(doc, "p", "entry-title", title));
+        if (outcome.length > 0) body.appendChild(el(doc, "p", "entry-outcome", outcome));
+        if (took.length > 0 || author.length > 0) {
+          const meta = el(doc, "p", "entry-meta");
+          if (took.length > 0) meta.appendChild(el(doc, "span", "entry-took", took));
+          if (author.length > 0) meta.appendChild(el(doc, "span", "entry-author", author));
+          body.appendChild(meta);
+        }
         const ev = Array.isArray(erec.evidence) ? (erec.evidence as unknown[]) : [];
         let evCount = 0;
         if (ev.length > 0) {
@@ -872,8 +907,9 @@ export function renderPlanDiary(doc: Document, groups: readonly DiaryDayGroupVM[
             ul.appendChild(el(doc, "li", undefined, asStr(p)));
             evCount += 1;
           }
-          li.appendChild(ul);
+          body.appendChild(ul);
         }
+        li.appendChild(body);
         ol.appendChild(li);
       }
       gdiv.appendChild(ol);

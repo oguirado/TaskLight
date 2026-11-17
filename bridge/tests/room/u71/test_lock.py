@@ -22,10 +22,12 @@ opening = dict(kind='plan.open', template_id=template['id'], template_hash=templ
                title='Oracle plan', brief={'goal': 'Deliver'}, phase='start')
 templates = {template['id']: template}
 fcntl = types.ModuleType("fcntl")
-fcntl.LOCK_EX, fcntl.LOCK_UN = 2, 8
+# A-U121c: acquisition uses nonblocking POSIX flags, M1.
+fcntl.LOCK_EX, fcntl.LOCK_NB, fcntl.LOCK_UN = 2, 4, 8
 fcntl.flock = lambda fd, mode: calls.append((fd, mode))
 msvcrt = types.ModuleType("msvcrt")
-msvcrt.LK_LOCK, msvcrt.LK_UNLCK = 1, 0
+# A-U121c: Windows acquisition uses the one-byte nonblocking mode, M1.
+msvcrt.LK_LOCK, msvcrt.LK_NBLCK, msvcrt.LK_UNLCK = 1, 2, 0
 msvcrt.locking = lambda fd, mode, count: calls.append(
     (fd, mode, count, os.lseek(fd, 0, os.SEEK_CUR)))
 """
@@ -59,7 +61,7 @@ with tempfile.TemporaryFile() as f:
     f.seek(3)
     _lock.lock_exclusive(f.fileno())
     _lock.unlock(f.fileno())
-    assert calls == [(f.fileno(), fcntl.LOCK_EX), (f.fileno(), fcntl.LOCK_UN)], calls
+    assert calls == [(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB), (f.fileno(), fcntl.LOCK_UN)], calls
     assert f.tell() == 3
 """)
 
@@ -78,7 +80,7 @@ with tempfile.TemporaryFile() as f:
     _lock.unlock(f.fileno())
 assert 'fcntl' in attempts, attempts
 assert 'msvcrt' not in attempts, attempts
-assert [c[1] for c in calls] == [2, 8], calls
+assert [c[1] for c in calls] == [fcntl.LOCK_EX | fcntl.LOCK_NB, fcntl.LOCK_UN], calls
 """)
 
     def test_m1_posix_errors_propagate(self):
@@ -106,7 +108,7 @@ with tempfile.TemporaryFile() as f:
     f.seek(2)
     _lock.unlock(f.fileno())
     assert f.tell() == 2
-    assert calls == [(f.fileno(), 1, 1, 0), (f.fileno(), 0, 1, 0)], calls
+    assert calls == [(f.fileno(), msvcrt.LK_NBLCK, 1, 0), (f.fileno(), 0, 1, 0)], calls
 """)
 
     def test_m1_windows_empty_lockfile(self):
@@ -115,17 +117,18 @@ with tempfile.TemporaryFile() as f:
     _lock.lock_exclusive(f.fileno())
     _lock.unlock(f.fileno())
     assert f.tell() == 0
-    assert calls == [(f.fileno(), 1, 1, 0), (f.fileno(), 0, 1, 0)], calls
+    assert calls == [(f.fileno(), msvcrt.LK_NBLCK, 1, 0), (f.fileno(), 0, 1, 0)], calls
 """)
 
     def test_m1_windows_retries_contention_without_waiting(self):
         self.run_code(WINDOWS + """
 def contended(fd, mode, count):
     calls.append((fd, mode, count, os.lseek(fd, 0, os.SEEK_CUR)))
-    if mode == msvcrt.LK_LOCK and len(calls) < 4:
+    if mode == msvcrt.LK_NBLCK and len(calls) < 4:
         raise OSError(errno.EACCES, 'lock busy')
 msvcrt.locking = contended
-with mock.patch.object(time, 'sleep', return_value=None):
+# A-U121c: mock the bounded lock backoff at its adapter, M1.
+with mock.patch.object(_lock.time, 'sleep', return_value=None):
     with tempfile.TemporaryFile() as f:
         f.write(b'abcdef')
         f.seek(5)
@@ -133,7 +136,7 @@ with mock.patch.object(time, 'sleep', return_value=None):
         assert f.tell() == 5
         _lock.unlock(f.fileno())
         assert f.tell() == 5
-        assert calls == [(f.fileno(), 1, 1, 0)] * 4 + [(f.fileno(), 0, 1, 0)], calls
+        assert calls == [(f.fileno(), msvcrt.LK_NBLCK, 1, 0)] * 4 + [(f.fileno(), 0, 1, 0)], calls
 """)
 
     def test_m1_windows_unlock_error_restores_position(self):
@@ -163,7 +166,7 @@ with tempfile.TemporaryDirectory() as home:
     events, malformed = store.read('oracle', home=home)
     assert events == [event] and malformed == 0
 assert len(calls) == 2, calls
-assert calls[0][1:] == (1, 1, 0) and calls[1][1:] == (0, 1, 0), calls
+assert calls[0][1:] == (msvcrt.LK_NBLCK, 1, 0) and calls[1][1:] == (0, 1, 0), calls
 assert calls[0][0] == calls[1][0]
 """)
 
@@ -243,7 +246,7 @@ for batch in (False, True):
             store.post_ops('oracle', 'alice', [opening], home=home, clock=lambda: 1234, templates=templates)
         else:
             store.post('oracle', 'alice', 'heartbeat', '', home=home, clock=lambda: 1234)
-    assert [c[1] for c in calls] == [2, 8], calls
+    assert [c[1] for c in calls] == [fcntl.LOCK_EX | fcntl.LOCK_NB, fcntl.LOCK_UN], calls
     assert acquire.call_count == release_adapter.call_count == 1
     assert calls[0][0] == calls[1][0]
 """)
@@ -263,8 +266,10 @@ with mock.patch.object(_lock, 'lock_exclusive', side_effect=fail), mock.patch.ob
                     store.post_ops('oracle', 'alice', [opening], home=home, clock=lambda: 1234, templates=templates)
                 else:
                     store.post('oracle', 'alice', 'heartbeat', '', home=home, clock=lambda: 1234)
-            except OSError as exc:
-                assert exc is failure
+            except store.RoomError as exc:
+                # A-U121c: store translates acquisition OS errors to internal, M1.
+                assert exc.code == 'internal'
+                assert exc.__cause__ is failure
             else:
                 raise AssertionError('acquisition failure swallowed')
             assert store.read('oracle', home=home)[0] == []
@@ -298,7 +303,7 @@ for batch in (False, True):
         else:
             raise AssertionError('critical failure swallowed')
         assert store.read('oracle', home=home)[0] == []
-    assert [c[1] for c in calls] == [2, 8], calls
+    assert [c[1] for c in calls] == [fcntl.LOCK_EX | fcntl.LOCK_NB, fcntl.LOCK_UN], calls
     assert acquire.call_count == release_adapter.call_count == 1
 """)
 
@@ -322,6 +327,6 @@ for batch in (False, True):
             result = store.post('oracle', 'alice', 'heartbeat', '', home=home, clock=lambda: 1234)
         assert result
         assert len(store.read('oracle', home=home)[0]) == 1
-    assert [c[1] for c in calls] == [2, 8], calls
+    assert [c[1] for c in calls] == [fcntl.LOCK_EX | fcntl.LOCK_NB, fcntl.LOCK_UN], calls
     assert acquire.call_count == release_adapter.call_count == 1
 """)

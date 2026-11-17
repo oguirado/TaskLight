@@ -19,12 +19,12 @@ async function run(withAgent: boolean) {
 }
 
 describe("V6 drawer DOM contract", () => {
-  // Oracle amendment A-U42: the drawer starts CLOSED and opens when the user clicks a task (or its Chat button).
-  it("with an agent: the chat host is a .chat-drawer, closed until a task is clicked, then open with a visible title and a close button", async () => {
+  // Oracle amendment A-U42: the drawer starts CLOSED and opens when the user opens Messages (legacy).
+  it("with an agent: the chat host is a .chat-drawer, closed until Messages opens it, then open with a visible title and a close button", async () => {
     const { chatHost, wallHost } = await run(true);
     expect(chatHost.classList.contains("chat-drawer")).toBe(true);
     expect(chatHost.getAttribute("data-open")).toBe("false");
-    wallHost.querySelector<HTMLButtonElement>("button.task-chat")?.click();
+    openLegacyMessages(wallHost);
     expect(chatHost.getAttribute("data-open")).toBe("true");
     expect(chatHost.hidden).toBe(false);
     expect(chatHost.querySelector(".agent-chat-title")?.textContent?.trim()).toBe("Add CSV export");
@@ -34,7 +34,7 @@ describe("V6 drawer DOM contract", () => {
   });
   it("Close closes the drawer: data-open becomes 'false' (CSS hides it) and nothing throws", async () => {
     const { chatHost, wallHost } = await run(true);
-    wallHost.querySelector<HTMLButtonElement>("button.task-chat")?.click(); // A-U42: open first
+    openLegacyMessages(wallHost); // A-U42: open first
     expect(chatHost.getAttribute("data-open")).toBe("true");
     expect(() => { chatHost.querySelector<HTMLButtonElement>(".agent-chat-close")?.click(); }).not.toThrow();
     expect(chatHost.getAttribute("data-open")).toBe("false");
@@ -99,3 +99,13 @@ describe("V6 drawer CSS (static)", () => {
     expect(declsOf(rm)["transition"]).toBe("none");
   });
 });
+
+// A-R41: task conversations open only inside the expanded Messages (legacy) entry.
+function openLegacyMessages(host: HTMLElement, taskId?: string): void {
+  const toggle = host.querySelector<HTMLButtonElement>(".messages-toggle")!;
+  if (toggle.getAttribute("aria-expanded") !== "true") toggle.click();
+  const button = taskId === undefined ? host.querySelector<HTMLButtonElement>(".messages-open")
+    : [...host.querySelectorAll<HTMLButtonElement>(".messages-task")]
+      .find(node => node.getAttribute("data-task-vm-id") === taskId);
+  expect(button).toBeDefined(); button!.click();
+}

@@ -216,13 +216,22 @@
 }
 .agent-chat-composer {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  grid-template-areas: "input suggest send" "count count count" "note note note";
+  grid-template-columns: minmax(0, 1fr) auto;
+  /* Keep typing space independent of button labels, including in the drawer. */
+  grid-template-areas:
+    "input input"
+    "suggest send"
+    "count count"
+    "meta meta"
+    "note note"
+    "notice notice";
   gap: var(--sp-2);
   align-items: start;
 }
 .chat-input {
   grid-area: input;
+  box-sizing: border-box;
+  min-width: 0;
   width: 100%;
   min-height: 44px;
   padding: var(--sp-2) var(--sp-3);
@@ -237,6 +246,9 @@
 }
 .chat-suggest {
   grid-area: suggest;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
   min-height: var(--touch);
   padding: 0 var(--sp-3);
   border: 1px solid var(--c-line);
@@ -276,11 +288,28 @@
   color: var(--c-st-blocked);
   font-weight: var(--fw-semibold);
 }
+.agent-chat-composer > .chat-meta {
+  grid-area: meta;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.chat-suggest-note,
+.chat-suggest-notice {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--fs-0);
+}
 .chat-suggest-note {
   grid-area: note;
-  margin: 0;
-  font-size: var(--fs-0);
   color: var(--c-src-device);
+}
+.chat-suggest-notice {
+  grid-area: notice;
+  color: var(--c-text-2);
 }
 @media (prefers-reduced-motion: reduce) {
   .agent-chat *,
@@ -302,6 +331,8 @@
   max-height: 60vh;
   z-index: 40;
   overflow-y: auto;
+  /* A wrapped notice can introduce scrolling without moving the controls. */
+  scrollbar-gutter: stable;
   background: var(--c-surface-1);
   color: var(--c-text-1);
   border-top: 1px solid var(--c-line);

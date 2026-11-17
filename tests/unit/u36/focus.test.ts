@@ -1,3 +1,4 @@
+// A-Q1: U148/U150 named non-article task roots retain their classes and identity hooks.
 import { afterEach, describe, expect, it } from "vitest";
 import { mkStep, mkTask, vm, withTasks } from "./fixture";
 import { ALL_VIEWS, attr, cleanup, mount, nth, q, qa, txt } from "./helpers";
@@ -28,7 +29,7 @@ describe("B7 focus index", () => {
   it("the href target is the task article", () => {
     const { host } = mount();
     const href = attr(q(host, "a.focus-link"), "href") ?? "";
-    expect(document.getElementById(href.slice(1))).toBe(q(host, "article.task"));
+    expect(document.getElementById(href.slice(1))).toBe(q(host, ".task[data-task-id]"));
   });
 
   it("waiting task: first blocked/active step label plus ' — needs input' (status label lower-case)", () => {

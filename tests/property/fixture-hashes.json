@@ -1,0 +1,5 @@
+{
+  "tests/property/vectors.baseline.json": "1b2d3112e4b4a20c790e1b120321d6a5327db9c0fd9f5817a13fb2b6cfa43b34",
+  "tests/property/template.json": "93deceba1d7d6f53a26e5b9e93695a5610e253cce4d5894636de701e80fabf99",
+  "tests/property/contracts.json": "b1b5feee916c86d36fa23eed79be9a4ee57da3e8501468ad36d7ed34cf517a48"
+}

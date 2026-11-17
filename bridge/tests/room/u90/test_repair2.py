@@ -18,6 +18,9 @@ def saturated_history():
 
 def reopen_events(run_id):
     return [
+        # A-U109c: (a) close/reopen histories first cancel unfinished tasks, M6.
+        event(298, dict(kind="task.set", task_id="T01", base_rev=5, state="cancelled")),
+        event(299, dict(kind="task.set", task_id="T02", base_rev=3, state="cancelled")),
         event(300, dict(kind="plan.close", base_rev=1, op_id="close-old")),
         event(301, dict(FIXTURE["seed"][0]["op"], title="New plan", op_id="open-new")),
         event(302, dict(FIXTURE["seed"][1]["op"], op_id="add-next")),

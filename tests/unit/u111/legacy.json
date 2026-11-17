@@ -1,0 +1,1074 @@
+{
+  "prompts": [
+    {
+      "name": "plan_from_template",
+      "description": "Plan from template.",
+      "arguments": [
+        {
+          "name": "template_id",
+          "description": "Template id.",
+          "required": true
+        },
+        {
+          "name": "brief",
+          "description": "Brief text.",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "resume_from_memory",
+      "description": "Resume from memory.",
+      "arguments": [
+        {
+          "name": "room",
+          "description": "Room.",
+          "required": true
+        },
+        {
+          "name": "agent",
+          "description": "Agent.",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "planning_contract",
+      "description": "TaskLight planning contract for AI agents.",
+      "arguments": [
+        {
+          "name": "room",
+          "description": "Room.",
+          "required": false
+        },
+        {
+          "name": "agent",
+          "description": "Agent.",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "executor_loop",
+      "description": "Execute a task loop.",
+      "arguments": [
+        {
+          "name": "room",
+          "description": "Room.",
+          "required": true
+        },
+        {
+          "name": "agent",
+          "description": "Agent.",
+          "required": true
+        },
+        {
+          "name": "task_id",
+          "description": "Task.",
+          "required": false
+        }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "post_status",
+      "description": "Post a status event to a room.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "room": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "re": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "room",
+          "agent",
+          "text"
+        ]
+      }
+    },
+    {
+      "name": "post_plan",
+      "description": "Post a plan with steps to a room.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "room": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "room",
+          "agent",
+          "title",
+          "steps"
+        ]
+      }
+    },
+    {
+      "name": "post_step",
+      "description": "Post a step update to a room.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "room": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "index": {
+            "type": "integer"
+          },
+          "state": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "took": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "room",
+          "agent",
+          "index",
+          "state"
+        ]
+      }
+    },
+    {
+      "name": "close_task",
+      "description": "Close your task in a room with a one-line outcome (at most 240 characters).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "room": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string",
+            "maxLength": 240
+          }
+        },
+        "required": [
+          "room",
+          "agent",
+          "outcome"
+        ]
+      }
+    },
+    {
+      "name": "read_inbox",
+      "description": "Read inbox events for an agent.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "room": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "since": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "room",
+          "agent"
+        ]
+      }
+    },
+    {
+      "name": "wait_inbox",
+      "description": "Wait for an inbox event for an agent.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "room": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "since": {
+            "type": "integer"
+          },
+          "timeout_s": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "room",
+          "agent"
+        ]
+      }
+    },
+    {
+      "name": "list_templates",
+      "description": "List planning templates.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "get_template",
+      "description": "Fetch one planning template.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "template_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "template_id"
+        ]
+      }
+    },
+    {
+      "name": "plan_create",
+      "description": "Create a plan from a template.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "room": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "template_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "brief": {
+            "type": "object"
+          },
+          "tasks": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 40,
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120
+                },
+                "type": {
+                  "type": "string"
+                },
+                "phase": {
+                  "type": "string"
+                },
+                "accept": {
+                  "type": "string",
+                  "maxLength": 160
+                },
+                "deps": {
+                  "type": "array",
+                  "maxItems": 8,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "assignee": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "estimate": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 32
+                },
+                "microtasks": {
+                  "type": [
+                    "array",
+                    "null"
+                  ],
+                  "maxItems": 12,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 80
+                      },
+                      "accept": {
+                        "type": "string",
+                        "maxLength": 160
+                      }
+                    },
+                    "required": [
+                      "text"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "key",
+                "title",
+                "type",
+                "phase"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "op_id": {
+            "type": "string"
+          },
+          "strict": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "room",
+          "agent",
+          "template_id",
+          "title",
+          "brief",
+          "tasks"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "plan_get",
+      "description": "Read the active plan projection.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "room": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "since_rev": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "room"
+        ]
+      }
+    },
+    {
+      "name": "plan_check",
+      "description": "Check plan conformance.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "room": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "room"
+        ]
+      }
+    },
+    {
+      "name": "task_add",
+      "description": "Add a task to the active plan.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "room": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "base_rev": {
+            "type": "integer"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "type": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "accept": {
+            "type": "string",
+            "maxLength": 160
+          },
+          "deps": {
+            "type": "array",
+            "maxItems": 8,
+            "uniqueItems": true,
+            "items": {
+              "type": "string"
+            }
+          },
+          "assignee": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "estimate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 32
+          },
+          "microtasks": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "maxItems": 12,
+            "items": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                },
+                "accept": {
+                  "type": "string",
+                  "maxLength": 160
+                }
+              },
+              "required": [
+                "text"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "op_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "room",
+          "agent",
+          "title",
+          "type",
+          "phase",
+          "accept"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "task_update",
+      "description": "Update a task.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "room": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "base_rev": {
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "accept": {
+            "type": "string"
+          },
+          "deps": {
+            "type": "array"
+          },
+          "estimate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "op_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "room",
+          "agent",
+          "task_id",
+          "base_rev"
+        ]
+      }
+    },
+    {
+      "name": "task_claim",
+      "description": "Claim a task.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "room": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "base_rev": {
+            "type": "integer"
+          },
+          "takeover": {
+            "type": "boolean"
+          },
+          "op_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "room",
+          "agent",
+          "task_id"
+        ]
+      }
+    },
+    {
+      "name": "task_release",
+      "description": "Release a claimed task.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "room": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "base_rev": {
+            "type": "integer"
+          },
+          "op_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "room",
+          "agent",
+          "task_id"
+        ]
+      }
+    },
+    {
+      "name": "microtask_add",
+      "description": "Add a microtask to a task.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "room": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "accept": {
+            "type": "string",
+            "maxLength": 160
+          },
+          "base_rev": {
+            "type": "integer"
+          },
+          "op_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "room",
+          "agent",
+          "task_id",
+          "text",
+          "base_rev"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "microtask_set",
+      "description": "Set microtask state.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "room": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "took": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "array"
+          },
+          "op_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "room",
+          "agent",
+          "id",
+          "state"
+        ]
+      }
+    },
+    {
+      "name": "next_work",
+      "description": "List ready microtasks.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "room": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "room",
+          "agent"
+        ]
+      }
+    },
+    {
+      "name": "memory_set",
+      "description": "Write a memory section.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "room": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "section": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "base_rev": {
+            "type": "integer"
+          },
+          "op_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "room",
+          "agent",
+          "section",
+          "text",
+          "base_rev"
+        ]
+      }
+    },
+    {
+      "name": "memory_get",
+      "description": "Read memory sections.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "room": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "section": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "room"
+        ]
+      }
+    },
+    {
+      "name": "plan_phase",
+      "description": "Advance the active plan phase.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "room": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "base_rev": {
+            "type": "integer"
+          },
+          "op_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "room",
+          "agent",
+          "phase",
+          "base_rev"
+        ]
+      }
+    },
+    {
+      "name": "plan_close",
+      "description": "Close the active plan.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "room": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "base_rev": {
+            "type": "integer"
+          },
+          "op_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "room",
+          "agent",
+          "base_rev"
+        ]
+      }
+    },
+    {
+      "name": "room_events",
+      "description": "Read room journal events after a Lamport cursor.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "room": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "after_lamport": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "default": 100
+          },
+          "acts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "ops": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "wait_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 30000,
+            "default": 0
+          }
+        },
+        "required": [
+          "room",
+          "agent",
+          "after_lamport"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "activity_beat",
+      "description": "Record an execution activity beat for assigned active work.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "room": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "micro_id": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,64}$"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 240
+          },
+          "op_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "room",
+          "agent",
+          "task_id",
+          "run_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "room_export",
+      "description": "Read the captured plan or memory projection as Markdown.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "room": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "what": {
+            "type": "string",
+            "enum": [
+              "plan",
+              "memory"
+            ]
+          }
+        },
+        "required": [
+          "room",
+          "agent",
+          "what"
+        ]
+      }
+    },
+    {
+      "name": "memory_history",
+      "description": "Read accepted updates of one memory section, newest first.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "room": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "section": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,47}$"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "default": 100
+          }
+        },
+        "required": [
+          "room",
+          "agent",
+          "section"
+        ]
+      }
+    }
+  ],
+  "resources": [
+    {
+      "uri": "tasklight://templates/autonomous-software",
+      "name": "template autonomous-software",
+      "mimeType": "application/json",
+      "description": "Planning template."
+    },
+    {
+      "uri": "tasklight://templates/blank",
+      "name": "template blank",
+      "mimeType": "application/json",
+      "description": "Planning template."
+    },
+    {
+      "uri": "tasklight://templates/cli-library",
+      "name": "template cli-library",
+      "mimeType": "application/json",
+      "description": "Planning template."
+    },
+    {
+      "uri": "tasklight://templates/data-ml",
+      "name": "template data-ml",
+      "mimeType": "application/json",
+      "description": "Planning template."
+    },
+    {
+      "uri": "tasklight://templates/mobile-app",
+      "name": "template mobile-app",
+      "mimeType": "application/json",
+      "description": "Planning template."
+    },
+    {
+      "uri": "tasklight://templates/web-app",
+      "name": "template web-app",
+      "mimeType": "application/json",
+      "description": "Planning template."
+    },
+    {
+      "uri": "tasklight://contract",
+      "name": "planning contract",
+      "mimeType": "text/markdown"
+    },
+    {
+      "uri": "tasklight://guide/headless",
+      "name": "headless guide",
+      "mimeType": "text/markdown"
+    }
+  ],
+  "resourceTemplates": {
+    "resourceTemplates": [
+      {
+        "uriTemplate": "tasklight://templates/{id}",
+        "name": "template",
+        "mimeType": "application/json"
+      },
+      {
+        "uriTemplate": "tasklight://rooms/{room}/plan",
+        "name": "plan",
+        "mimeType": "application/json"
+      },
+      {
+        "uriTemplate": "tasklight://rooms/{room}/memory",
+        "name": "memory",
+        "mimeType": "application/json"
+      }
+    ]
+  },
+  "executorText": "Read the planning contract.\nThen claim the task with task_claim for room demo agent executor-a.\nTarget task T01.\nSet the microtask to active with microtask_set.\nWhile working call activity_beat about every 30 s with a fresh run_id; check tools/list and if activity_beat is absent, missing or unavailable skip beats (skip if tools/list lacks it).\nRecord evidence for the microtask.\nThen set the microtask to done or blocked.\nFinally release the task with release.",
+  "readDigests": {
+    "tasklight://contract": "4ed6c08e08bb6be47e787f14e9c49521c21a9da3fe0b5bf8f9664218bef92e88",
+    "tasklight://guide/headless": "0bdc8012ebe9ba07786baee546c0d8067430491efdba543be2c3a79d11a90924",
+    "tasklight://templates/web-app": "aa7e36ef11233bc35bd623d67cfb39b1722929d6dbbcf567121ff42aa6a59503"
+  }
+}

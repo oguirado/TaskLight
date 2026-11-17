@@ -38,7 +38,9 @@ button {
 a {
   color: inherit;
 }
-.app :focus-visible {
+.app :focus-visible,
+.app .phase-chip:focus,
+.app .task-detail-toggle:focus {
   outline: 2px solid var(--c-focus);
   outline-offset: 2px;
 }
@@ -100,7 +102,7 @@ a {
 .brand {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--sp-2);
   padding: var(--sp-1) var(--sp-2) var(--sp-4);
 }
 .brand-mark {
@@ -134,7 +136,21 @@ a {
   font-weight: var(--fw-medium);
   color: var(--c-text-1);
 }
-.nav {
+/* The same native navigation controls serve the rail and compact disclosure. */
+.nav-toggle {
+  display: none;
+}
+.navigation-panel {
+  display: grid;
+  gap: var(--sp-2);
+  min-inline-size: 0;
+}
+.navigation-panel .nav-item,
+.nav-toggle {
+  min-block-size: var(--touch);
+}
+.nav,
+.nav-tabs {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -142,7 +158,7 @@ a {
 .nav-item {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--sp-2);
   min-height: 36px;
   padding: 0 var(--sp-2) 0 var(--sp-3);
   border-radius: var(--r-pill);
@@ -166,7 +182,7 @@ a {
   flex: none;
   min-width: 18px;
   height: 18px;
-  padding: 0 4px;
+  padding: 0 var(--sp-1);
   border: 1px solid var(--c-line);
   border-radius: var(--r-1);
   color: var(--c-text-3);
@@ -205,7 +221,7 @@ a {
 .rail-heading-meta {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--sp-2);
   font-weight: var(--fw-regular);
 }
 .rail-heading-meta::before {
@@ -225,10 +241,10 @@ a {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  column-gap: 10px;
+  column-gap: var(--sp-2);
   width: 100%;
   min-height: var(--touch);
-  padding: 5px var(--sp-3) 5px 14px;
+  padding: var(--sp-1) var(--sp-3) var(--sp-1) var(--sp-4);
   border-radius: var(--r-pill);
   color: var(--c-text-2);
   transition: background-color var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
@@ -278,12 +294,12 @@ a {
 .ws-badges {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--sp-2);
 }
 .ws-running {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--sp-1);
   color: var(--c-text-2);
   font-family: var(--font-mono);
   font-size: 11px;
@@ -306,7 +322,7 @@ a {
 .ws-needs {
   min-width: 18px;
   height: 18px;
-  padding: 0 5px;
+  padding: 0 var(--sp-1);
   border-radius: var(--r-pill);
   background: var(--c-attention-fill);
   color: var(--c-attention-on);
@@ -319,7 +335,7 @@ a {
 .ws-new {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--sp-2);
   min-height: 36px;
   padding: 0 var(--sp-2) 0 var(--sp-3);
   border-radius: var(--r-pill);
@@ -342,7 +358,7 @@ a {
   margin-top: auto;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--sp-2);
   padding: var(--sp-4) var(--sp-2) 0;
   border-top: 1px solid var(--c-line);
 }
@@ -358,7 +374,7 @@ a {
   flex: none;
   width: 7px;
   height: 7px;
-  margin-top: 4px;
+  margin-top: var(--sp-1);
   border-radius: 50%;
   background: var(--c-st-idle);
 }
@@ -415,7 +431,7 @@ a {
   flex-wrap: wrap;
   gap: var(--sp-2) var(--sp-4);
   margin-bottom: var(--sp-5);
-  padding: 10px var(--sp-4) 10px 10px;
+  padding: var(--sp-2) var(--sp-4) var(--sp-2) var(--sp-2);
   border: 1px solid var(--c-line);
   border-radius: var(--r-3);
   background: var(--c-surface-1);
@@ -428,9 +444,9 @@ a {
   flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--sp-2);
   min-height: 26px;
-  padding: 0 10px 0 9px;
+  padding: 0 var(--sp-2) 0 var(--sp-2);
   border-radius: var(--r-pill);
   background: var(--c-attention-tint);
   color: var(--c-attention-ink);
@@ -554,9 +570,9 @@ a {
   flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--sp-2);
   min-height: 24px;
-  padding: 0 10px 0 8px;
+  padding: 0 var(--sp-2) 0 var(--sp-2);
   border: 1px solid var(--c-line);
   border-radius: var(--r-pill);
   background: var(--c-surface-1);
@@ -760,7 +776,7 @@ button.step-row:active {
   }
 }
 .step-note {
-  margin: -3px 0 var(--sp-2) var(--step-indent);
+  margin: -3px 0 var(--sp-2) var(--step-indent); /* optical: tucks the note under its label and clears the step glyph column */
   padding-right: var(--step-pad-x);
   color: var(--c-text-3);
   font-size: var(--fs-1);
@@ -772,8 +788,8 @@ button.step-row:active {
 }
 .step-detail {
   position: relative;
-  margin: 2px var(--step-pad-x) var(--sp-3) var(--step-indent);
-  padding: var(--sp-3) 14px 14px;
+  margin: 2px var(--step-pad-x) var(--sp-3) var(--step-indent); /* optical: aligns detail content with the label beyond the step glyph */
+  padding: var(--sp-3) var(--sp-4) var(--sp-4);
   border: 1px solid var(--c-line-soft);
   border-radius: var(--r-2);
   background: var(--c-surface-2);
@@ -809,7 +825,7 @@ button.step-row:active {
 }
 .detail-pair {
   display: flex;
-  gap: 6px;
+  gap: var(--sp-2);
 }
 .detail-heading {
   margin-top: var(--sp-3);
@@ -819,12 +835,12 @@ button.step-row:active {
 }
 .detail-evidence {
   display: grid;
-  gap: 3px;
-  margin: 6px 0 var(--sp-3);
+  gap: var(--sp-1);
+  margin: var(--sp-2) 0 var(--sp-3);
 }
 .detail-evidence li {
   position: relative;
-  padding-left: 14px;
+  padding-left: var(--sp-4);
   color: var(--c-text-2);
   font-size: var(--fs-1);
   line-height: var(--lh-snug);
@@ -833,10 +849,10 @@ button.step-row:active {
 .source {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--sp-2);
   max-width: 100%;
   min-height: 24px;
-  padding: 0 10px 0 9px;
+  padding: 0 var(--sp-2) 0 var(--sp-2);
   border: 1px solid var(--c-src-device-line);
   border-radius: var(--r-pill);
   background: var(--c-src-device-tint);
@@ -859,7 +875,7 @@ button.step-row:active {
   text-overflow: ellipsis;
 }
 .source-ms {
-  padding-left: 6px;
+  padding-left: var(--sp-2);
   border-left: 1px solid currentColor;
   font-family: var(--font-mono);
   font-size: 11px;
@@ -906,29 +922,6 @@ button.step-row:active {
   color: var(--c-text-3);
   font-size: var(--fs-0);
 }
-/* U42: chat affordance on a task card; the card itself is clickable when it carries a task id. */
-.task[data-task-id] {
-  cursor: pointer;
-}
-.task-chat {
-  min-height: var(--touch);
-  margin-top: var(--sp-3);
-  padding: 0 var(--sp-4);
-  border: 1px solid var(--c-primary-line);
-  border-radius: var(--r-pill);
-  background: var(--c-primary-tint);
-  color: var(--c-primary-ink);
-  font-size: var(--fs-1);
-  font-weight: var(--fw-semibold);
-  cursor: pointer;
-}
-.task-chat:hover {
-  background: var(--c-primary-soft);
-}
-.task-chat:focus-visible {
-  outline: 2px solid var(--c-focus);
-  outline-offset: 2px;
-}
 .agenda {
   max-width: var(--reading-max);
   margin-inline: 0;
@@ -959,7 +952,7 @@ button.step-row:active {
   grid-template-columns: 64px minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--sp-4);
-  padding: 14px var(--sp-5);
+  padding: var(--sp-4) var(--sp-5);
   transition: background-color var(--dur-1) var(--ease);
 }
 .agenda-item + .agenda-item {
@@ -989,7 +982,7 @@ button.step-row:active {
 .agenda-task {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--sp-2);
   color: var(--c-text-3);
   font-size: var(--fs-1);
 }
@@ -1021,7 +1014,18 @@ button.step-row:active {
 .entry-body {
   position: relative;
   min-width: 0;
-  padding: 0 0 var(--sp-5) calc(var(--step-dot) + var(--sp-4));
+  padding: 0 0 var(--sp-5) calc(var(--step-dot) + var(--sp-4)); /* optical: reserves the timeline glyph plus its text gutter */
+}
+.diary .diary-day,
+.diary .timeline {
+  min-width: 0;
+}
+.diary .diary-heading,
+.diary .entry-time,
+.diary .entry-body,
+.diary .entry-body * {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .entry-title {
   position: relative;
@@ -1032,7 +1036,7 @@ button.step-row:active {
   overflow-wrap: anywhere;
 }
 .entry-outcome {
-  margin-top: 3px;
+  margin-top: var(--sp-1);
   color: var(--c-text-2);
   font-size: var(--fs-2);
   line-height: var(--lh-body);
@@ -1042,7 +1046,7 @@ button.step-row:active {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px var(--sp-3);
+  gap: var(--sp-2) var(--sp-3);
   margin-top: var(--sp-2);
   color: var(--c-text-3);
   font-size: var(--fs-1);
@@ -1050,7 +1054,7 @@ button.step-row:active {
 .entry-project {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--sp-2);
   color: var(--c-text-2);
   font-weight: var(--fw-medium);
 }
@@ -1113,7 +1117,7 @@ button.step-row:active {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  padding: var(--sp-4) var(--sp-5) 14px;
+  padding: var(--sp-4) var(--sp-5) var(--sp-4);
   border: 1px solid var(--c-line);
   border-radius: var(--r-3);
   background: var(--c-surface-2);
@@ -1123,7 +1127,7 @@ button.step-row:active {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px var(--sp-2);
+  gap: var(--sp-1) var(--sp-2);
   color: var(--c-text-2);
   font-size: var(--fs-1);
 }
@@ -1133,7 +1137,7 @@ button.step-row:active {
   overflow-wrap: anywhere;
 }
 .archived-ws {
-  padding: 0 7px;
+  padding: 0 var(--sp-2);
   border: 1px solid var(--c-line);
   border-radius: var(--r-pill);
   color: var(--c-text-2);
@@ -1150,7 +1154,7 @@ button.step-row:active {
 .archived-title {
   position: relative;
   margin-top: var(--sp-3);
-  padding-left: calc(var(--step-dot) + 10px);
+  padding-left: calc(var(--step-dot) + var(--sp-2)); /* optical: aligns archive text beyond the status glyph */
   color: var(--c-text-1);
   font-size: var(--fs-3);
   font-weight: var(--fw-semibold);
@@ -1158,8 +1162,8 @@ button.step-row:active {
   overflow-wrap: anywhere;
 }
 .archived-outcome {
-  margin-top: 6px;
-  padding-left: calc(var(--step-dot) + 10px);
+  margin-top: var(--sp-2);
+  padding-left: calc(var(--step-dot) + var(--sp-2)); /* optical: aligns archive text beyond the status glyph */
   color: var(--c-text-2);
   font-size: var(--fs-2);
   line-height: var(--lh-body);
@@ -1212,12 +1216,40 @@ button.step-row:active {
     padding: var(--sp-5) var(--sp-4) var(--sp-10);
   }
 }
+@media (max-width: 600px) {
+  .rail .nav-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    inline-size: 100%;
+    padding: var(--sp-2) var(--sp-3);
+    border: 1px solid var(--c-line);
+    border-radius: var(--r-2);
+    color: var(--c-text-1);
+    background: var(--c-surface-1);
+    font-weight: var(--fw-medium);
+  }
+  .rail .nav-toggle::after {
+    content: "";
+    inline-size: 0.5em;
+    block-size: 0.5em;
+    border-inline-end: 1px solid currentColor;
+    border-block-end: 1px solid currentColor;
+    transform: rotate(45deg);
+  }
+  .rail .nav-toggle[aria-expanded="true"]::after {
+    transform: rotate(225deg);
+  }
+  .rail .navigation-panel[data-expanded="false"] {
+    display: none;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
-    transition-duration: 0.01ms;
-    animation-duration: 0.01ms;
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
     animation-iteration-count: 1;
   }
   .step[data-activity="working"] .step-indicator::before,
@@ -1253,6 +1285,36 @@ button.step-row:active {
 .boot-btn:focus-visible {
   outline: 2px solid var(--c-focus);
   outline-offset: 2px;
+}
+/* Retained history and export commands remain inside the Memory reading column. */
+.memory,
+.memory-list,
+.memory-panel,
+.memory-export,
+.memory-export-label,
+.memory-export-command,
+.memory-history,
+.memory-history-list,
+.memory-history-version,
+.memory-panel > *,
+.memory-export > *,
+.memory-history > *,
+.memory-history-version > * {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
+}
+.memory-export-label {
+  display: block;
+}
+.memory-export-command {
+  display: block;
+  width: 100%;
+  white-space: pre-wrap;
+  overflow-x: auto;
+  resize: vertical;
+  font: inherit;
 }
 /* U94: readable memory panel. */
 .memory {
@@ -1310,4 +1372,100 @@ button.step-row:active {
   .entry-time {
     text-align: left;
   }
+}
+
+/* A single wrapping status line accompanies the named Models opener. */
+.rail-status .model-health {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+}
+.rail-status .model-health .model-status-copy {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.messages-task {
+  display: block;
+  max-inline-size: 100%;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+  inline-size: 100%;
+  min-block-size: var(--touch);
+  margin-block: var(--sp-1);
+  background: var(--c-surface-1);
+  color: var(--c-text-1);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-1);
+  font: inherit;
+  text-align: start;
+  white-space: normal;
+  cursor: pointer;
+}
+.messages-task:focus-visible {
+  outline: 2px solid var(--c-focus);
+  outline-offset: 2px;
+}
+
+/* Wall activity keeps task glyphs static and uses one microtask spinner. */
+.plan-wall .step-indicator[data-activity],
+.plan-wall .status-icon[data-activity] {
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+  line-height: 1;
+  animation: none;
+}
+
+.plan-wall .step[data-activity="working"] .step-indicator {
+  /* The border supplies the partial ring instead of overlaying the glyph. */
+  font-size: 0;
+}
+
+.plan-wall .step[data-activity="working"] .step-indicator::before {
+  animation: wall-spin var(--dur-spin) linear infinite;
+}
+
+/* Keep explicit static states for the Wall's activity and disclosure layers. */
+.ui-reduced-motion .plan-wall .step[data-activity="working"] .step-indicator::before,
+.ui-reduced-motion .plan-wall :is(.step-row, .step-chevron),
+.ui-reduced-motion .plan-wall *,
+.ui-reduced-motion .plan-wall *::before,
+.ui-reduced-motion .plan-wall *::after,
+.ui-reduced-motion .agent-strip *,
+.ui-reduced-motion .agent-strip *::before,
+.ui-reduced-motion .agent-strip *::after {
+  animation: none;
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plan-wall .step[data-activity="working"] .step-indicator::before,
+  .plan-wall :is(.step-row, .step-chevron),
+  .plan-wall *,
+  .plan-wall *::before,
+  .plan-wall *::after,
+  .agent-strip *,
+  .agent-strip *::before,
+  .agent-strip *::after {
+    animation: none;
+    transition: none;
+  }
+}
+
+/* Synchronization uncertainty belongs to the persistent status region. */
+.sync-notice {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  margin-block: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--c-st-waiting);
+  border-radius: var(--r-2);
+  background: var(--c-st-waiting-tint);
+  color: var(--c-text-1);
+  line-height: var(--lh-body);
+  white-space: normal;
+  overflow-wrap: anywhere;
 }

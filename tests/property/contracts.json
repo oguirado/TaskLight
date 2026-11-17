@@ -1,0 +1,27 @@
+{
+  "schema": "u116-contract-stages-v1",
+  "required_stages": ["baseline", "gates", "cache", "lifecycle"],
+  "baseline": {"status": "FROZEN", "vectors": "tests/property/vectors.baseline.json"},
+  "gates": {"status": "CONTRACT_FROZEN", "suite": "bridge.tests.property.contracts.GateContracts", "assertions": [
+    "foreign microtask_set: claimed_by_other",
+    "unassigned active/done: not_conformant",
+    "assigned dependency-blocked active/done: not_conformant",
+    "stale optional claim_lamport: stale_rev",
+    "premature plan_close: not_conformant",
+    "assignee release resets active microtasks to pending without lifecycle prerequisites",
+    "cancelled dependency is satisfied but is not counted as done",
+    "MCP, CLI and dispatch have equivalent code/detail and rejection appends nothing"
+  ]},
+  "cache": {"status": "BLOCKED", "implementation_unit": "U113", "invalidation_target": null,
+    "reason": "AUSENTE — no inventar: baseline refolds; an actual invalidation mutant requires a reviewed U113 target.",
+    "semantic_controls": "tests/property/semantic.test.ts"},
+  "lifecycle": {"status": "BLOCKED", "implementation_unit": "U132", "projection_shape": null,
+    "confirmed_anchors": null, "reviewed_fixture_hash": null,
+    "reason": "AUSENTE — no inventar: agent.lifecycle and its frozen projection shape are unavailable.",
+    "clock": {"injected": true, "unit": "milliseconds", "origin": 1700000000000, "alive_offsets": [0, 29999, 30000]},
+    "tool": "agent_lifecycle", "event": "agent.lifecycle",
+    "arguments": ["room", "agent", "state", "run_id", "swarm?", "harness?", "reason?", "op_id?"],
+    "response": {"envelope": "untrusted", "fields": ["ok", "lamport"]},
+    "mandatory_transitions": ["no_plan_deploy", "replay_without_append", "undeployed_terminal_rejection", "retire_run", "retired_run_beat_ignored", "alive_accepted", "alive_throttled_without_append", "close_reopen_retention", "memory_interleaving", "activity_interleaving", "hostile_reason", "prototype_payload", "conflicting_op_id_reuse", "room_full", "ignore_lifecycle_mutant"],
+    "states": ["deployed", "alive", "finished", "failed"]}
+}

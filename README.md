@@ -1,6 +1,8 @@
 # TaskLight
 
-TaskLight is a live task wall where AI agents turn plans into tasks and microtasks as they work. On-device Gemini Nano, used through Firebase AI Logic, reviews plan progress and drift privately on your machine, with a hybrid fallback to cloud Gemini when the on-device model is unavailable and the project's privacy tier allows it. A local room protocol and an MCP server let any MCP client publish plans, memory and progress to the wall.
+TaskLight is a shared swarm control plane and live task wall. An external harness deploys and directs agents; agents maintain shared plans, tasks and coarse microtasks in TaskLight. The operator sees agent identity, harness, current work, state, liveness, dependencies and progress. Terminals and human conversations stay in the harness.
+
+On-device Gemini Nano swarm narration through Firebase AI Logic is the showcase; cloud models execute agents, while Firebase hosts the wall once deployment is configured. Firebase hosting is pending, not yet deployed. Retained chat and liaison controls are legacy, with no new investment. Direct human questions to the harness.
 
 ## Start here
 
@@ -15,21 +17,21 @@ All agents follow [docs/PLANNING_CONTRACT.md](docs/PLANNING_CONTRACT.md) (also s
 ## How it works
 
 - Room: each agent appends plan, memory and progress events to a local room (`events.jsonl`) through the room protocol or the MCP server.
-- Native host: a native messaging host reads the room and relays events to the browser extension, relays chat messages back as room `question` events, and optionally proxies local or network model requests.
+- Native host: a native messaging host reads the room and relays events to the browser extension, retains legacy chat relay controls for room `question` events, and optionally proxies local or network model requests.
 - Extension: the Chrome extension service worker links the native host to the hosted wall page.
-- Hosted wall: the web page renders the live plan, tasks, microtasks and memory views, and runs task and drift review with Firebase AI Logic hybrid inference.
+- Hosted wall: the web page renders the live plan, tasks, microtasks and memory views, and shows shared work and read-only swarm narration with Firebase AI Logic.
 
 ## Plans, tasks and microtasks
 
 Any AI agent acting as an MCP client can plan a project from a planning template (`planning-template/v1`) over MCP. TaskLight keeps a project `MEMORY` and a live `PLAN` of phases, dependencies, tasks and verifiable microtasks in the local room log, with shipped `room_export` and `memory_history` tools for Markdown views and accepted memory revisions, while showing progress, blocked states and outcomes on the wall. See [headless usage](docs/HEADLESS.md#5-cli-parity) for the `export` command.
 
-While any MCP client can author and update the plan, on-device Gemini Nano through Firebase AI Logic reviews each task against its acceptance criteria and checks for plan drift locally. Plan and memory data stay on your machine.
+Agents report outcomes and evidence at coarse work boundaries. Nano narration cannot mutate the room or decide acceptance. Private narration stays on-device; when generation is unavailable it uses a labelled **Rules summary**. Cloud fallback for other rooms depends on privacy policy and availability. See the [swarm guide](docs/SWARM.md) for `swarm_coordinator`, `swarm_executor`, and `executor_loop`.
 
 For templates, states and the MCP tool surface, see [docs/PLANNING.md](docs/PLANNING.md) and [docs/MCP.md](docs/MCP.md). To replay a scripted multi-agent plan locally, see [tools/demo/plan_demo](tools/demo/plan_demo).
 
 ## Models
 
-Firebase AI Logic hybrid inference is the default for every task group: Gemini Nano runs on device first, falling back to cloud Gemini when needed and allowed by the project's privacy policy.
+`firebase-hybrid` remains the factory default. Swarm narration uses `PREFER_ON_DEVICE` with `gemini-4-hydrogen` cloud fallback only when policy permits it; private rooms remain on-device. The live inference source display identifies the actual source, or **Rules summary** when generation fails. Nano requires a browser; headless planning works without it.
 
 From the **Models** sheet in the wall, you can optionally route supported task groups to your own local model servers or network providers configured through the native host CLI. Endpoints and keys stay on the host—never in browser storage or page JavaScript—and private projects and screenshots never leave the device for a network provider. See [docs/MODELS.md](docs/MODELS.md) for setup and privacy rules.
 

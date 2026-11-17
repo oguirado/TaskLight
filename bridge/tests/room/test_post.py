@@ -267,7 +267,8 @@ class Cap(RoomCase):
         self.assertEqual(lam, len(before.splitlines()))
 
     def test_below_cap_still_accepts(self):
-        self.fill(self.CAP - 64 * 1024)
+        # A-U121c: heartbeats fit below their ceiling with semantic capacity reserved, M4.
+        self.fill(self.CAP - store.SEMANTIC_RESERVE_BYTES - 64 * 1024)
         ev = self.post(text="fits")
         self.assertGreater(ev["lamport"], 1)
 
@@ -281,7 +282,12 @@ class Cap(RoomCase):
                 n += 1
         self.assertEqual(c.exception.code, "room_full")
         self.assertLessEqual(events_path(self.home, "r1").stat().st_size, self.CAP)
-        self.assertGreater(n, 1900)
+        # A-U121c: beat traffic stops before consuming the semantic reserve, M4.
+        ceiling = self.CAP - store.SEMANTIC_RESERVE_BYTES
+        size = events_path(self.home, "r1").stat().st_size
+        self.assertLessEqual(size, ceiling)
+        self.assertGreater(n, 1800)
+        self.assertLess(ceiling - size, 8192)
 
 
 class Concurrency(RoomCase):

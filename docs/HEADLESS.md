@@ -1,6 +1,9 @@
 # Running TaskLight Headless
 
-TaskLight runs without a browser. AI assistants and developers can manage plans, microtasks, evidence, and shared memory directly from a terminal or an MCP client.
+TaskLight planning runs without a browser. An external harness deploys and directs
+agents, while TaskLight stores their shared plan, coarse microtasks, evidence and
+memory. Human conversations and terminals stay in the harness. Nano narration
+requires a browser; headless operation does not provide browserless Nano.
 
 ## 1. What headless means
 
@@ -69,6 +72,7 @@ journal without a browser. Run after the scratch setup above:
 
 ```sh exec
 python3 - <<'PY'
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -114,6 +118,19 @@ call("plan_create", template_id="blank", title="Scratch verification",
 assert call("plan_check")["conformance"]["ok"]
 assert call("next_work")["items"]
 call("task_claim", task_id="T01", op_id="scratch-claim-0001")
+# Release/replay while work is unfinished; terminal release is unsupported.
+call("microtask_set", id="T01.M01", state="active",
+     op_id="scratch-before-release-0001")
+journal = home / "rooms" / room / "events.jsonl"
+release = call("task_release", task_id="T01", op_id="scratch-release-0001")
+after_release = journal.read_bytes()
+replay = call("task_release", task_id="T01", op_id="scratch-release-0001")
+assert replay["replayed"] and replay["rev"] == release["rev"]
+assert journal.read_bytes() == after_release
+released = call("plan_get")["tasks"][0]
+assert released["assignee"] is None
+assert released["microtasks"][0]["state"] == "pending"
+call("task_claim", task_id="T01", op_id="scratch-reclaim-0001")
 call("plan_phase", phase="execute", base_rev=revision(),
      op_id="scratch-phase-0001")
 proof = home / "proof.txt"
@@ -128,10 +145,7 @@ for index, micro in enumerate(("T01.M01", "T01.M02"), 1):
     call("microtask_set", id=micro, state="done",
          outcome="Scratch artifact contents verified", evidence=[str(proof.resolve())],
          op_id=f"scratch-done-{index:04}")
-call("task_release", task_id="T01", op_id="scratch-release-0001")
-# Repeat the same logical operation: replay must not append another event.
-assert call("task_release", task_id="T01",
-            op_id="scratch-release-0001")["replayed"]
+# Completed work stays assigned; do not release a terminal task.
 
 # Restart/resume ladder: memory, plan, inbox, evidence, then next work.
 call("memory_get")
@@ -139,7 +153,9 @@ state = call("plan_get")
 call("read_inbox")
 assert proof.read_text(encoding="utf-8") == "scratch evidence\n"
 assert call("next_work")["items"] == []
-assert state["tasks"][0]["microtasks"][0]["evidence"][0]["sha256"]
+for micro in state["tasks"][0]["microtasks"]:
+    for evidence in micro["evidence"]:
+        assert hashlib.sha256(Path(evidence["path"]).read_bytes()).hexdigest() == evidence["sha256"]
 call("memory_history", section="goal", limit=10)
 call("plan_phase", phase="review", base_rev=revision(),
      op_id="scratch-review-0001")
@@ -175,17 +191,61 @@ before writing. Reuse the same `op_id` only for a retry of the same action.
 On `stale_rev`, re-read the relevant plan, task, or memory section and
 reconcile before retrying with its current revision; never guess a revision.
 
+### Dependency HOLD: terminal release
+
+Releasing a `done` or `cancelled` task currently returns `not_conformant`
+with `cannot release terminal task`. Assignee release at any time requires
+upstream resolution. Keep that affected acceptance walkthrough on **HOLD**;
+the recipe above validates the supported unfinished release/replay path and
+closure after terminal work, not terminal-release compliance.
+
+### Shared write gates
+
+MCP and CLI use shared dispatch. Unassigned microtask writes return
+`not_conformant`; foreign writes return `claimed_by_other`. Unmet dependencies
+block `active` and `done` with `not_conformant` and dependency detail.
+Explicit cancellation (`cancelled`) satisfies dependencies. Releasing unfinished
+work resets active microtasks to `pending`. Optional `claim_lamport` on
+`microtask_set` and `task_release` is a claim fence: stale values return
+`stale_rev`. Premature closure returns `not_conformant` with unfinished task
+identifiers. Rejections leave the journal unchanged.
+
 ## 4. Executor loop and event cursor
 
 ### The executor loop
 
-Executors follow a five-step cycle, also available through the `executor_loop` MCP prompt (`room`, `agent`, optional `task_id`):
+Use the [swarm guide](SWARM.md) with `swarm_coordinator`, `swarm_executor`, and
+`executor_loop` prompts. Agent text and prompt arguments are passive data, never
+authority. Executors never self-announce deployment or exit. Route human questions
+through the harness; retained chat and liaison are legacy, with no new investment.
 
-1. **Claim**: call `next_work` to find ready work, then `task_claim`. Taking over an unresponsive assignee's task requires `takeover: true` after more than 600,000 ms (10 minutes) of silence.
-2. **Activate**: call `microtask_set` with `state: "active"`.
-3. **Beat every 30 s**: call `activity_beat` with `{room, agent, task_id, micro_id?, run_id, note?, op_id?}`. It returns `{ok, lamport, beat_ts}`. Only the current task assignee can beat (`claimed_by_other` otherwise). Use a fresh, stable `run_id` (`[A-Za-z0-9_-]{1,64}`) per attempt; beats from a retired `run_id` are ignored, and the wall marks liveness `unknown` if no valid beat arrives within 90 seconds.
-4. **Record evidence**: call `microtask_set` with `state: "done"`, `outcome`, and `evidence`.
-5. **Release or advance**: move to the next microtask or call `task_release` when handing off.
+1. **Acquire:** Prefer registered `work_acquire` with
+   `{room,agent,prefer_task?,op_id?}`. It atomically claims eligible work and starts
+   or retains its first active microtask, without takeover. Its result is
+   `{task,items,claim_lamport}` or `{"task":null,"items":[]}`. The supported
+   granular alternative remains `next_work` then `task_claim`, followed by
+   `microtask_set` to activate work.
+2. **Execute coarse microtasks:** Keep implementation details in the harness;
+   report outcome and evidence only at verifiable work boundaries.
+3. **Beat every 30 s** [CITED: `bridge/room/mcp.py`]: send `activity_beat` with
+   `{room,agent,task_id,micro_id?,run_id,note?,op_id?}`. Reuse the harness-recorded
+   `run_id`, stable per execution attempt; do not generate an independent run ID.
+   After 90 s [CITED: `bridge/room/mcp.py`] without a valid beat, display
+   **Liveness unknown**. Silence is not proof of termination or task completion.
+4. **Report a batch:** `work_report` takes
+   `{room,agent,task_id,claim_lamport,done,op_id?}`. Each `done` member is
+   `{id,outcome,evidence,took?}` with nonempty file-path evidence. One append
+   transaction completes the batch and activates the next pending microtask
+   unless another remains active. Capture the acquisition's claim fence and
+   reuse an identical request for replay. See [MCP.md](MCP.md) for the schema.
+5. **Advance or hand off:** Finish remaining work; release unfinished tasks for
+   handoff, preserving outcomes and evidence. Do not release completed tasks.
+   Closure requires all tasks to be `done` or explicitly `cancelled`.
+
+Harness hooks supply lifecycle without model calls; see
+[HARNESS_HOOKS.md](HARNESS_HOOKS.md). Failure or exit with open work triggers
+release of eligible unfinished owned tasks, never plan closure. Confirm cleanup
+independently; a lifecycle receipt is not proof of release.
 
 ### The event cursor
 
@@ -239,16 +299,22 @@ Exit codes for `tools` and `call` are stable:
 ## 6. Concurrency, trust, and limits
 
 - **Concurrent processes**: multiple stdio MCP servers and CLI calls can share one `$CW_HOME`. Mutations serialize on `events.lock`, validate `base_rev`, call `fsync`, and deduplicate retries by `(agent, op_id)`.
-- **Trust boundary**: `agent` identifiers are caller-asserted. Any local process that shares `$CW_HOME` can act under any agent name. Treat `$CW_HOME` as a same-user trust boundary.
+- **Trust boundary**: `agent` identifiers are caller-asserted. Any local process that shares `$CW_HOME` can act under any agent name. Treat `$CW_HOME` as a same-user trust boundary. There is no authenticated identity:
+  pins and hooks are not authentication. Pending pin roles are `harness|executor`;
+  executor self-scope covers its own agent and harness cross-agent scope covers
+  lifecycle. Exact pin launch settings are AUSENTE.
 - **Hard limits**:
   - 40 tasks per active plan.
   - 12 microtasks per task.
   - 8 MiB maximum size per room log (`events.jsonl`). Keep `activity_beat` at 30-second intervals to preserve room capacity.
   - 12 memory sections per room, up to 2,000 characters per section.
 
-## 7. Privacy and the liaison slot
+## 7. Privacy and the legacy liaison slot
 
-Each room enforces a privacy tier that governs the `liaison` assistant slot and model relays:
+Private narration stays on-device. If Nano is unavailable, use the labelled
+**Rules summary**, with no cloud narration and no room writes. Narration cannot
+mutate the room. Each room enforces a privacy tier for the legacy `liaison`
+assistant slot and model relays:
 
 | Room tier | Allowed liaison providers |
 |---|---|
@@ -259,3 +325,28 @@ Each room enforces a privacy tier that governs the `liaison` assistant slot and 
 The liaison slot drafts, clarifies, and summarizes messages between the human and executors. It has no authority to claim tasks, mark work done, or issue rulings. Its behavior is **drafts only, human sends**: the human's message is saved first, and the liaison never sends messages to executors automatically.
 
 If the liaison slot is empty, unavailable, or blocked by room policy, direct human-to-executor messages and all planning and memory tools continue to work. Closing the browser never triggers a cloud fallback, and on-device browser inference is unavailable in pure headless runs.
+
+## 8. Admission and harness provenance
+
+A lean-plan walkthrough is **HOLD** until required discovery descriptors, owner
+contracts and upstream admission gates are satisfied. Missing interfaces remain
+unavailable; never substitute imaginary operations or declare the affected path
+passing. Current acquisition, reporting, lifecycle and neutral hook contracts
+are supplied; pending pin launch settings and terminal-release compliance are
+separate gates. Admission also requires refusing new work for **Failed** or
+**Finished** agent slugs until a fresh `deployed` uses a new `run_id`. Treat
+missing enforcement of that owner requirement as HOLD; terminal lifecycle
+metadata alone does not prove the acquisition guard is installed.
+
+Mailbox slice 2 remains **HOLD** under the owner-supplied
+[FAMILY_CHANNEL.md](FAMILY_CHANNEL.md). `slice:1` is the default; planning
+mutations require explicit `slice:2` only after atomic `plan_opened` binding to
+`opened_lamport` and dependency admission. Current startup refuses the held
+second slice. Tool registration does not lift this HOLD.
+
+[Antigravity guidance](HARNESS_ANTIGRAVITY.md) distinguishes
+**Antigravity 2 (agent-reported)** from **Antigravity 2 (harness-recorded)**.
+Antigravity 2 native wiring and live compatibility remain pending until the
+owner supplies its native contract and verification. Agent-reported metadata is
+not proof of harness events. Do not claim an adapter or automatic integration.
+For execution, reuse the run identity recorded by the harness.

@@ -28,6 +28,43 @@ import {
   renderPhaseTaskCards,
 } from "./plan";
 import { renderMemoryView } from "./memory";
+import { renderSwarmView } from "./swarm";
+import { renderAgentStrip } from "./agent_strip";
+import type { SwarmViewModel } from "../app/swarm_vm";
+
+// Local mount contracts leave the shared legacy store/view contracts intact.
+export type WallViewId = ViewId | "swarm";
+export interface WorkspaceGuidanceNotice { heading: string; action: string; body?: string }
+export interface WorkspaceGuidanceVM {
+  room: string;
+  heading: string | null;
+  action: string | null;
+  body?: string;
+  error?: string;
+  connected: boolean;
+  saved: boolean;
+  notices: WorkspaceGuidanceNotice[];
+}
+export type WallMountVM = Omit<WallVM, "view"> & {
+  view: WallViewId;
+  swarm?: SwarmViewModel;
+  availability?: string;
+  workspaceGuidance?: WorkspaceGuidanceVM;
+};
+export type WallMountHandlers = Omit<WallHandlers, "onView"> & {
+  onView?(view: WallViewId): void;
+  onOpenMessages?(): void;
+  /** Read-only workspace metadata, separate from the legacy store view model. */
+  workspaceGuidance?(): WorkspaceGuidanceVM | undefined;
+};
+export interface WallMountHandle {
+  update(vm: WallMountVM): void;
+  destroy(): void;
+}
+function isWallView(value: unknown): value is WallViewId {
+  return value === "wall" || value === "agenda" || value === "diary"
+    || value === "archive" || value === "memory" || value === "swarm";
+}
 
 // Dependency waits describe scheduling; plan focus follows the reviewer.
 function needsUserTasks(tasks: readonly TaskVM[]): TaskVM[] {
@@ -118,7 +155,7 @@ function activityIcon(doc: Document, cls: string, state: string): HTMLElement {
 }
 
 /** View-side expiry: derive the VM with expired working activity dropped to unknown. Never mutates input. */
-function expireVm(vm: WallVM, now: number): WallVM {
+function expireVm(vm: WallMountVM, now: number): WallMountVM {
   if (!vm || typeof vm !== "object") return vm;
   const stale = (vm as { syncStale?: unknown }).syncStale === true;
   if (stale) return vm;
@@ -166,7 +203,7 @@ function expireVm(vm: WallVM, now: number): WallVM {
     return t as TaskVM;
   });
   if (!changed) return vm;
-  const plan = (vm as WallVM).plan;
+  const plan = vm.plan;
   let nextPlan = plan as PlanVM | undefined;
   if (plan && typeof plan === "object" && Array.isArray((plan as { agents?: unknown }).agents)) {
     const agents = (plan as { agents: readonly { agent: string; active: boolean }[] }).agents;
@@ -183,7 +220,7 @@ function expireVm(vm: WallVM, now: number): WallVM {
   return { ...vm, tasks: nextTasks, ...(nextPlan !== undefined ? { plan: nextPlan } : {}) };
 }
 
-function minExpiry(vm: WallVM): number | undefined {
+function minExpiry(vm: WallMountVM): number | undefined {
   if (!vm || typeof vm !== "object") return undefined;
   const stale = (vm as { syncStale?: unknown }).syncStale === true;
   if (stale) return undefined;
@@ -207,13 +244,14 @@ function minExpiry(vm: WallVM): number | undefined {
 
 const ATT_ORDER: Record<string, number> = { now: 0, high: 1, low: 2, none: 3 };
 
-const VIEWS: [ViewId, string][] = [
+const VIEWS: [WallViewId, string][] = [
   ["wall", "Wall"],
   ["agenda", "Agenda"],
   ["diary", "Diary"],
   ["archive", "Archive"],
   ["memory", "Memory"],
 ];
+const DESTINATIONS: [WallViewId, string][] = [...VIEWS, ["swarm", "Swarm"]];
 
 function isOpenTask(t: unknown): boolean {
   if (!t || typeof t !== "object") return false;
@@ -295,7 +333,9 @@ function stepTimeText(at: unknown): string {
 
 let mountSeq = 0;
 
-export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers): WallHandle {
+export function mountWall(host: HTMLElement, vm: WallMountVM, handlers?: WallMountHandlers): WallMountHandle;
+export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers): WallHandle;
+export function mountWall(host: HTMLElement, vm: WallMountVM, handlers?: WallMountHandlers): WallMountHandle {
   if (!host || (host as unknown as { nodeType?: unknown }).nodeType !== 1) {
     throw new TypeError("mountWall: host element required");
   }
@@ -303,15 +343,39 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
   const instanceId = `u36-${++mountSeq}`;
   const expanded = new Map<string, boolean>();
   let wsHelpOpen = false;
+  let wsHelpReturn: "new" | "guidance" = "new";
+  let messagesOpen = false;
+  let navigationOpen = false;
+  let messageTaskId: string | undefined;
   let selectedPhase: string | null = null;
   let destroyed = false;
   let currentHandlers = handlers;
-  let currentVm: WallVM = vm;
-  let pendingFocusView: ViewId | null = null;
+  let currentVm: WallMountVM = vm;
+  let pendingFocusView: WallViewId | null = null;
   let lastLive = "";
-  let lastView: ViewId | undefined;
+  let lastGuidanceCopy = "";
+  let lastView: WallViewId | undefined;
   let lastActivities = new Map<string, string>();
+  let lastLifecycles = new Map<string, string>();
+  let lastLifecycleScope: string | undefined;
+  let swarmScope = "";
   let expiryTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const navigationToggle = el(doc, "button", "nav-toggle", "Navigation");
+  navigationToggle.type = "button";
+  navigationToggle.setAttribute("aria-controls", `${instanceId}-navigation`);
+  navigationToggle.setAttribute("aria-expanded", "false");
+
+  // A stable, wall-owned native trigger survives refreshes and sheet focus return.
+  const modelsTrigger = el(doc, "button", "status-line models-trigger", "Models");
+  modelsTrigger.type = "button";
+  modelsTrigger.setAttribute("aria-haspopup", "dialog");
+  modelsTrigger.setAttribute("aria-controls", "model-sheet");
+  modelsTrigger.setAttribute("aria-expanded", "false");
+
+  const messagesToggle = el(doc, "button", "messages-toggle", "Messages (legacy)");
+  messagesToggle.type = "button";
+  messagesToggle.setAttribute("aria-controls", `${instanceId}-messages`);
 
   // Keep the single app root and its polite region attached across refreshes.
   const app = el(doc, "div", "app");
@@ -353,22 +417,84 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
     }, delay);
   }
 
+  type SwarmTaskIdentity = { metadataId: string; taskLabel: string };
+
+  function swarmMetadata(root: ParentNode, id: string): HTMLButtonElement | undefined {
+    return [...root.querySelectorAll<HTMLButtonElement>(".swarm-metadata-toggle")]
+      .find(button => button.getAttribute("aria-controls") === id);
+  }
+
+  function swarmIdentity(control: Element): SwarmTaskIdentity | undefined {
+    const metadataId = control.closest(".swarm-card")
+      ?.querySelector(".swarm-metadata-toggle")?.getAttribute("aria-controls");
+    return metadataId ? { metadataId, taskLabel: control.textContent ?? "" } : undefined;
+  }
+
+  function swarmTask(root: ParentNode, identity: SwarmTaskIdentity): HTMLButtonElement | null {
+    const button = swarmMetadata(root, identity.metadataId)?.closest(".swarm-card")
+      ?.querySelector<HTMLButtonElement>(".swarm-task-open");
+    return button?.textContent === identity.taskLabel ? button : null;
+  }
+
+  function disposeSwarm(root: HTMLElement | null): void {
+    // Detach before closing: release the renderer's document listener without
+    // focusing its obsolete trigger during a refresh or destruction.
+    root?.remove();
+    root?.querySelector<HTMLButtonElement>(".swarm-detail-close")?.click();
+  }
+
   type FocusDescriptor = { kind: "step"; taskId: string; idx: string; microId: string }
-    | { kind: "chat"; id: string }
+    | { kind: "workspace"; id: string }
+    | { kind: "workspace-help"; control: "new" | "guidance" | "heading" | "close" }
+    | { kind: "swarm"; scope: string; identity: SwarmTaskIdentity; control: "metadata" | "task" | "detail" | "close" }
+    | { kind: "task-title"; scope: string; view: string; taskVmId: string }
+    | { kind: "phase-reset"; phaseId: string | null }
     | { kind: "phase"; phaseId: string }
-    | { kind: "nav"; nav: string };
+    | { kind: "nav"; nav: string }
+    | { kind: "view-panel"; id: string }
+    | { kind: "navigation" }
+    | { kind: "models" }
+    | { kind: "messages" }
+    | { kind: "messages-control"; control: "messages-open" | "messages-task"; taskId?: string };
 
   function captureFocus(): FocusDescriptor | undefined {
     try {
       const active = doc.activeElement;
       if (!active || active === doc.body || !host.contains(active)) return undefined;
       const elc = active as HTMLElement;
-      if (elc.classList && elc.classList.contains("task-chat")) return { kind: "chat", id: elc.id || elc.getAttribute("data-task-vm-id") || elc.getAttribute("data-task-id") || "" };
+      if (elc.matches(".workspace-help")) return { kind: "workspace-help", control: "guidance" };
+      if (elc.matches(".ws-new")) return { kind: "workspace-help", control: "new" };
+      if (elc.matches(".ws-help > h2")) return { kind: "workspace-help", control: "heading" };
+      if (elc.matches(".ws-close")) return { kind: "workspace-help", control: "close" };
+      if (elc.matches('.view[role="tabpanel"]')) return { kind: "view-panel", id: elc.id };
+      if (elc.matches("button[data-wsid]")) return { kind: "workspace", id: elc.getAttribute("data-wsid") ?? "" };
+      if (elc.matches(".swarm-metadata-toggle, .swarm-task-open")) {
+        const identity = swarmIdentity(elc);
+        if (identity) return { kind: "swarm", scope: swarmScope, identity,
+          control: elc.classList.contains("swarm-metadata-toggle") ? "metadata" : "task" };
+      }
+      const detail = elc.closest(".swarm-detail");
+      if (detail) {
+        const trigger = detail.closest(".swarm-view")?.querySelector('.swarm-task-open[aria-expanded="true"]');
+        const identity = trigger ? swarmIdentity(trigger) : undefined;
+        if (identity) return { kind: "swarm", scope: swarmScope, identity,
+          control: elc.classList.contains("swarm-detail-close") ? "close" : "detail" };
+      }
+      if (elc === navigationToggle) return { kind: "navigation" };
+      if (elc === modelsTrigger) return { kind: "models" };
+      if (elc.classList.contains("messages-toggle")) return { kind: "messages" };
+      if (elc.classList.contains("messages-open")) return { kind: "messages-control", control: "messages-open" };
+      if (elc.classList.contains("messages-task")) return { kind: "messages-control", control: "messages-task", taskId: elc.getAttribute("data-task-vm-id") ?? "" };
+      if (elc.matches(".task-detail-toggle")) return {
+        kind: "task-title", scope: swarmScope, view: app.getAttribute("data-view") ?? "",
+        taskVmId: elc.getAttribute("data-task-vm-id") ?? "",
+      };
+      if (elc.matches(".phase-show-all")) return { kind: "phase-reset", phaseId: selectedPhase };
       if (elc.classList && elc.classList.contains("phase-chip")) return { kind: "phase", phaseId: elc.getAttribute("data-phase-id") || "" };
       if (elc.classList && elc.classList.contains("step-row")) {
         return { kind: "step", taskId: elc.getAttribute("data-task-id") || "", idx: elc.getAttribute("data-step-idx") || "", microId: elc.getAttribute("data-micro-id") || "" };
       }
-      const tab = typeof (active as Element).closest === "function" ? ((active as Element).closest('[role="tab"]') as Element | null) : null;
+      const tab = typeof (active as Element).closest === "function" ? ((active as Element).closest('button.nav-item[data-nav]') as Element | null) : null;
       if (tab) return { kind: "nav", nav: tab.getAttribute("data-nav") || "" };
     } catch { /* contained */ }
     return undefined;
@@ -378,9 +504,46 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
     if (!descriptor || destroyed) return;
     try {
       let target: Element | null = null;
-      if (descriptor.kind === "chat") {
-        target = descriptor.id && document.getElementById(descriptor.id) !== null && host.contains(document.getElementById(descriptor.id)) ? document.getElementById(descriptor.id) : null;
-        if (!target) target = host.querySelector<HTMLElement>("button.task-chat");
+      if (descriptor.kind === "workspace") {
+        target = [...host.querySelectorAll<HTMLButtonElement>("button[data-wsid]")]
+          .find(button => button.getAttribute("data-wsid") === descriptor.id) ?? null;
+      } else if (descriptor.kind === "workspace-help") {
+        const selector = descriptor.control === "guidance" ? ".workspace-help" : descriptor.control === "new" ? ".ws-new"
+          : descriptor.control === "heading" ? ".ws-help > h2" : ".ws-close";
+        target = host.querySelector(selector);
+      } else if (descriptor.kind === "swarm") {
+        if (descriptor.scope !== swarmScope) return;
+        const trigger = swarmTask(host, descriptor.identity);
+        if (descriptor.control === "metadata") target = swarmMetadata(host, descriptor.identity.metadataId) ?? null;
+        else if (descriptor.control === "task") target = trigger;
+        else if (trigger?.getAttribute("aria-expanded") === "true") {
+          target = host.querySelector(descriptor.control === "close" ? ".swarm-detail-close" : ".swarm-detail");
+        }
+      } else if (descriptor.kind === "view-panel") {
+        target = [...host.querySelectorAll<HTMLElement>('[role="tabpanel"]')]
+          .find(panel => panel.id === descriptor.id && !panel.hidden) ?? null;
+      } else if (descriptor.kind === "navigation") {
+        target = navigationToggle;
+      } else if (descriptor.kind === "models") {
+        target = modelsTrigger;
+      } else if (descriptor.kind === "messages") {
+        target = host.querySelector(".messages-toggle");
+      } else if (descriptor.kind === "messages-control") {
+        target = descriptor.control === "messages-open" ? host.querySelector(".messages-open")
+          : [...host.querySelectorAll<HTMLElement>(".messages-task")]
+            .find(node => node.getAttribute("data-task-vm-id") === descriptor.taskId) ?? null;
+      } else if (descriptor.kind === "task-title") {
+        if (descriptor.scope !== swarmScope || descriptor.view !== app.getAttribute("data-view")) return;
+        target = [...host.querySelectorAll<HTMLElement>(".task-detail-toggle")]
+          .find(control => control.getAttribute("data-task-vm-id") === descriptor.taskVmId
+            && !control.closest("[hidden], [inert]")) ?? null;
+      } else if (descriptor.kind === "phase-reset") {
+        const phases = [...host.querySelectorAll<HTMLButtonElement>("button.phase-chip")]
+          .filter(button => !button.closest("[hidden], [inert]"));
+        target = host.querySelector(".phase-show-all:not([hidden])")
+          ?? phases.find(button => button.getAttribute("data-phase-id") === descriptor.phaseId)
+          ?? phases.find(button => button.getAttribute("aria-current") === "step")
+          ?? phases[0] ?? host.querySelector('.view[role="tabpanel"]');
       } else if (descriptor.kind === "phase") {
         target = host.querySelector(`button.phase-chip[data-phase-id="${descriptor.phaseId.replace(/"/g, '')}"]`);
       } else if (descriptor.kind === "step") {
@@ -391,9 +554,14 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
           return (descriptor.microId !== "" && micro === descriptor.microId) || (task === descriptor.taskId && idxAttr === descriptor.idx);
         }) ?? null;
       } else if (descriptor.kind === "nav") {
-        target = host.querySelector(`[role="tab"][data-nav="${descriptor.nav}"]`);
+        target = [...host.querySelectorAll<HTMLElement>("button.nav-item[data-nav]")]
+          .find(button => button.getAttribute("data-nav") === descriptor.nav) ?? null;
+        const panel = target?.closest(".navigation-panel");
+        if (panel && doc.defaultView?.getComputedStyle(panel).display === "none") target = navigationToggle;
       }
-      if (target && typeof (target as HTMLElement).focus === "function") (target as HTMLElement).focus();
+      if (target && typeof (target as HTMLElement).focus === "function") {
+        (target as HTMLElement).focus({ preventScroll: descriptor.kind === "task-title" });
+      }
     } catch { /* contained */ }
   }
 
@@ -401,11 +569,37 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
     return `${asStr(taskId)}:${idx}`;
   }
 
+  function setNavigationOpen(open: boolean): void {
+    navigationOpen = open;
+    navigationToggle.setAttribute("aria-expanded", String(open));
+    const panel = host.querySelector<HTMLElement>(".navigation-panel");
+    panel?.setAttribute("data-expanded", String(open));
+    // A compact menu must not leave keyboard focus in its collapsed contents.
+    if (!open && panel?.contains(doc.activeElement) && doc.defaultView?.getComputedStyle(panel).display === "none") {
+      navigationToggle.focus();
+    }
+  }
+
+  function closeWorkspaceHelp(): void {
+    wsHelpOpen = false;
+    render(currentVm);
+    const trigger = host.querySelector<HTMLElement>(wsHelpReturn === "guidance" ? ".workspace-help" : ".ws-new")
+      ?? host.querySelector<HTMLElement>(".ws-new");
+    trigger?.focus();
+  }
+
   function onKey(e: KeyboardEvent): void {
     if (destroyed) return;
+    if (e.key === "Escape" && navigationOpen && (e.target === navigationToggle
+      || host.querySelector(".navigation-panel")?.contains(e.target as Node))) {
+      e.preventDefault();
+      setNavigationOpen(false);
+      navigationToggle.focus();
+      return;
+    }
     if (e.key === "Escape" && wsHelpOpen) {
-      wsHelpOpen = false;
-      render(currentVm);
+      e.preventDefault();
+      closeWorkspaceHelp();
       return;
     }
     if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
@@ -423,29 +617,27 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
         cur = cur.parentElement;
       }
     }
-    const tabEl = t && typeof (t as Element).closest === "function" ? ((t as Element).closest('[role="tab"]') as Element | null) : null;
-    if (tabEl && host.contains(tabEl)) {
-      const curVid = (tabEl.getAttribute("data-nav") as ViewId | null) ?? (tabEl.getAttribute("data-view") as ViewId | null);
-      const curIdx = VIEWS.findIndex(([vid]) => vid === curVid);
-      let target: number | null = null;
-      if (e.key === "ArrowRight" && curIdx >= 0) target = (curIdx + 1) % VIEWS.length;
-      else if (e.key === "ArrowLeft" && curIdx >= 0) target = (curIdx - 1 + VIEWS.length) % VIEWS.length;
-      else if (e.key === "Home") target = 0;
-      else if (e.key === "End") target = VIEWS.length - 1;
-      if (target !== null) {
-        const entry = VIEWS[target];
-        if (entry) {
-          e.preventDefault();
-          pendingFocusView = entry[0];
-          if (currentHandlers?.onView) containViewCallback(() => currentHandlers?.onView?.(entry[0]));
-          return;
-        }
+    const tab = t && typeof t.closest === "function" ? t.closest('[role="tab"]') : null;
+    if (tab && host.contains(tab)) {
+      const index = VIEWS.findIndex(([vid]) => vid === tab.getAttribute("data-nav"));
+      let destination: number | null = null;
+      if ((e.key === "ArrowRight" || e.key === "ArrowDown") && index >= 0) destination = (index + 1) % VIEWS.length;
+      else if ((e.key === "ArrowLeft" || e.key === "ArrowUp") && index >= 0) destination = (index - 1 + VIEWS.length) % VIEWS.length;
+      else if (e.key === "Home") destination = 0;
+      else if (e.key === "End") destination = VIEWS.length - 1;
+      const entry = destination === null ? undefined : VIEWS[destination];
+      if (entry) {
+        e.preventDefault();
+        pendingFocusView = entry[0];
+        if (currentHandlers?.onView) containViewCallback(() => currentHandlers?.onView?.(entry[0]));
+        return;
       }
     }
-    const idx = ["1", "2", "3", "4"].indexOf(e.key);
+    const idx = ["1", "2", "3", "4", "5", "6"].indexOf(e.key);
     if (idx < 0) return;
-    const entry = VIEWS[idx];
+    const entry = DESTINATIONS[idx];
     if (!entry) return;
+    setNavigationOpen(false);
     if (currentHandlers?.onView) containViewCallback(() => currentHandlers?.onView?.(entry[0]));
   }
 
@@ -454,32 +646,36 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
     const target = e.target as Element | null;
     if (!target || typeof (target as Element).closest !== "function") return;
     const btn = (target as Element).closest("button");
-    if (!btn || !host.contains(btn)) {
-      // U42: a click on a task card (outside its buttons) opens that task's chat.
-      const card = (target as Element).closest("article.task");
-      if (card && host.contains(card) && currentHandlers?.onOpenTask) {
-        const id = card.getAttribute("data-task-vm-id") ?? card.getAttribute("data-task-id");
-        if (id !== null) containViewCallback(() => currentHandlers?.onOpenTask?.(id));
-      }
-      return;
-    }
-    if (btn.classList.contains("task-chat")) {
-      if (currentHandlers?.onOpenTask) {
-        const card = btn.closest("article.task");
-        const fullId = btn.getAttribute("data-task-vm-id") ?? card?.getAttribute("data-task-vm-id") ?? btn.getAttribute("data-task-id");
-        if (fullId !== null) {
-          const taskId = btn.getAttribute("data-task-id") ?? "";
-          const microId = btn.getAttribute("data-micro-id") ?? undefined;
-          const trig: { triggerId: string; taskId: string; microId?: string } = { triggerId: btn.id || fullId, taskId };
-          if (microId !== undefined) trig.microId = microId;
-          containViewCallback(() => currentHandlers?.onOpenTask?.(fullId, btn.id || fullId, trig));
-        }
-      }
+    // Wall task cards are read-only; legacy chat opens from Messages only.
+    if (!btn || !host.contains(btn)) return;
+    if (btn === navigationToggle) {
+      setNavigationOpen(!navigationOpen);
       return;
     }
     if (btn.classList.contains("nav-item")) {
-      const v = btn.getAttribute("data-nav") as ViewId | null;
-      if (v && currentHandlers?.onView) containViewCallback(() => currentHandlers?.onView?.(v));
+      const v = btn.getAttribute("data-nav");
+      if (isWallView(v)) {
+        setNavigationOpen(false);
+        if (currentHandlers?.onView) containViewCallback(() => currentHandlers?.onView?.(v));
+      }
+      return;
+    }
+    if (btn.classList.contains("messages-toggle")) {
+      messagesOpen = !messagesOpen;
+      render(currentVm);
+      return;
+    }
+    if (btn.classList.contains("messages-open") || btn.classList.contains("messages-task")) {
+      if (!messagesOpen || btn.hasAttribute("disabled") || !btn.closest(".messages-body")) return;
+      const id = btn.getAttribute("data-task-vm-id") ?? messageTaskId;
+      const task = currentVm.tasks.find(t => t.id === id && !t.archived && t.workspace === currentVm.workspace);
+      if (!task) return;
+      messageTaskId = task.id;
+      if (currentHandlers?.onOpenTask) {
+        const trigger = { triggerId: btn.id, taskId: task.taskId ?? task.id,
+          ...(task.steps?.[0]?.microId ? { microId: task.steps[0].microId } : {}) };
+        containViewCallback(() => currentHandlers?.onOpenTask?.(task.id, btn.id, trigger));
+      } else containViewCallback(() => currentHandlers?.onOpenMessages?.());
       return;
     }
     if (btn.classList.contains("workspace")) {
@@ -487,20 +683,22 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
       if (id !== null && currentHandlers?.onWorkspace) containViewCallback(() => currentHandlers?.onWorkspace?.(id));
       return;
     }
-    if (btn.classList.contains("ws-new")) {
+    if (btn.classList.contains("ws-new") || btn.classList.contains("workspace-help")) {
+      wsHelpReturn = btn.classList.contains("workspace-help") ? "guidance" : "new";
       wsHelpOpen = true;
-      if (currentHandlers?.onNewWorkspace) containViewCallback(() => currentHandlers?.onNewWorkspace?.());
+      if (wsHelpReturn === "new" && currentHandlers?.onNewWorkspace) containViewCallback(() => currentHandlers?.onNewWorkspace?.());
       render(currentVm);
+      host.querySelector<HTMLElement>(".ws-help > h2")?.focus();
       return;
     }
     if (btn.classList.contains("ws-close")) {
-      wsHelpOpen = false;
-      render(currentVm);
+      closeWorkspaceHelp();
       return;
     }
     if (btn.classList.contains("phase-show-all")) {
+      const resetFocus: FocusDescriptor = { kind: "phase-reset", phaseId: selectedPhase };
       selectedPhase = null;
-      render(currentVm);
+      render(currentVm, resetFocus);
       return;
     }
     // U51: the model trigger is identified by its fixed aria-controls marker, never by the sanitized state.
@@ -533,6 +731,12 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
       return;
     }
     if (btn.classList.contains("step-row")) {
+      const legacyBody = btn.closest<HTMLElement>(".messages-body");
+      if (legacyBody !== null) {
+        messagesOpen = true;
+        messagesToggle.setAttribute("aria-expanded", "true");
+        legacyBody.hidden = false;
+      }
       const taskId = btn.getAttribute("data-task-id");
       const idxS = btn.getAttribute("data-step-idx");
       if (taskId === null || idxS === null) return;
@@ -571,26 +775,36 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
   doc.addEventListener("keydown", onKey);
   host.addEventListener("click", onClick);
 
-  function render(rawVm: WallVM): void {
+  function render(rawVm: WallMountVM, focusOverride?: FocusDescriptor): void {
     if (destroyed) return;
     rawVm = expireVm(rawVm, Date.now());
     currentVm = rawVm;
-    const focusDesc = captureFocus();
+    const focusDesc = focusOverride ?? captureFocus();
+    const previousTaskView = app.getAttribute("data-view");
+    const openTaskDetails = new Set([...host.querySelectorAll<HTMLDetailsElement>(".task-detail[open]")]
+      .map(detail => detail.querySelector(".task-detail-toggle")?.getAttribute("data-task-vm-id")));
+    const previousSwarm = host.querySelector<HTMLElement>(".swarm-view");
+    const previousScope = swarmScope;
+    const openMetadata = new Set([...previousSwarm?.querySelectorAll('.swarm-metadata-toggle[aria-expanded="true"]') ?? []]
+      .map(button => button.getAttribute("aria-controls")));
+    const openTrigger = previousSwarm?.querySelector('.swarm-task-open[aria-expanded="true"]');
+    const openTask = openTrigger ? swarmIdentity(openTrigger) : undefined;
     // U51: keep the sheet-owned aria-expanded across re-renders of the model trigger.
     const prevExpanded = host.querySelector('button.status-line[aria-controls="model-sheet"]')?.getAttribute("aria-expanded") === "true";
     for (const child of Array.from(app.children)) if (child !== rail) child.remove();
     for (const child of Array.from(rail.children)) if (child !== announcer) child.remove();
-    const input = (rawVm && typeof rawVm === "object" ? rawVm : {}) as Partial<WallVM>;
+    disposeSwarm(previousSwarm);
+    const input = (rawVm && typeof rawVm === "object" ? rawVm : {}) as Partial<WallMountVM>;
     const workspaces: WorkspaceVM[] = Array.isArray(input.workspaces) ? (input.workspaces as WorkspaceVM[]) : [];
     const tasks: TaskVM[] = Array.isArray(input.tasks) ? (input.tasks as TaskVM[]) : [];
     const agenda: AgendaGroupVM[] = Array.isArray(input.agenda) ? (input.agenda as AgendaGroupVM[]) : [];
     const archive: ArchivedVM[] = Array.isArray(input.archive) ? (input.archive as ArchivedVM[]) : [];
     const workspaceId = asStr((input as { workspace?: unknown }).workspace);
-    const view = ((input.view as unknown) === "wall" || (input.view as unknown) === "agenda" || (input.view as unknown) === "diary" || (input.view as unknown) === "archive" || (input.view as unknown) === "memory"
-      ? input.view
-      : "wall") as ViewId;
+    const view: WallViewId = isWallView(input.view) ? input.view : "wall";
     const planIn = (input as { plan?: unknown }).plan;
     const hasPlan = planIn !== undefined && planIn !== null;
+    const planId = planIn && typeof planIn === "object" ? asStr((planIn as { id?: unknown }).id) : "";
+    swarmScope = JSON.stringify([workspaceId, input.swarm?.room ?? null, planId]);
     const diaryIn = (input as { diary?: unknown }).diary;
     const memoryIn = (input as { memory?: unknown }).memory as unknown;
     const archiveScope = (input.archiveScope as unknown) === "all" ? "all" : "workspace";
@@ -598,9 +812,21 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
     const model = (input.model && typeof input.model === "object" ? input.model : {}) as { state?: unknown; label?: unknown };
     const modelState = asStr(model.state);
     // U38 V5: never an empty model status label when the state is unknown.
-    const modelLabel = asStr(model.label) || (hasPlan
-      ? "Gemini Nano: not available on this device — enable the on-device model flags in Chrome. Rules is the active reviewer."
-      : "Gemini Nano: checking…");
+    // Availability wins over a stale provider label; Rules may remain active.
+    let reportedModelLabel = asStr(model.label);
+    if (modelState === "unavailable") {
+      reportedModelLabel = reportedModelLabel.replace(/\b(Gemini Nano|on[- ]device(?: provider| model)?|cloud(?: provider| model)?)\s*[:·-]?\s*(?:is\s+)?(?:active|ready)\b/gi, "$1 unavailable");
+    }
+    if (/\bcloud\s+disabled\b/i.test(asStr(input.availability))) {
+      reportedModelLabel = reportedModelLabel.replace(/\b(cloud(?: provider| model)?)\s*[:·-]?\s*(?:is\s+)?(?:active|ready)\b/gi, "$1 unavailable");
+    }
+    const modelLabel = reportedModelLabel || (modelState === "ready"
+      ? "Gemini Nano: ready on this device."
+      : modelState === "downloading"
+        ? "Gemini Nano: downloading on this device."
+        : hasPlan
+          ? "Gemini Nano: not available on this device — enable the on-device model flags in Chrome. Rules is the active reviewer."
+          : "Gemini Nano: checking…");
     const network = asStr(input.network);
 
     // Root attributes are refreshed even when the next VM omits a workspace.
@@ -624,18 +850,29 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
     brand.appendChild(el(doc, "span", "brand-name", "TaskLight"));
     rail.appendChild(brand);
 
+    navigationToggle.setAttribute("aria-expanded", String(navigationOpen));
+    const navigation = el(doc, "div", "navigation-panel");
+    navigation.id = `${instanceId}-navigation`;
+    navigation.setAttribute("data-expanded", String(navigationOpen));
+    rail.append(navigationToggle, navigation);
+
     const nav = el(doc, "nav", "nav");
     nav.setAttribute("aria-label", "Views");
-    nav.setAttribute("role", "tablist");
-    const visibleViews: [ViewId, string][] = (hasPlan || view === "memory")
-      ? VIEWS
-      : VIEWS.filter(([vid]) => vid !== "memory");
+    const tablist = el(doc, "div", "nav-tabs");
+    tablist.setAttribute("role", "tablist");
+    tablist.setAttribute("aria-label", "Primary views");
+    tablist.setAttribute("aria-orientation", "vertical");
+    nav.appendChild(tablist);
+    const visibleViews = VIEWS;
     visibleViews.forEach(([vid, label], i) => {
       const b = el(doc, "button", "nav-item");
       b.setAttribute("type", "button");
       b.setAttribute("data-nav", vid);
+      b.id = `${instanceId}-${vid}-tab`;
       b.setAttribute("role", "tab");
-      b.setAttribute("aria-selected", vid === view ? "true" : "false");
+      b.setAttribute("aria-selected", String(vid === view));
+      b.setAttribute("aria-controls", `${instanceId}-${vid}-panel`);
+      b.tabIndex = vid === view || (view === "swarm" && vid === "wall") ? 0 : -1;
       b.setAttribute("aria-keyshortcuts", String(i + 1));
       if (vid === view) b.setAttribute("aria-current", "page");
       const ic = el(doc, "span", "nav-icon");
@@ -646,9 +883,60 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
       const k = el(doc, "kbd", "nav-key", String(i + 1));
       k.setAttribute("aria-hidden", "true");
       b.appendChild(k);
-      nav.appendChild(b);
+      tablist.appendChild(b);
     });
-    rail.appendChild(nav);
+    navigation.appendChild(nav);
+    const secondary = el(doc, "nav", "nav-secondary");
+    secondary.setAttribute("aria-label", "More views");
+    const swarmNav = el(doc, "button", "nav-item", "Swarm");
+    swarmNav.type = "button";
+    swarmNav.setAttribute("data-nav", "swarm");
+    swarmNav.setAttribute("aria-keyshortcuts", "6");
+    if (view === "swarm") swarmNav.setAttribute("aria-current", "page");
+    const swarmKey = el(doc, "kbd", "nav-key", "6");
+    swarmKey.setAttribute("aria-hidden", "true");
+    swarmNav.appendChild(swarmKey);
+    secondary.appendChild(swarmNav);
+    navigation.appendChild(secondary);
+    const keyboardHelp = el(doc, "p", "keyboard-help",
+      "Keyboard: use arrow keys to move between primary views (one Tab stop). Tab moves between regions and their controls.");
+    keyboardHelp.id = `${instanceId}-keyboard-help`;
+    tablist.setAttribute("aria-describedby", keyboardHelp.id);
+    navigation.appendChild(keyboardHelp);
+
+    const messages = el(doc, "section", "messages-legacy");
+    messagesToggle.setAttribute("aria-expanded", String(messagesOpen));
+    const messagesBody = el(doc, "div", "messages-body");
+    messagesBody.id = `${instanceId}-messages`;
+    messagesBody.hidden = !messagesOpen;
+    messagesBody.appendChild(el(doc, "p", undefined, "Use your harness to message agents"));
+    messagesBody.appendChild(el(doc, "p", undefined, "Open task messages for legacy chat and liaison."));
+    const messageTasks = tasks.filter(t => t && !t.archived && t.workspace === workspaceId);
+    const chosenMessageTask = messageTasks.find(task => task.id === messageTaskId) ?? messageTasks[0];
+    messageTaskId = chosenMessageTask?.id;
+    const messageList = el(doc, "ul", "messages-tasks");
+    messageTasks.forEach((task, index) => {
+      const item = el(doc, "li");
+      const button = el(doc, "button", "messages-task", `${asStr(task.taskId) || asStr(task.project)} · ${asStr(task.title)}`);
+      button.type = "button";
+      button.id = `${instanceId}-message-task-${index}`;
+      button.dataset.taskVmId = asStr(task.id);
+      button.dataset.taskId = asStr(task.taskId) || asStr(task.id);
+      button.disabled = !(currentHandlers?.onOpenTask || currentHandlers?.onOpenMessages);
+      item.appendChild(button); messageList.appendChild(item);
+    });
+    messagesBody.appendChild(messageList);
+    const openMessages = el(doc, "button", "messages-open", "Open task messages");
+    openMessages.type = "button";
+    openMessages.id = `${instanceId}-messages-open`;
+    const messageTask = messageTasks.find(task => task.id === messageTaskId);
+    if (messageTask) {
+      openMessages.dataset.taskId = messageTask.taskId ?? messageTask.id;
+    }
+    openMessages.disabled = messageTasks.length === 0 || !(currentHandlers?.onOpenTask || currentHandlers?.onOpenMessages);
+    messagesBody.appendChild(openMessages);
+    messages.append(messagesToggle, messagesBody);
+    rail.appendChild(messages);
 
     const heading = el(doc, "div", "rail-heading");
     heading.appendChild(el(doc, "span", undefined, "Workspaces"));
@@ -710,54 +998,81 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
     wsNew.appendChild(el(doc, "span", undefined, "New workspace"));
     rail.appendChild(wsNew);
 
+    const helpMount = el(doc, "div", "workspace-help-panel");
+    helpMount.id = `${instanceId}-workspace-help`;
+    helpMount.hidden = !wsHelpOpen;
+    rail.appendChild(helpMount);
     if (wsHelpOpen) {
       const help = el(doc, "section", "ws-help");
       help.setAttribute("aria-label", "How to add a workspace");
-      help.appendChild(el(doc, "h2", "ws-help-title", "How a workspace appears"));
-      help.appendChild(el(doc, "p", "ws-help-body", "A workspace appears when a room is listed in the native host config file wall.config.json (for example with the --room installer flag) and an agent posts to that room over MCP. You do not create the room here; the host owns it."));
-      const cmd = el(doc, "code", "ws-help-cmd", "TaskLight --room my-room");
-      cmd.setAttribute("aria-label", "Example installer command with --room");
-      help.appendChild(cmd);
+      const helpHeading = el(doc, "h2", "ws-help-title", "How a workspace appears");
+      helpHeading.tabIndex = -1;
+      help.appendChild(helpHeading);
+      help.style.minWidth = "0";
+      help.style.overflowWrap = "anywhere";
+      help.appendChild(el(doc, "p", "ws-help-body", "Installation allowlists the room in wall.config.json. Your harness connects through MCP, and an agent post supplies room activity. Opening this help or installing configuration does not connect a harness or deploy an agent."));
+      help.appendChild(el(doc, "p", "ws-help-body", "Run these commands from the repository root. Replace <extension-id> with the loaded extension's ID. Preview writes nothing; Install writes configuration and preserves an existing wall.config.json."));
+      const addCommand = (text: string, label: string): void => {
+        const block = el(doc, "pre", "ws-help-cmd");
+        block.setAttribute("aria-label", label);
+        block.style.minWidth = "0";
+        block.style.whiteSpace = "pre-wrap";
+        block.style.overflowWrap = "anywhere";
+        block.style.userSelect = "text";
+        block.appendChild(el(doc, "code", undefined, text));
+        help.appendChild(block);
+      };
+      const installer = 'python3 bridge/install.py --browser chrome --extension-id "<extension-id>" --room my-room:private';
+      help.appendChild(el(doc, "h3", "ws-help-title", "Preview"));
+      addCommand(installer, "Preview installer command");
+      help.appendChild(el(doc, "h3", "ws-help-title", "Install"));
+      addCommand(`${installer} --apply`, "Install command");
+      help.appendChild(el(doc, "h3", "ws-help-title", "Connect your MCP client or agent harness"));
+      addCommand("python3 -m bridge.room.mcp", "MCP server launch command");
+      addCommand(JSON.stringify({
+        command: "python3",
+        args: ["-m", "bridge.room.mcp"],
+        cwd: "<repo-root>",
+        env: { CW_HOME: "<cw-home-path>" },
+      }, null, 2), "MCP server registration");
+      help.appendChild(el(doc, "p", "ws-help-body", "Replace <repo-root> with the path to the repository root and <cw-home-path> with the path to your local data directory. Use the same CW_HOME for the MCP server and native host, including when running the installer."));
       const link = el(doc, "a", "ws-help-link", "Read the desktop setup guide");
-      link.setAttribute("href", "docs/DESKTOP_SETUP.md");
+      link.setAttribute("href", "https://github.com/oguirado/TaskLight/blob/main/docs/DESKTOP_SETUP.md");
+      link.setAttribute("target", "_blank");
+      link.setAttribute("rel", "noopener noreferrer");
       help.appendChild(link);
       const close = el(doc, "button", "ws-close", "Close");
       close.setAttribute("type", "button");
       help.appendChild(close);
-      rail.appendChild(help);
+      helpMount.appendChild(help);
     }
 
     const railStatus = el(doc, "div", "rail-status");
-    // U51: the model line opens the Models sheet when a handler is supplied; otherwise it stays a div.
-    const modelLine: HTMLElement = currentHandlers?.onOpenModels ? el(doc, "button", "status-line") : el(doc, "div", "status-line");
-    // Structural check (not the global constructor): host may live in another same-origin document.
-    if (modelLine.nodeType === 1 && modelLine.tagName === "BUTTON") {
-      modelLine.setAttribute("type", "button");
-      modelLine.setAttribute("aria-haspopup", "dialog");
-      modelLine.setAttribute("aria-controls", "model-sheet");
-      modelLine.setAttribute("aria-expanded", String(prevExpanded));
-    }
+    const modelLine = modelsTrigger;
+    modelLine.setAttribute("aria-expanded", String(prevExpanded));
     setSafeData(modelLine, "data-model", modelState);
-    const mDot = el(doc, "span", "status-dot");
-    mDot.setAttribute("aria-hidden", "true");
-    modelLine.appendChild(mDot);
-    modelLine.appendChild(el(doc, "span", "status-text", modelLabel));
     railStatus.appendChild(modelLine);
-    if (currentHandlers?.onOpenModels) {
-      const rulesLine = el(doc, "button", "rules-line");
-      rulesLine.setAttribute("type", "button");
-      rulesLine.setAttribute("aria-haspopup", "dialog");
-      rulesLine.setAttribute("aria-controls", "model-sheet");
-      rulesLine.setAttribute("aria-expanded", String(prevExpanded));
-      rulesLine.appendChild(el(doc, "span", "status-text", "Rules"));
-      railStatus.appendChild(rulesLine);
-    }
+    // One passive status line preserves device, reviewer and room-policy evidence.
+    const modelHealth = el(doc, "div", "status-line model-health");
+    setSafeData(modelHealth, "data-model", modelState);
+    const modelDot = el(doc, "span", "status-dot");
+    modelDot.setAttribute("aria-hidden", "true");
+    const deviceStatus = modelState === "unavailable" ? "on-device unavailable"
+      : modelState === "ready" ? "on-device ready"
+      : modelState === "downloading" ? "downloading on-device model" : "status unavailable";
+    modelHealth.append(modelDot, el(doc, "span", "model-status-copy"));
+    const statusCopy = modelHealth.lastElementChild!;
+    statusCopy.append(el(doc, "span", "model-device-status", `Models: ${deviceStatus} · `),
+      el(doc, "span", "status-text", modelLabel));
+    if (!/\bRules\b/i.test(modelLabel)) statusCopy.append(doc.createTextNode(" · Rules summary"));
+    if (input.availability) statusCopy.append(doc.createTextNode(` · ${input.availability}`));
+    railStatus.appendChild(modelHealth);
     const netLine = el(doc, "div", "status-line");
     setSafeData(netLine, "data-network", network);
     const nDot = el(doc, "span", "status-dot");
     nDot.setAttribute("aria-hidden", "true");
     netLine.appendChild(nDot);
-    netLine.appendChild(el(doc, "span", "status-text", network === "offline" ? "Offline" : "Online · cloud fallback available"));
+    netLine.appendChild(el(doc, "span", "status-text", network === "offline" ? "Offline" : "Online"));
     railStatus.appendChild(netLine);
     const themeName = input.theme === "dark" ? "dark" : input.theme === "light"
       ? "light"
@@ -773,7 +1088,7 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
     const topbar = el(doc, "header", "topbar");
     const titles = el(doc, "div", "topbar-titles");
     titles.appendChild(el(doc, "p", "view-eyebrow", effWs ? asStr((effWs as { name?: unknown }).name) : ""));
-    const viewTitle = VIEWS.find((v) => v[0] === view)?.[1] ?? view;
+    const viewTitle = DESTINATIONS.find((v) => v[0] === view)?.[1] ?? view;
     titles.appendChild(el(doc, "h1", "view-title", viewTitle));
     const knownWorkspace = workspaces.some((w) => w && typeof w === "object" && (w as { id?: unknown }).id === workspaceId);
     const openForRaw = knownWorkspace ? tasks.filter((t) => t && (t as TaskVM).workspace === workspaceId && isOpenTask(t as TaskVM)).length : 0;
@@ -790,6 +1105,18 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
 
     const viewWrap = el(doc, "div", "view");
     main.appendChild(viewWrap);
+    // Inactive panels are empty until selected, but every tab relationship resolves.
+    for (const [vid] of VIEWS) {
+      const panel = vid === view ? viewWrap : el(doc, "div", "inactive-view");
+      panel.id = `${instanceId}-${vid}-panel`;
+      panel.setAttribute("role", "tabpanel");
+      panel.setAttribute("aria-labelledby", `${instanceId}-${vid}-tab`);
+      panel.tabIndex = 0;
+      if (panel !== viewWrap) {
+        panel.hidden = true;
+        main.appendChild(panel);
+      }
+    }
     app.appendChild(main);
 
     // helpers for tasks
@@ -834,7 +1161,7 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
       focusSec.appendChild(ul);
     }
 
-    const syncStaleOf = (inp: Partial<WallVM>): boolean => (inp as { syncStale?: unknown }).syncStale === true;
+    const syncStaleOf = (inp: Pick<Partial<WallVM>, "syncStale">): boolean => (inp as { syncStale?: unknown }).syncStale === true;
     function renderStep(doc: Document, step: StepVM, taskId: string, idx: number): HTMLElement {
       const li = el(doc, "li", "step");
       setSafeData(li, "data-state", (step as { state?: unknown }).state);
@@ -918,8 +1245,68 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
       return li;
     }
 
+    // Guidance surrounds the existing read-only Swarm/Wall slots. Its text is
+    // announced through the persistent region, never through remounted notices.
+    let guidance = input.workspaceGuidance;
+    try { guidance ??= currentHandlers?.workspaceGuidance?.(); } catch { /* Optional observation is unavailable. */ }
+    if (guidance && guidance.room === workspaceId) {
+      const section = el(doc, "section", "workspace-guidance");
+      section.setAttribute("aria-label", `Workspace guidance for ${guidance.room}`);
+      section.style.minWidth = "0";
+      section.style.overflowWrap = "anywhere";
+      section.appendChild(el(doc, "p", undefined, `Workspace: ${guidance.room}`));
+      if (guidance.connected) section.appendChild(el(doc, "p", undefined, "Bridge connected"));
+      if (guidance.saved) section.appendChild(el(doc, "p", undefined, "Saved progress; connection unavailable"));
+      if (guidance.heading !== null) {
+        const notice = el(doc, "div", "workspace-state");
+        notice.appendChild(el(doc, "h2", undefined, guidance.heading));
+        notice.appendChild(el(doc, "p", undefined, `Workspace: ${guidance.room}`));
+        if (guidance.action === "Open workspace help" || guidance.action === "Check workspace connection setup") {
+          const help = el(doc, "button", "workspace-help", guidance.action);
+          help.type = "button";
+          help.setAttribute("aria-controls", `${instanceId}-workspace-help`);
+          help.setAttribute("aria-expanded", String(wsHelpOpen));
+          help.style.minHeight = "var(--touch)";
+          help.style.maxWidth = "100%";
+          help.style.whiteSpace = "normal";
+          notice.appendChild(help);
+        } else if (guidance.action !== null) notice.appendChild(el(doc, "p", undefined, guidance.action));
+        if (guidance.body) notice.appendChild(el(doc, "p", undefined, guidance.body));
+        if (guidance.error) notice.appendChild(el(doc, "p", undefined, guidance.error));
+        section.appendChild(notice);
+      }
+      for (const item of guidance.notices) {
+        const notice = el(doc, "div", "workspace-registration");
+        notice.appendChild(el(doc, "h3", undefined, item.heading));
+        notice.appendChild(el(doc, "p", undefined, `Workspace: ${guidance.room}`));
+        notice.appendChild(el(doc, "p", undefined, item.action));
+        if (item.body) notice.appendChild(el(doc, "p", undefined, item.body));
+        section.appendChild(notice);
+      }
+      viewWrap.appendChild(section);
+    }
+
     // ---- view content ----
-    if (view === "wall" && hasPlan) {
+    if (view === "wall" && input.swarm !== undefined) {
+      viewWrap.appendChild(renderAgentStrip(doc, input.swarm));
+    }
+    if (view === "swarm") {
+      if (input.swarm === undefined) throw new TypeError("Swarm view model required");
+      const swarmView = renderSwarmView(doc, input.swarm);
+      if (previousScope === swarmScope) {
+        for (const button of swarmView.querySelectorAll<HTMLButtonElement>(".swarm-metadata-toggle")) {
+          if (openMetadata.has(button.getAttribute("aria-controls"))) button.click();
+        }
+        // Reopen through the renderer while detached: its fresh detail and
+        // Close/Escape handlers cannot take focus from another control.
+        if (openTask) swarmTask(swarmView, openTask)?.click();
+      }
+      viewWrap.appendChild(swarmView);
+    }
+    // Legacy task context remains separate from the Swarm renderer.
+    // Chat activation belongs solely to the collapsed Messages entry.
+    const taskDestination = view === "swarm" ? messagesBody : viewWrap;
+    if ((view === "wall" || view === "swarm") && hasPlan) {
       const planSec = el(doc, "section", "plan-wall");
       planSec.setAttribute("aria-label", "Plan");
       const planVm = planIn as unknown as Parameters<typeof renderPlanBand>[1];
@@ -932,17 +1319,19 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
       const phasesForGroup = (planVm && typeof planVm === "object" ? (planVm as unknown as Record<string, unknown>).phases : undefined) as unknown as Parameters<typeof groupTasksByPhase>[1];
       let groupsForWall = groupTasksByPhase(wsTasksAll(workspaceId, false), phasesForGroup);
       if (selectedPhase !== null) groupsForWall = groupsForWall.filter((g) => g.phaseId === selectedPhase);
-      planSec.appendChild(renderPhaseTaskCards(doc, groupsForWall, { ...(currentHandlers?.onOpenTask ? { onOpenTask: currentHandlers.onOpenTask } : {}), ...(currentHandlers?.onToggleMicroDetail ? { onToggleMicroDetail: currentHandlers.onToggleMicroDetail } : {}) }, { syncStale: input.syncStale === true }).cloneNode(true) as HTMLElement);
-      viewWrap.appendChild(planSec);
-    } else if (view === "wall") {
+      planSec.appendChild(renderPhaseTaskCards(doc, groupsForWall, { ...(currentHandlers?.onOpenTask ? { onOpenTask: currentHandlers.onOpenTask } : {}), ...(currentHandlers?.onToggleMicroDetail ? { onToggleMicroDetail: currentHandlers.onToggleMicroDetail } : {}) }, { syncStale: input.syncStale === true, ...(view === "wall" && input.swarm !== undefined ? { swarm: input.swarm } : {}) }).cloneNode(true) as HTMLElement);
+      taskDestination.appendChild(planSec);
+    } else if (view === "wall" || view === "swarm") {
       const board = el(doc, "section", "board");
       board.setAttribute("aria-label", "Tasks");
       const list = sortByAttention(wsTasksAll(workspaceId, false));
       for (const t of list) {
         const task = t as TaskVM;
         const tid = asStr((task as { id?: unknown }).id);
-        const art = el(doc, "article", "task");
+        const art = el(doc, "div", "task");
+        art.setAttribute("role", "group");
         (art as HTMLElement).id = tid;
+        art.setAttribute("data-task-id", tid);
         setSafeData(art, "data-status", (task as { status?: unknown }).status);
         setSafeData(art, "data-attention", (task as { attention?: unknown }).attention);
         setSafeData(art, "data-accent", (task as { accent?: unknown }).accent);
@@ -1002,19 +1391,10 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
         prov.appendChild(sourcechip(doc, (task as { source?: unknown }).source));
         prov.appendChild(el(doc, "span", "updated", `Updated ${asStr((task as { updated?: unknown }).updated)}`));
         foot.appendChild(prov);
-        if (currentHandlers?.onOpenTask) {
-          // U42: chat affordance; the drawer opens only on user action.
-          art.setAttribute("data-task-id", tid);
-          const chatBtn = el(doc, "button", "task-chat", "Chat");
-          chatBtn.setAttribute("type", "button");
-          chatBtn.setAttribute("data-task-id", tid);
-          chatBtn.setAttribute("aria-label", `Open chat: ${asStr((task as { title?: unknown }).title)}`);
-          foot.appendChild(chatBtn);
-        }
         art.appendChild(foot);
         board.appendChild(art);
       }
-      viewWrap.appendChild(board);
+      taskDestination.appendChild(board);
     } else if (view === "agenda" && hasPlan) {
       const workspaceTasks = wsTasksAll(workspaceId, false);
       function resolveAgendaTask(item: AgendaItemVM): TaskVM | undefined {
@@ -1189,9 +1569,15 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
         filt.appendChild(b);
       }
       bar.appendChild(filt);
-      bar.appendChild(el(doc, "p", "archive-count", archive.length === 1 ? "1 finished task" : `${archive.length} finished tasks`));
+      const filtered = archive.filter(item => item && typeof item === "object"
+        && (archiveScope === "all" || (knownWorkspace && item.workspace === workspaceId)));
+      const scopeLabel = archiveScope === "all" ? "across all workspaces" : "in this workspace";
+      bar.appendChild(el(doc, "p", "archive-count",
+        `${filtered.length} archived ${filtered.length === 1 ? "plan" : "plans"} ${scopeLabel}`));
       sec.appendChild(bar);
-      sec.appendChild(renderPlanArchive(doc, archive as unknown as Parameters<typeof renderPlanArchive>[1]));
+      sec.appendChild(el(doc, "p", "archive-scope-note",
+        "Archive counts closed plans only. Completed tasks in the active plan are shown in Swarm."));
+      sec.appendChild(renderPlanArchive(doc, filtered as unknown as Parameters<typeof renderPlanArchive>[1]));
       viewWrap.appendChild(sec);
     } else {
       // archive
@@ -1213,6 +1599,10 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
       const filtered = archive.filter((a) => a && typeof a === "object" && (archiveScope === "all" || (knownWorkspace && (a as { workspace?: unknown }).workspace === workspaceId)));
       bar.appendChild(el(doc, "p", "archive-count", filtered.length === 1 ? "1 finished task" : `${filtered.length} finished tasks`));
       sec.appendChild(bar);
+      // A-U159: State the legacy count's source without changing its task-count unit.
+      sec.appendChild(el(doc, "p", "archive-scope-note", archiveScope === "all"
+        ? "Counts finished tasks in legacy archives across all workspaces. Plan task completion is shown in Swarm."
+        : "Counts finished tasks in this workspace's legacy archive. Plan task completion is shown in Swarm."));
       const ul = el(doc, "ul", "archive-list");
       const wsName = new Map<string, string>();
       for (const w of workspaces) {
@@ -1256,7 +1646,7 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
 
     // ensure focus hidden property reflects (section.focus.hidden already set)
     try {
-      const viewLabel = VIEWS.find(([vid]) => vid === view)?.[1] ?? view;
+      const viewLabel = DESTINATIONS.find(([vid]) => vid === view)?.[1] ?? view;
       if (lastView === undefined || lastView !== view) {
         announcer.textContent = `${viewLabel} view`;
         lastLive = `${viewLabel} view`;
@@ -1266,6 +1656,15 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
     try {
       const nextActs = new Map<string, string>();
       const transitions: string[] = [];
+      const guidanceCopy = guidance?.room === workspaceId ? JSON.stringify(guidance) : "";
+      if (guidanceCopy !== lastGuidanceCopy) {
+        lastGuidanceCopy = guidanceCopy;
+        if (guidance && guidance.room === workspaceId) transitions.push([
+          `Workspace ${guidance.room}`, guidance.connected ? "Bridge connected" : "",
+          guidance.heading, guidance.action, guidance.saved ? "Saved progress; connection unavailable" : "",
+          guidance.error, ...guidance.notices.flatMap(item => [item.heading, item.action]),
+        ].filter(Boolean).join(". "));
+      }
       const record = (key: string, label: string, state: string): void => {
         nextActs.set(key, state);
         const previous = lastActivities.get(key);
@@ -1286,18 +1685,37 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
         });
       }
       lastActivities = nextActs;
+      const lifecycleScope = JSON.stringify([workspaceId, input.swarm?.room ?? null]);
+      const nextLifecycles = new Map<string, string>();
+      for (const agent of input.swarm?.agents ?? []) {
+        if (!agent.lifecycle) continue;
+        const key = agent.agent;
+        const state = JSON.stringify([agent.lifecycle, agent.run_id ?? null]);
+        nextLifecycles.set(key, state);
+        if (lastLifecycleScope === lifecycleScope && lastLifecycles.get(key) !== state) {
+          transitions.push(`Agent ${agent.agent}: ${agent.lifecycle}`);
+        }
+      }
+      lastLifecycles = nextLifecycles;
+      lastLifecycleScope = lifecycleScope;
       // One polite-region update batches every changed identity. Beat/deadline
       // refreshes with unchanged semantic states remain silent.
       if (transitions.length > 0) announceLive(transitions.join("; "));
     } catch { /* contained */ }
-    restoreFocus(focusDesc);
-    try {
-      if (pendingFocusView !== null) {
-        const target = host.querySelector(`[role="tab"][data-nav="${pendingFocusView}"]`) as HTMLElement | null;
-        if (target) target.focus();
-        pendingFocusView = null;
+    if (previousScope === swarmScope && previousTaskView === view) {
+      for (const detail of host.querySelectorAll<HTMLDetailsElement>(".task-detail")) {
+        const taskVmId = detail.querySelector(".task-detail-toggle")?.getAttribute("data-task-vm-id");
+        if (taskVmId && openTaskDetails.has(taskVmId)) detail.open = true;
       }
-    } catch { /* contained */ }
+    }
+    restoreFocus(focusDesc);
+    if (pendingFocusView !== null) {
+      const target = host.querySelector<HTMLElement>(`[role="tab"][data-nav="${pendingFocusView}"]`);
+      const panel = target?.closest(".navigation-panel");
+      if (panel && doc.defaultView?.getComputedStyle(panel).display === "none") navigationToggle.focus();
+      else target?.focus();
+      pendingFocusView = null;
+    }
     scheduleExpiry();
     try {
       for (const btn of host.querySelectorAll("button.step-row")) {
@@ -1320,8 +1738,8 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
 
   render(vm);
 
-  const handle: WallHandle = {
-    update(next: WallVM): void {
+  const handle: WallMountHandle = {
+    update(next: WallMountVM): void {
       if (destroyed) return;
       currentVm = next;
       render(next);
@@ -1340,7 +1758,9 @@ export function mountWall(host: HTMLElement, vm: WallVM, handlers?: WallHandlers
       } catch {
         /* ignore */
       }
+      const swarmView = host.querySelector<HTMLElement>(".swarm-view");
       host.replaceChildren();
+      disposeSwarm(swarmView);
     },
   };
   void currentVm;

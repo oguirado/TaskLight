@@ -14,6 +14,9 @@ function saturatedHistory(): Record<string, unknown>[] {
 }
 function reopenEvents(run: string): Record<string, unknown>[] {
   return [
+    // A-U109c: (a) both retirement/reopen probes require terminal old work, M6.
+    event(298, { kind: "task.set", task_id: "T01", base_rev: 5, state: "cancelled" }),
+    event(299, { kind: "task.set", task_id: "T02", base_rev: 3, state: "cancelled" }),
     event(300, { kind: "plan.close", base_rev: 1, op_id: "close-old" }),
     event(301, { ...(fixture.seed[0]!["op"] as object), title: "New plan", op_id: "open-new" }),
     event(302, { ...(fixture.seed[1]!["op"] as object), op_id: "add-next" }),
@@ -48,7 +51,12 @@ const acceptedCases: OperationCase[] = [
   { kind: "activity.beat", op: { task_id: "T01", micro_id: "T01.M01", run_id: "run_C" } },
 ];
 function historyFor(c: OperationCase): Record<string, unknown>[] {
-  return [...activeHistory(), ...(c.closed ? [event(20, { kind: "plan.close", base_rev: 1 })] : [])];
+  // A-U109c: (a) close/open fault injection must reach mutation after the terminal gate, M6/M7.
+  const terminal = c.closed || c.kind === "plan.close" ? [
+    event(18, { kind: "task.set", task_id: "T01", base_rev: 5, state: "cancelled" }),
+    event(19, { kind: "task.set", task_id: "T02", base_rev: 3, state: "cancelled" }),
+  ] : [];
+  return [...activeHistory(), ...terminal, ...(c.closed ? [event(20, { kind: "plan.close", base_rev: 1 })] : [])];
 }
 function expectedRejection(before: PlanProjection, ev: Record<string, unknown>, code: string): PlanProjection {
   const expected = copy(before);

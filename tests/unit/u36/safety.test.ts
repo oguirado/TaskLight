@@ -1,3 +1,4 @@
+// A-Q1: U148/U150 named non-article task roots retain their classes and identity hooks.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ViewId } from "../../../src/views/types";
 import { FIXTURE, mapIds, mapText, vm } from "./fixture";
@@ -41,7 +42,7 @@ describe("B2 text safety: markup in data renders literally", () => {
 
     it("title, summary, step label/note, outcome, evidence and next appear literally in the Wall", () => {
       const { host } = mount(hostile(p));
-      const a = q(host, "article#t1");
+      const a = q(host, ".task#t1");
       expect(txt(q(a, "h2.task-title"))).toBe(`${p}|${FIXTURE.tasks[0]?.title}`);
       expect(txt(q(a, "p.task-summary"))).toBe(`${p}|${FIXTURE.tasks[0]?.summary}`);
       expect(txt(q(a, ".step-label"))).toBe(`${p}|Port handlers to the v2 schema`);
@@ -119,7 +120,7 @@ describe("B2 hostile ids and attribute values", () => {
     const { host } = mount(withBadIds());
     const a = q(host, "a.focus-link");
     expect(attr(a, "href")).toBe(`#${BAD_ID("t1")}`);
-    expect(document.getElementById(BAD_ID("t1"))).toBe(q(host, "article.task"));
+    expect(document.getElementById(BAD_ID("t1"))).toBe(q(host, ".task[data-task-id]"));
   });
 
   it("handlers receive the raw ids", () => {

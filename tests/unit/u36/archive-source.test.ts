@@ -1,3 +1,4 @@
+// A-Q1: U148/U150 named non-article task roots retain their classes and identity hooks.
 import { afterEach, describe, expect, it } from "vitest";
 import type { SourceVM } from "../../../src/views/types";
 import { mkDone, mkTask, ms, vm, withTasks } from "./fixture";
@@ -126,17 +127,17 @@ const chipOk = (chip: Element, s: SourceVM) => {
 describe("B11 source chip", () => {
   it("task provenance chip: device", () => {
     const { host } = mount();
-    chipOk(q(nth(qa(host, "article.task"), 0), "p.provenance > span.source"), { kind: "device", ms: 142 });
+    chipOk(q(nth(qa(host, ".task[data-task-id]"), 0), "p.provenance > span.source"), { kind: "device", ms: 142 });
   });
 
   it("task provenance chip: cloud", () => {
     const { host } = mount(vm({ workspace: "w2" }));
-    chipOk(q(host, "article.task p.provenance > span.source"), { kind: "cloud", ms: 1180 });
+    chipOk(q(host, ".task[data-task-id] p.provenance > span.source"), { kind: "cloud", ms: 1180 });
   });
 
   it("step detail chip", () => {
     const { host } = mount();
-    chipOk(q(host, "article#t1 div.step-detail span.source"), { kind: "device", ms: 131 });
+    chipOk(q(host, ".task#t1 div.step-detail span.source"), { kind: "device", ms: 131 });
   });
 
   it("diary entry chip (cloud)", () => {

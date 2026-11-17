@@ -1,7 +1,11 @@
+// A-Q1: U148/U150 named non-article task roots retain their classes and identity hooks.
 import { afterEach, describe, expect, it } from "vitest";
 import type { AttentionVM, TaskStatusVM } from "../../../src/views/types";
 import { mkDone, mkStep, mkTask, ms, vm, withTasks } from "./fixture";
-import { attr, cardIds, cards, cleanup, mount, nth, q, qa, txt } from "./helpers";
+import { attr, cleanup, mount, nth, q, qa, txt } from "./helpers";
+
+const cards = (host: ParentNode): HTMLElement[] => qa(host, ".task[data-task-id]");
+const cardIds = (host: ParentNode): string[] => cards(host).map(c => c.id);
 
 afterEach(cleanup);
 
@@ -16,11 +20,11 @@ describe("B5 wall: selection and order", () => {
     expect(cardIds(host)).toEqual([...ids]);
   });
 
-  it("board is a section.board with an aria-label, children are article.task", () => {
+  it("board is a section.board with an aria-label, children are named non-article task groups", () => {
     const { host } = mount();
     const board = q(host, "div.view > section.board");
     expect(attr(board, "aria-label")).toBeTruthy();
-    expect(Array.from(board.children).every((c) => c.tagName === "ARTICLE" && c.classList.contains("task"))).toBe(true);
+    expect(Array.from(board.children).every((c) => c.tagName !== "ARTICLE" && c.matches(".task[data-task-id][role=group][aria-labelledby]"))).toBe(true);
   });
 
   it("sorts by attention now > high > low > none, stable for ties", () => {
@@ -51,7 +55,7 @@ describe("B5 wall: selection and order", () => {
   });
 });
 
-describe("B5 wall: article.task markup", () => {
+describe("B5 wall: .task[data-task-id] markup", () => {
   it("carries data-status, data-attention, data-accent and is labelled by its title", () => {
     const { host } = mount();
     const a = nth(cards(host), 0);
@@ -80,7 +84,7 @@ describe("B5 wall: article.task markup", () => {
     ["blocked", "Blocked"], ["waiting", "Needs input"], ["running", "In progress"], ["idle", "Idle"], ["done", "Done"], ["failed", "Failed"],
   ] as [TaskStatusVM, string][])("status %s has the pill label %s", (status, label) => {
     const { host } = mount(withTasks([mkTask("a", { status })]));
-    const st = q(host, "article.task span.status");
+    const st = q(host, ".task[data-task-id] span.status");
     expect(attr(st, "data-status")).toBe(status);
     expect(txt(q(st, ".status-label"))).toBe(label);
   });

@@ -412,6 +412,9 @@ def main(argv=None):
         "allowed_origins": [origin],
     }
     if apply_:
+        # Refuse even dangling symlinks before touching installation files.
+        if mpath.is_symlink():
+            return 2
         if mpath.is_file():
             try:
                 data = json.loads(mpath.read_text(encoding="utf-8"))
@@ -429,8 +432,18 @@ def main(argv=None):
             base.mkdir(parents=True, exist_ok=True)
             launcher.write_text(expected_launcher_text, encoding="utf-8")
             os.chmod(launcher, 0o700)
-            mpath.write_text(json.dumps(manifest, indent=2) + "\n",
-                             encoding="utf-8")
+            manifest_text = json.dumps(manifest, indent=2) + "\n"
+            if _is_win():
+                mpath.write_text(manifest_text, encoding="utf-8")
+            else:
+                # Bind permissions and writes to one non-symlink descriptor.
+                # Reinstall also tightens an owned manifest's existing mode.
+                flags = os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW
+                fd = os.open(mpath, flags, 0o600)
+                with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                    os.fchmod(stream.fileno(), 0o600)
+                    stream.truncate(0)
+                    stream.write(manifest_text)
             # M3: an existing config is never overwritten.
             if not os.path.lexists(config_path):
                 config_path.parent.mkdir(parents=True, exist_ok=True)

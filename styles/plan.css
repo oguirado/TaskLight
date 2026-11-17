@@ -1,4 +1,19 @@
 /* U62 plan band and memory view: uses only custom properties from styles/tokens.css */
+/* Let long phase labels and task content shrink within their grid/flex tracks. */
+.plan-band,
+.plan-band > *,
+.plan-band-head > *,
+.plan-phases > *,
+.phase-groups,
+.phase-groups > *,
+.phase-group > *,
+.phase-tasks,
+.phase-tasks > * {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
+}
 .plan-band {
   background-color: var(--c-surface-1);
   color: var(--c-text-1);
@@ -10,6 +25,7 @@
 }
 .plan-band-head {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--sp-3);
   align-items: baseline;
   justify-content: space-between;
@@ -30,9 +46,11 @@
 }
 .plan-phases {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--sp-2);
 }
 .phase-chip {
+  white-space: normal;
   background-color: var(--c-surface-2);
   color: var(--c-text-2);
   border-color: var(--c-line);
@@ -64,6 +82,7 @@
 }
 .phase-group {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--sp-3);
 }
 .phase-header {
@@ -72,6 +91,7 @@
 }
 .phase-tasks {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--sp-3);
 }
 .task {
@@ -255,4 +275,355 @@
 }
 .memory-time {
   color: var(--c-text-3);
+}
+
+/* Agent evidence shares the task header without changing its activity ring. */
+.wall-agent-chip,
+.wall-agent-state,
+.agent-strip-header,
+.agent-strip-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-1) var(--sp-2);
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  overflow-wrap: anywhere;
+}
+
+.wall-agent-chip {
+  display: inline-flex;
+  padding: var(--sp-1) var(--sp-2);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-2);
+  background: var(--c-surface-2);
+  color: var(--c-text-1);
+  font-size: var(--fs-1);
+}
+
+.wall-agent-name {
+  font-family: var(--font-mono);
+}
+
+.wall-agent-harness,
+.wall-agent-registration,
+.agent-strip-work,
+.agent-strip-beat {
+  color: var(--c-text-2);
+}
+
+.wall-agent-dot {
+  flex: 0 0 auto;
+  inline-size: var(--sp-2);
+  block-size: var(--sp-2);
+  border-radius: var(--r-pill);
+  background: currentColor;
+}
+
+.wall-agent-state[data-activity="working"] {
+  color: var(--c-primary-ink);
+}
+
+.wall-agent-state[data-activity="failed"],
+.wall-agent-state[data-activity="blocked"] {
+  color: var(--c-st-blocked);
+}
+
+.wall-agent-state[data-activity="finished"],
+.wall-agent-state[data-activity="done"] {
+  color: var(--c-st-done);
+}
+
+.wall-agent-state[data-activity="waiting"],
+.wall-agent-state[data-activity="needs_you"] {
+  color: var(--c-st-waiting);
+}
+
+.wall-agent-state[data-activity="unknown"] .wall-agent-dot {
+  border: 1px solid currentColor;
+  background: transparent;
+}
+
+.agent-strip {
+  box-sizing: border-box;
+  display: grid;
+  gap: var(--sp-3);
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  padding: var(--sp-3);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-2);
+  background: var(--c-surface-1);
+  color: var(--c-text-1);
+  overflow-wrap: anywhere;
+}
+
+.agent-strip :where(h2, h3, p) {
+  margin: 0;
+}
+
+.agent-strip-header {
+  justify-content: space-between;
+}
+
+.agent-strip-title {
+  font-size: var(--fs-3);
+}
+
+.agent-strip-group {
+  display: grid;
+  gap: var(--sp-1);
+  min-inline-size: 0;
+}
+
+.agent-strip-group-title,
+.agent-strip-empty {
+  color: var(--c-text-3);
+  font-size: var(--fs-1);
+}
+
+.agent-strip-list {
+  display: grid;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-inline-size: 0;
+}
+
+.agent-strip-row {
+  font-size: var(--fs-2);
+}
+
+.agent-strip-field {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  overflow-wrap: anywhere;
+}
+
+.agent-strip-field-label {
+  color: var(--c-text-2);
+}
+
+.agent-strip-field .wall-agent-state {
+  display: inline-flex;
+  vertical-align: middle;
+}
+
+.agent-strip-all {
+  inline-size: auto;
+  max-inline-size: 100%;
+  min-block-size: 2.75rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.agent-strip :focus-visible,
+.nav-secondary :focus-visible {
+  outline: 2px solid var(--c-focus);
+  outline-offset: 2px;
+}
+
+.agent-strip-beat {
+  font-variant-numeric: tabular-nums;
+}
+
+.plan-wall .task-head {
+  flex-wrap: wrap;
+  min-inline-size: 0;
+}
+
+.plan-wall .task-head > *,
+.wall-agent-chip > *,
+.agent-strip-row > * {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  overflow-wrap: anywhere;
+}
+
+.plan-wall .task-title {
+  flex: 1 1 12rem;
+}
+
+.plan-wall .task-head :where(.task-id, .task-type, .assignee, .estimate, .activity-label) {
+  white-space: normal;
+}
+
+/* Wall identity and task activity remain distinct while wrapping naturally. */
+.plan-wall .plan-agents {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+  color: var(--c-text-2);
+  font-size: var(--fs-1);
+  line-height: var(--lh-body);
+}
+.plan-wall .plan-agents .agent-dot {
+  display: inline;
+  font-family: var(--font-mono);
+}
+.plan-wall .task-head > .status-icon {
+  flex: none;
+}
+.plan-wall .task-activity,
+.wall-agent-unavailable {
+  color: var(--c-text-2);
+  font-size: var(--fs-1);
+  overflow-wrap: anywhere;
+}
+
+/* Compact Wall checklist; legacy task and step surfaces keep their styling. */
+.plan-wall,
+.agent-strip {
+  inline-size: 100%;
+  max-inline-size: var(--wall-reading-max);
+  min-inline-size: 0;
+  box-sizing: border-box;
+}
+
+.plan-wall .task {
+  padding: var(--wall-task-pad);
+  gap: var(--wall-task-gap);
+  border-radius: var(--r-2);
+  box-shadow: none;
+}
+
+.plan-wall .task-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--wall-row-gap) var(--wall-task-gap);
+  margin-bottom: 0;
+}
+
+.plan-wall .task-detail {
+  min-inline-size: 0;
+  grid-column: 2;
+}
+
+.plan-wall .task-detail > summary {
+  display: flex;
+  align-items: center;
+  min-block-size: var(--wall-control-min);
+  cursor: pointer;
+}
+
+.plan-wall .task-title {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: var(--wall-task-font);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-snug);
+  overflow-wrap: anywhere;
+}
+
+.plan-wall .plan-title {
+  font-size: var(--wall-title-font);
+}
+
+.plan-wall .task-head > .status-icon {
+  grid-column: 1;
+}
+
+.plan-wall .task-head > .wall-agent-chip,
+.plan-wall .task-head > .task-activity,
+.plan-wall .task-head > .status {
+  grid-column: 2 / -1;
+  justify-self: start;
+}
+
+.plan-wall .task-id,
+.plan-wall .wall-agent-name {
+  font-family: var(--font-mono);
+}
+
+.plan-wall .task-progress,
+.plan-wall .wall-agent-chip,
+.plan-wall .task-activity,
+.agent-strip .agent-strip-row {
+  font-size: var(--wall-meta-font);
+}
+
+.plan-wall .steps {
+  margin: 0;
+  padding: 0 0 0 var(--wall-row-indent);
+  list-style: none;
+  gap: var(--wall-row-gap);
+}
+
+.plan-wall .step-row {
+  box-sizing: border-box;
+  border: 0;
+  background: transparent;
+  font-size: var(--wall-step-font);
+}
+
+.plan-wall button.step-row,
+.agent-strip button {
+  min-height: var(--wall-control-min);
+}
+
+.plan-wall .step[data-activity="working"] .step-row {
+  background: var(--wall-step-active-bg);
+  font-weight: var(--fw-medium);
+}
+
+.plan-wall .step-detail {
+  animation: none;
+}
+
+.plan-wall .wall-agent-name,
+.agent-strip .wall-agent-name,
+.agent-strip .agent-strip-field {
+  min-inline-size: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Alternate flexible fields and the existing textual separators. */
+.agent-strip .agent-strip-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) auto minmax(0, 1.4fr) auto
+    minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+  min-block-size: var(--wall-strip-row-min);
+  gap: 0 var(--wall-row-gap);
+  align-items: baseline;
+}
+
+.plan-wall :is(.step-indicator, .status-icon, .wall-agent-state)[data-activity="working"],
+.agent-strip .wall-agent-state[data-activity="working"] {
+  color: var(--wall-state-working);
+}
+.plan-wall :is(.step-indicator, .status-icon, .wall-agent-state):is([data-activity="waiting"], [data-activity="needs_you"]),
+.agent-strip .wall-agent-state:is([data-activity="waiting"], [data-activity="needs_you"]) {
+  color: var(--wall-state-waiting);
+}
+.plan-wall :is(.step-indicator, .status-icon, .wall-agent-state):is([data-activity="blocked"], [data-activity="failed"]),
+.agent-strip .wall-agent-state:is([data-activity="blocked"], [data-activity="failed"]) {
+  color: var(--wall-state-failed);
+}
+.plan-wall :is(.step-indicator, .status-icon, .wall-agent-state):is([data-activity="done"], [data-activity="finished"]),
+.agent-strip .wall-agent-state:is([data-activity="done"], [data-activity="finished"]) {
+  color: var(--wall-state-done);
+}
+.plan-wall :is(.step-indicator, .status-icon, .wall-agent-state):is([data-activity="idle"], [data-activity="unknown"], [data-activity="cancelled"]),
+.agent-strip .wall-agent-state:is([data-activity="idle"], [data-activity="unknown"], [data-activity="cancelled"]) {
+  color: var(--wall-state-unknown);
+}
+
+@media (max-width: 759px) {
+  .plan-wall .task-head {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .plan-wall .task-progress {
+    grid-column: 2;
+  }
+  .agent-strip .agent-strip-row {
+    grid-template-columns: minmax(0, 1fr);
+    /* Separators stay in the text alternative without taking a visual row. */
+    font-size: 0;
+  }
+  .agent-strip .agent-strip-field {
+    font-size: var(--wall-meta-font);
+    padding-block: var(--wall-row-gap);
+  }
 }

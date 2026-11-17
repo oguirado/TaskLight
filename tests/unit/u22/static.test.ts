@@ -84,8 +84,10 @@ describe("module boundaries (R5, firebase_ports sole importer)", () => {
   });
   it("src/app never calls getAI/getGenerativeModel/generateContent (U06 is sole caller)", () => {
     // A3-U22: agent_drift.ts calls generateContent only on a handle produced by the U06 model factory (it never imports firebase/ai).
-    expect(appFiles().filter((f) => !f.endsWith("agent_drift.ts") && /\b(getAI|getGenerativeModel|generateContent)\b/.test(read(f)))).toEqual([]);
+    // A-U135a: narrator.ts (U135) also calls generateContent only on a handle from the injected U06 model factory, like agent_drift.ts.
+    expect(appFiles().filter((f) => !f.endsWith("agent_drift.ts") && !f.endsWith("narrator.ts") && /\b(getAI|getGenerativeModel|generateContent)\b/.test(read(f)))).toEqual([]);
     expect(/\b(getAI|getGenerativeModel)\b|firebase\/ai/.test(read(join(APP, "agent_drift.ts")))).toBe(false);
+    expect(/\b(getAI|getGenerativeModel)\b|firebase\/ai/.test(read(join(APP, "narrator.ts")))).toBe(false);
   });
   it("no eval / new Function / iframe.allow assignment / innerHTML in src/app", () => {
     for (const f of appFiles()) {

@@ -1,6 +1,10 @@
+// A-Q1: U148/U150 named non-article task roots retain their classes and identity hooks.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { frozenFixture, mkTask, vm, withTasks } from "./fixture";
-import { attr, cardIds, cleanup, click, htmlAttrs, key, mount, mountSpied, q, qa, txt } from "./helpers";
+import { attr, cleanup, click, htmlAttrs, key, mount, mountSpied, q, qa, txt } from "./helpers";
+
+const cards = (host: ParentNode): HTMLElement[] => qa(host, ".task[data-task-id]");
+const cardIds = (host: ParentNode): string[] => cards(host).map(c => c.id);
 
 afterEach(cleanup);
 
@@ -43,7 +47,8 @@ describe("B14 update re-renders", () => {
     expect(host.children.length).toBe(1);
     expect(qa(host, ".app").length).toBe(1);
     expect(qa(host, "aside.rail").length).toBe(1);
-    expect(qa(host, "button.nav-item").length).toBe(4);
+    // A-R40: five primary destinations plus secondary Swarm, U138 M1.
+    expect(qa(host, "button.nav-item").length).toBe(6);
   });
 
   it("update reflects changed task fields, status and removed tasks", () => {

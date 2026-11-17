@@ -4,8 +4,9 @@ This guide covers the v9 planning model used by developers and agent
 operators. Planning turns a template into a concrete plan inside a room,
 and an MCP client drives tasks, microtasks and memory through the tools
 described in [MCP](MCP.md) under the rules in
-[docs/PLANNING_CONTRACT.md](PLANNING_CONTRACT.md). Plan and memory storage
-is local to the host; nothing is collected in the cloud.
+[docs/PLANNING_CONTRACT.md](PLANNING_CONTRACT.md). The external harness deploys and directs agents; TaskLight maintains their
+shared plans and coarse microtasks. Room storage is local to the host; model
+access remains subject to room privacy policy.
 
 ## Planning templates (`planning-template/v1`)
 
@@ -36,7 +37,7 @@ and are validated as untrusted data.
 returns `{format:"markdown",text,rev}` for `what:"plan"` or `what:"memory"`.
 `memory_history` returns accepted memory revisions newest first. Both are
 available through MCP and `python3 -m bridge.room call`; see
-[HEADLESS.md](HEADLESS.md#5-cli-parity) for examples and the unwired
+[HEADLESS.md](HEADLESS.md#5-cli-parity) for examples and the supported
 `export --room R --out DIR` command. The file exporter implementation
 writes `PLAN.md` and `MEMORY.md` only beneath `$CW_HOME`. The room event
 log (`events.jsonl`) remains authoritative.
@@ -68,13 +69,19 @@ only inside development starters. Starter templates ship in
    for conformance to be enforced.
 4. Read `conformance.findings[]`. Findings are advisory by default; when
    `strict` is true the batch is rejected with `not_conformant` instead.
-5. Execute with `next_work`, `task_claim`, `task_release`,
-   `microtask_add`, `microtask_set`, `plan_phase` (op `plan.phase`) and
-   `plan_close` (op `plan.close`).
+5. Execute with `work_acquire` and boundary-only `work_report` batches.
+   `work_acquire` claims without takeover and returns the claim fence;
+   `work_report` records completed outcomes and evidence and activates the next
+   pending microtask in one append transaction. The granular alternative is
+   `next_work` then `task_claim`, followed by `microtask_set`. Use `task_release`
+   for unfinished handoff, `microtask_add` for added work, `plan_phase` for phase
+   gates and `plan_close` only after all tasks are `done` or `cancelled`.
+   See [HEADLESS.md](HEADLESS.md) for the executable workflow and
+   [SWARM.md](SWARM.md) for `swarm_coordinator`, `swarm_executor`, `executor_loop`.
    Send `activity_beat` every 30 seconds while assigned work is active;
    beats supply liveness, not task completion. Use a separate stdio
    connection for blocking waits so beats can continue. After 90 seconds
-   without a valid beat the wall shows unknown liveness; partially done
+   without a valid beat the wall shows **Liveness unknown**; partially done
    work alone is not evidence of execution.
    Agents that need context follow the [resume ladder](PLANNING_CONTRACT.md#5-resume-after-context-loss)
    or call `resume_from_memory`.
@@ -107,11 +114,28 @@ only inside development starters. Starter templates ship in
   agenda eligibility additionally excludes `blocked` tasks. A task whose dependencies are unsatisfied waits and reports
   `ready: false`.
 
+## Ownership and dependency gates
+
+Unassigned microtask writes return `not_conformant`; foreign writes return
+`claimed_by_other`. Dependencies must be `done` or `cancelled` before a
+microtask can become `active` or `done`. A stale optional `claim_lamport` on
+`microtask_set` or `task_release` returns `stale_rev`. Release resets active
+microtasks to `pending`. Terminal task release is rejected: **HOLD** until its
+upstream contract is resolved. Premature closure returns `not_conformant` with
+unfinished task identifiers. A lean-plan gate cannot pass until required owner
+contracts, discovery descriptors and dependency admission are verified.
+
+Reuse the harness-recorded `run_id`, stable per attempt. Executors never
+self-announce deployment or exit. Human questions and terminals belong in the
+harness; retained chat and liaison are legacy, with no new investment.
+Report outcomes and evidence at coarse microtask boundaries.
+
 ## Privacy
 
-In the MVP both plan and memory data stay on-device. The `private` tier
-never leaves the device, `standard` prefers on-device storage with a
-fallback only when allowed, and `shared` permits hybrid review. The
+The room journal is local storage. Private narration stays on-device; if
+unavailable it uses a labelled **Rules summary**. Narration cannot mutate the
+room. Other tiers permit cloud narration only under privacy policy. Cloud
+executors operate under the harness and its configured data boundaries. The
 relay redacts all strings inside `op` events before browser delivery
 (structural sha256 values such as `template_hash` and evidence hashes pass
 unchanged, and a redacted `op_id` becomes an opaque surrogate),

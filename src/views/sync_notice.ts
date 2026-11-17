@@ -14,13 +14,16 @@ export interface SyncNotice {
 export function createSyncNotice(parent: HTMLElement | DocumentFragment): SyncNotice {
   const doc = parent instanceof DocumentFragment ? parent.ownerDocument : parent.ownerDocument;
   const node = doc.createElement("div");
+  node.className = "sync-notice";
   node.setAttribute("role", "status");
   node.setAttribute("aria-live", "polite");
   let signature = "";
   const render = (faults: readonly SyncFault[]): string => {
     const sorted = [...faults].sort((a, b) => (a.room < b.room ? -1 : a.room > b.room ? 1 : 0));
     const parts = sorted.map((f) => {
-      if (typeof f.fromLamport === "number" && typeof f.toLamport === "number") {
+      if (typeof f.fromLamport === "number" && typeof f.toLamport === "number"
+        && Number.isSafeInteger(f.fromLamport) && Number.isSafeInteger(f.toLamport)
+        && f.fromLamport >= 0 && f.toLamport >= f.fromLamport) {
         return `${f.room}: excluded Lamport ${String(f.fromLamport)} to ${String(f.toLamport)}`;
       }
       return `${f.room}: replay required`;

@@ -1,0 +1,25 @@
+{
+  "tests": 804,
+  "failures": [
+    "bridge.tests.room.u69.test_contract.Contract.test_a5_close_with_passive_unicode_outcome",
+    "bridge.tests.room.u69.test_contract.Contract.test_a5_close_without_optional_outcome",
+    "bridge.tests.room.u69.test_contract.Contract.test_m3_close_empty_outcome_is_valid",
+    "bridge.tests.room.u69.test_contract.Contract.test_m3_close_replay_does_not_duplicate_archive",
+    "bridge.tests.room.u69.test_contract.Contract.test_m3_preserve_entire_twenty_tool_prefix",
+    "bridge.tests.room.u69.test_contract.Contract.test_m4_readiness_and_terminal_states_preserved",
+    "bridge.tests.room.u87.test_contract.ParityOracle.test_a2_plan_close",
+    "bridge.tests.room.u87.test_contract.ParityOracle.test_a2_same_dispatcher_for_every_tool (tool='plan_close')",
+    "bridge.tests.room.u90.test_repair2.RepairTwoTests.test_unsaturated_retired_run_can_be_reused_in_new_plan",
+    "bridge.tests.room.u94.test_contract.Discovery.test_m1_existing_tool_descriptors_unchanged"
+  ],
+  "errors": [
+    "bridge.tests.room.u90.test_activity.FoldTests.test_a5_leave_active_completion_block_cancel_release_reassignment (scenario='release')",
+    "bridge.tests.room.u90.test_activity.FoldTests.test_a5_leave_active_completion_block_cancel_release_reassignment (scenario='reassign')",
+    "bridge.tests.room.u90.test_activity.FoldTests.test_m5_microtask_set_keeps_existing_unassigned_authority",
+    "bridge.tests.room.u90.test_activity.ToolTests.test_a3_closed_plan_no_append",
+    "bridge.tests.room.u90.test_repair1.RepairActivityTests.test_close_retires_at_task_scope",
+    "bridge.tests.room.u90.test_repair2.RepairTwoTests.test_saturation_is_reset_only_by_successful_plan_open (run_id='run_000')",
+    "bridge.tests.room.u90.test_repair2.RepairTwoTests.test_saturation_is_reset_only_by_successful_plan_open (run_id='fresh_run')"
+  ],
+  "skips": []
+}

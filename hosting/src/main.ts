@@ -5,6 +5,7 @@ import "../../styles/tokens.css";
 import "../../styles/wall.css";
 import "../../styles/views.css";
 import "../../styles/plan.css";
+import "../../styles/swarm.css";
 import "../../styles/model_selector.css";
 import "../../styles/agents.css";
 import { boot, onGoogleSignIn, onUserActivation } from "../../src/app/boot";
@@ -24,9 +25,11 @@ import { createModelServices } from "../../src/app/model_services";
 import type { ModelServices } from "../../src/app/model_services";
 import { attachModelChannel } from "../../src/app/model_port";
 import type { ModelChannel } from "../../src/app/model_port";
-import { createModelSheet } from "../../src/ui/model_selector";
+import { createModelSheet, effectiveId } from "../../src/ui/model_selector";
 import type { ModelSheetIntent } from "../../src/ui/model_selector";
-import type { ModelSelection } from "../../src/providers/types";
+import type { Announcer } from "../../src/ui/types";
+import { FIREBASE_IDS } from "../../src/providers/types";
+import type { ModelSelection, ProviderDescriptor } from "../../src/providers/types";
 import { startAgentWall } from "../../src/app/agent_wall";
 import type { AgentWall } from "../../src/app/agent_wall";
 import { createLiaisonController } from "../../src/app/liaison";
@@ -36,7 +39,7 @@ import type { LiaisonPanelHandle } from "../../src/agentsui/liaison_panel";
 import { isPlaceholderConfig } from "../../src/app/firebase-config.public";
 import { readHostEnv } from "../../src/app/index";
 import { renderHostState } from "../../src/app/ui";
-import type { Clock, FirebasePorts, HybridPort, HostState, RuntimePort } from "../../src/app/types";
+import type { Clock, FirebasePorts, HybridPort, HostState, RuntimePort, WallPortState } from "../../src/app/types";
 import type { ModelFactory } from "../../src/ai/types";
 import type { FirebaseApp } from "firebase/app";
 
@@ -248,6 +251,34 @@ let deviceModelState: string | undefined;
 let services: ModelServices | null = null;
 let refreshLiaison = (): void => undefined;
 let offModelSheet: (() => void) | undefined;
+let activeModelRoom: string | undefined;
+let roomFloorForModels: (room: string) => unknown = () => undefined;
+let refreshModelsWall = (): void => undefined;
+let sheetReady = false;
+
+// Host floors and registry resolution are the authority; network reachability
+// and the selected chat task cannot grant room permissions.
+function modelAvailability(room: string | undefined = activeModelRoom): string {
+  if (services === null) return "Models unavailable";
+  const floor = room === undefined ? undefined : roomFloorForModels(room);
+  const tier = floor === "ONLY_ON_DEVICE" ? "private"
+    : floor === "PREFER_ON_DEVICE" ? "standard" : undefined;
+  if (tier === undefined) return "Room policy unknown";
+  const policy = tier === "private" ? "Cloud blocked by room policy" : "Room policy permits cloud";
+  try {
+    const selectedId = effectiveId(services.sheet().selection(), "capsule");
+    const descriptor = services.registry.list().find(provider => provider.id === selectedId);
+    const chain = services.registry.resolve("status", tier);
+    if (descriptor === undefined || chain.blocked !== undefined || chain.primary !== selectedId
+      || descriptor.blockedReason !== undefined) return `${policy} · Selected model unavailable`;
+    // Hybrid health does not attest on-device readiness in a private room.
+    if (tier === "private" && descriptor.kind !== "firebase-ondevice") return policy;
+    if (descriptor.health === "available") return `${policy} · ${descriptor.label} available`;
+    const health = descriptor.health === "needs_setup" ? "Needs setup"
+      : descriptor.health === "offline" ? "Offline" : "Blocked";
+    return `${policy} · ${descriptor.label}: ${health}`;
+  } catch { return `${policy} · Models unavailable`; }
+}
 if (WIRE_REAL) {
   const { createFirebasePorts } = await import("../../src/app/firebase_ports");
   fb = createFirebasePorts();
@@ -267,11 +298,14 @@ if (WIRE_REAL) {
           clock: wallClock,
           channel: modelBus,
         });
-        offModelSheet = services.sheet().subscribe(() => { renderSheet(); refreshLiaison(); });
+        offModelSheet = services.sheet().subscribe(() => { renderSheet(); refreshModelsWall(); refreshLiaison(); });
         renderSheet();
+        refreshModelsWall();
         refreshLiaison();
       } catch {
         services = null;
+        renderSheet();
+        refreshModelsWall();
       }
     },
     initializeDeviceModel: async (onProgress) => {
@@ -342,9 +376,25 @@ if (extId !== null) {
   root.appendChild(chatHost);
   const store = createAgentStore({ templates: resolveStarterTemplate });
   const roomFloors = new Map<string, string>();
+  roomFloorForModels = room => roomFloors.get(room);
   type SyncFault = { kind: "unknown" } | { kind: "interval"; from: number; to: number };
   interface RecoveryState { startSince: number; faultKeys: Set<string>; sawOverlap: boolean; sawFailure: boolean }
   const helloRooms = new Set<string>();
+  const syncedRooms = new Set<string>();
+  let workspaceEpoch: string | undefined;
+  const readWorkspaceLink = (): WallPortState | null => {
+    let state: WallPortState | null;
+    try { state = link.state() ?? null; } catch { state = null; }
+    const epoch = state === null ? "unknown" : state.kind === "linked" || state.kind === "resyncing"
+      ? `${state.kind}:${state.nonce}` : state.kind;
+    if (epoch !== workspaceEpoch) {
+      workspaceEpoch = epoch;
+      // A prior hello or completed replay cannot certify a new connection.
+      helloRooms.clear();
+      syncedRooms.clear();
+    }
+    return state;
+  };
   const faults = new Map<string, Map<string, SyncFault>>();
   const recovery = new Map<string, RecoveryState>();
   const noticeHost = document.createElement("div");
@@ -384,6 +434,7 @@ if (extId !== null) {
   };
   const addFault = (room: string, f: SyncFault): void => {
     if (!helloRooms.has(room)) return;
+    syncedRooms.delete(room);
     let set = faults.get(room);
     if (set === undefined) {
       set = new Map<string, SyncFault>();
@@ -433,26 +484,7 @@ if (extId !== null) {
     }
     try {
       const display = store.events(room);
-      let latest: Record<string, unknown> | undefined;
-      for (const e of display) {
-        if (e.act !== "op") continue;
-        const op = (e as { op?: unknown }).op;
-        if (typeof op !== "object" || op === null || Array.isArray(op)) continue;
-        if ((op as Record<string, unknown>)["kind"] !== "plan.open") continue;
-        latest = op as Record<string, unknown>;
-      }
-      let template: ReturnType<typeof resolveStarterTemplate> | undefined;
-      if (latest !== undefined) {
-        const tid = latest["template_id"];
-        const thash = latest["template_hash"];
-        if (typeof tid === "string" && typeof thash === "string") {
-          const candidate = resolveStarterTemplate(tid, thash);
-          if (typeof candidate === "object" && candidate !== null && (candidate as { hash?: unknown }).hash === thash) {
-            template = candidate;
-          }
-        }
-      }
-      const folded = template !== undefined ? Plan.foldPlan(display as unknown, template) : Plan.foldPlan(display as unknown);
+      const folded = Plan.foldPlan(display as unknown, resolveStarterTemplate);
       const stats = folded.stats;
       if (stats.invalid > 0 || stats.rejected > 0 || stats.errors.length > 0) return true;
       if (folded.projection.rejected.length > 0) return true;
@@ -474,7 +506,11 @@ if (extId !== null) {
   let wall: AgentWall | undefined;
   const refreshWall = (): void => {
     refreshLiaison();
-    if (isStale()) return;
+    if (isStale()) {
+      // M4: retain the review gate while still repainting connection/sync guidance.
+      wall?.refreshModels?.();
+      return;
+    }
     try {
       wall?.refresh();
       refreshLiaison();
@@ -549,6 +585,8 @@ if (extId !== null) {
     since: () => recoverySince(),
     onRoomEvent: (frame) => {
       roomFloors.set(frame.room, frame.floor);
+      renderSheet();
+      refreshModelsWall();
       refreshLiaison();
       if (!helloRooms.has(frame.room)) return;
       const ingested = store.ingestChecked(frame.event);
@@ -587,35 +625,45 @@ if (extId !== null) {
       refreshWall();
     },
     onRoomSynced: (frame: RoomSyncedFrame) => {
-      if (frame.more) return;
+      const state = readWorkspaceLink();
+      if (frame.more || state?.kind !== "linked" || !helloRooms.has(frame.room)) return;
       const room = frame.room;
-      const rec = recovery.get(room);
-      if (rec === undefined) return;
-      recovery.delete(room);
-      const early = earliestFaultFrom(room);
-      if (early === undefined) return;
-      if (early === 0 ? rec.startSince !== 0 : rec.startSince >= early) return;
-      if (rec.sawOverlap || rec.sawFailure) return;
-      if (foldHasFailure(room)) return;
-      const set = faults.get(room);
-      if (set === undefined) return;
-      if (set.size !== rec.faultKeys.size) return;
-      for (const [key, fault] of set) {
-        if (!rec.faultKeys.has(key)) return;
-        if (fault.kind === "interval" && frame.upto < fault.to) return;
+      try {
+        const rec = recovery.get(room);
+        if (rec === undefined) return;
+        recovery.delete(room);
+        const early = earliestFaultFrom(room);
+        if (early === undefined) return;
+        if (early === 0 ? rec.startSince !== 0 : rec.startSince >= early) return;
+        if (rec.sawOverlap || rec.sawFailure) return;
+        if (foldHasFailure(room)) return;
+        const set = faults.get(room);
+        if (set === undefined) return;
+        if (set.size !== rec.faultKeys.size) return;
+        for (const [key, fault] of set) {
+          if (!rec.faultKeys.has(key)) return;
+          if (fault.kind === "interval" && frame.upto < fault.to) return;
+        }
+        faults.delete(room);
+        refreshNotice();
+        notifyPlan();
+      } finally {
+        // Ordinary terminal replay is completion too; recovery faults are optional.
+        if ((faults.get(room)?.size ?? 0) === 0) syncedRooms.add(room);
+        refreshWall();
       }
-      faults.delete(room);
-      refreshNotice();
-      notifyPlan();
-      refreshWall();
     },
     onRoomHello: (frame) => {
-      roomFloors.clear();
-      for (const room of frame.rooms) roomFloors.set(room.room, room.floor);
-      refreshLiaison();
+      readWorkspaceLink();
       helloRooms.clear();
+      syncedRooms.clear();
       recovery.clear();
       for (const room of frame.rooms) helloRooms.add(room.room);
+      roomFloors.clear();
+      for (const room of frame.rooms) roomFloors.set(room.room, room.floor);
+      renderSheet();
+      refreshModelsWall();
+      refreshLiaison();
       for (const room of [...faults.keys()]) {
         if (!helloRooms.has(room)) continue;
         const early = earliestFaultFrom(room);
@@ -649,7 +697,25 @@ if (extId !== null) {
     if (deviceModelState === "failed") return { state: "unavailable", label: "Gemini Nano: not available on this device — enable the on-device model flags in Chrome. Rules is the active reviewer." };
     return undefined;
   };
-  wall = startAgentWall({ modelStatus, wallHost, chatHost, link, store, reviewer, clock: wallClock, userAgent: "wall-user", planVerdicts, planBriefs, templateMemorySections });
+  wall = startAgentWall({
+    modelStatus, wallHost, chatHost, link, store, reviewer, clock: wallClock,
+    workspaceStatus: () => {
+      const state = readWorkspaceLink();
+      return { link: state, rooms: [...helloRooms], synced: [...syncedRooms] };
+    },
+    userAgent: "wall-user", planVerdicts, planBriefs, templateMemorySections,
+    modelAvailability: room => {
+      activeModelRoom = room;
+      renderSheet();
+      return modelAvailability(room);
+    },
+    onOpenModels: trigger => {
+      services?.sheet().onOpen();
+      sheet.open(trigger);
+      renderSheet();
+    },
+  });
+  refreshModelsWall = () => wall?.refreshModels?.();
   // Each mounted panel belongs to one task, executor, host floor and model
   // selection. Replacing it aborts pending work and discards stale output.
   let liaisonPanel: LiaisonPanelHandle | undefined;
@@ -751,6 +817,11 @@ if (extId !== null) {
     offLiaisonSelection();
     clearLiaison();
     refreshLiaison = () => undefined;
+    refreshModelsWall = () => undefined;
+    offModelSheet?.();
+    sheet.dispose?.();
+    modelAnnouncementsClosed = true;
+    modelAnnouncements.clear();
     try { wall?.destroy(); } finally { link.stop(); }
     window.removeEventListener("pagehide", teardown);
   };
@@ -769,24 +840,66 @@ if (extId !== null) {
 let hostPresent = false;
 const sheetMount = document.createElement("div");
 root.appendChild(sheetMount);
-const silentAnnouncer = {
-  say: (): void => undefined,
-  flushedCount: (): number => 0,
+// Keep the live region outside the sheet so outcomes remain audible after it closes.
+const modelStatus = document.createElement("div");
+modelStatus.className = "model-announcer visually-hidden";
+modelStatus.setAttribute("role", "status");
+modelStatus.setAttribute("aria-live", "polite");
+modelStatus.setAttribute("aria-atomic", "true");
+root.appendChild(modelStatus);
+let modelAnnouncementsClosed = false;
+let modelAnnouncementScheduled = false;
+let modelAnnouncementCount = 0;
+const modelAnnouncements = new Set<string>();
+const modelAnnouncer: Announcer = {
+  say(_key, text): void {
+    if (modelAnnouncementsClosed || text === "") return;
+    modelAnnouncements.add(text);
+    if (modelAnnouncementScheduled) return;
+    modelAnnouncementScheduled = true;
+    // Populate only after mounting, batching related outcomes into one polite update.
+    queueMicrotask(() => {
+      modelAnnouncementScheduled = false;
+      if (modelAnnouncementsClosed || !modelStatus.isConnected) {
+        modelAnnouncements.clear();
+        return;
+      }
+      const message = [...modelAnnouncements].join("; ");
+      modelAnnouncements.clear();
+      if (modelStatus.textContent === message) return;
+      modelStatus.textContent = message;
+      modelAnnouncementCount += 1;
+    });
+  },
+  flushedCount: (): number => modelAnnouncementCount,
 };
 
+const roomPolicyNotice = document.createElement("p");
+roomPolicyNotice.className = "model-room-policy";
+roomPolicyNotice.id = "model-room-policy";
+roomPolicyNotice.setAttribute("role", "status");
+
 function renderSheet(): void {
+  if (!sheetReady) return;
+  const unavailableProviders: ProviderDescriptor[] = FIREBASE_IDS.map(id => ({
+    id, kind: id, label: id, health: "needs_setup",
+  }));
   sheet.render({
-    providers: services !== null ? services.registry.list() : [],
+    providers: services !== null ? services.registry.list() : unavailableProviders,
     selection: services !== null ? services.sheet().selection() : {},
     device: services !== null ? services.sheet().device() : { state: "not_initialised" },
     hostPresent,
   });
+  roomPolicyNotice.textContent = modelAvailability();
+  const dialog = sheetMount.querySelector<HTMLElement>("#model-sheet");
+  dialog?.setAttribute("aria-describedby", roomPolicyNotice.id);
+  if (roomPolicyNotice.parentElement !== dialog) dialog?.querySelector(".model-sheet-head")?.after(roomPolicyNotice);
 }
 
 const sheet = createModelSheet({
   doc: document,
   mount: sheetMount,
-  announcer: silentAnnouncer,
+  announcer: modelAnnouncer,
   onIntent(i: ModelSheetIntent): void {
     if (services === null) return;
     if (i.t === "select") {
@@ -800,7 +913,7 @@ const sheet = createModelSheet({
       services.sheet().reset();
       renderSheet();
     } else {
-      void services.registry.refresh().then(() => renderSheet());
+      void services.registry.refresh().then(() => { renderSheet(); refreshModelsWall(); });
       renderSheet();
     }
   },
@@ -815,7 +928,7 @@ modelBus.onFrame((f: unknown) => {
   if (t === "model_hello" && Array.isArray(rec["endpoints"])) {
     hostPresent = true;
     if (rec["rid"] === undefined) {
-      void services?.registry.refresh().then(() => renderSheet());
+      void services?.registry.refresh().then(() => { renderSheet(); refreshModelsWall(); });
       renderSheet();
     }
   } else if (t === "model_nack" && rec["code"] === "host_absent") {
@@ -828,26 +941,7 @@ modelBus.onReset(() => {
   renderSheet();
 });
 
-const sheetTrigger = document.createElement("button");
-sheetTrigger.type = "button";
-sheetTrigger.className = "status-line";
-sheetTrigger.setAttribute("aria-controls", "model-sheet");
-sheetTrigger.setAttribute("aria-expanded", "false");
-sheetTrigger.addEventListener("click", () => {
-  services?.sheet().onOpen();
-  sheet.open(sheetTrigger);
-  renderSheet();
-});
-const ensureSheetTrigger = (): void => {
-  const railStatus = root.querySelector(".rail-status");
-  if (railStatus !== null) {
-    if (sheetTrigger.parentNode !== railStatus) railStatus.appendChild(sheetTrigger);
-  } else if (sheetTrigger.parentNode !== root) {
-    root.appendChild(sheetTrigger);
-  }
-};
-ensureSheetTrigger();
-new MutationObserver(ensureSheetTrigger).observe(root, { childList: true, subtree: true });
+sheetReady = true;
 renderSheet();
 
 if (!isPlaceholderConfig(env.firebaseConfig)) {

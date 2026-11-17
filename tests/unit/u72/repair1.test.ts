@@ -15,8 +15,9 @@ describe("U72 repair 1 startup regressions", () => {
     const links = plugin.transformIndexHtml();
     const main = readFileSync(new URL("../../../hosting/src/main.ts", import.meta.url), "utf8");
     const imported = [...main.matchAll(/import\s+["']\.\.\/\.\.\/styles\/([^"']+\.css)["']/g)].map(match => match[1]);
-    expect(imported).toEqual(["tokens.css", "wall.css", "views.css", "plan.css", "model_selector.css", "agents.css"]);
-    expect(links).toHaveLength(6);
+    // A-R40: correct the stale import snapshot, U138 Oracle and legacy amendments (U72).
+    expect(imported).toEqual(["tokens.css", "wall.css", "views.css", "plan.css", "swarm.css", "model_selector.css", "agents.css"]);
+    expect(links).toHaveLength(7);
     expect(links.map((link: any) => link.attrs.href.split("/").pop())).toEqual(imported);
     for (const link of links) {
       expect(link.tag).toBe("link");

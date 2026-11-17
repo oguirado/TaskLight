@@ -28,13 +28,21 @@ function harness() {
 }
 
 describe("U78 repair 2 throwing clock ports", () => {
-  it("rolls back the registered interval when model timeout registration throws", () => {
+  it("contains model timeout registration failure and cancels its owned interval on destroy", () => {
     const h = harness(); const failure = new Error("timeout registration failed");
+    const registered = vi.spyOn(h.clock, "setInterval");
     const cancel = vi.spyOn(h.clock, "clearInterval");
     vi.spyOn(h.clock, "setTimeout").mockImplementation(() => { throw failure; });
-    expect(() => startAgentWall(h.deps)).toThrow(failure);
+    let wall!: ReturnType<typeof startAgentWall>;
+    // A-U138q: containment (U138r3)
+    expect(() => { wall = startAgentWall(h.deps); }).not.toThrow();
+    expect(registered).toHaveBeenCalledTimes(1);
+    expect(h.clock.pending()).toBe(1);
+    expect(cancel).not.toHaveBeenCalled();
+    expect(() => wall.destroy()).not.toThrow();
     expect(h.clock.pending()).toBe(0);
     expect(cancel).toHaveBeenCalledTimes(1);
+    expect(cancel).toHaveBeenCalledWith(registered.mock.results[0]!.value);
   });
 
   it("tears down both handles and the timeout despite interval cancellation throwing", () => {

@@ -91,6 +91,14 @@ const lum = (hex: string) => {
 const ratio = (a: string, b: string) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x! + 0.05) / (y! + 0.05); };
 const REQUIRED = ["--color-bg", "--color-surface", "--color-text", "--color-text-muted", "--color-accent", "--color-danger", "--color-warning", "--color-ok"];
 
+// A-U127: M2 requires canonical aliases; compare resolved theme colours, rejecting cycles or missing targets.
+function themeColour(values: Record<string, string>, name: string, seen = new Set<string>()): string {
+  if (seen.has(name) || values[name] === undefined) throw new Error(`Unresolved theme token: ${name}`);
+  const value = values[name]!;
+  const target = /^var\(\s*(--[\w-]+)\s*\)$/.exec(value);
+  return target ? themeColour(values, target[1]!, new Set([...seen, name])) : value;
+}
+
 describe("U20 O15 theme_tokens_parity (B17)", () => {
   const tokens = () => css("tokens.css");
   it("light and dark define the identical, non-empty variable-name set incl. required tokens", () => {
@@ -98,16 +106,20 @@ describe("U20 O15 theme_tokens_parity (B17)", () => {
     expect(Object.keys(l).length).toBeGreaterThanOrEqual(REQUIRED.length);
     expect(Object.keys(l).sort()).toEqual(Object.keys(d).sort());
     for (const r of REQUIRED) { expect(l).toHaveProperty(r); expect(d).toHaveProperty(r); }
-    expect(l["--color-bg"]).not.toBe(d["--color-bg"]);
+    expect(themeColour(l, "--color-bg")).not.toBe(themeColour(d, "--color-bg"));
   });
-  it("no !important in tokens.css or wall.css", () => {
-    expect(tokens()).not.toMatch(/!\s*important/i); expect(css("wall.css")).not.toMatch(/!\s*important/i);
+  // A-U127: M4 Amendment B1 requires priority only for zero animation/transition durations.
+  it("no !important except reduced-motion duration overrides in tokens.css or wall.css", () => {
+    const withoutDurationOverrides = tokens().replace(/(?:animation|transition)-duration\s*:\s*0ms\s*!important\s*;/g, "");
+    expect(withoutDurationOverrides).not.toMatch(/!\s*important/i);
+    expect(css("wall.css")).not.toMatch(/!\s*important/i);
   });
   it.each(["light", "dark"] as const)("%s: text/background pairs >= 4.5:1 [TARGET-spec]", (t) => {
     const v = vars(themeBlock(tokens(), t));
     for (const [fg, bg] of [["--color-text", "--color-bg"], ["--color-text", "--color-surface"], ["--color-text-muted", "--color-bg"]] as const) {
-      expect(v[fg], fg).toMatch(/^#[0-9a-f]{3}([0-9a-f]{3})?$/i); expect(v[bg], bg).toMatch(/^#[0-9a-f]{3}([0-9a-f]{3})?$/i);
-      expect(ratio(v[fg]!, v[bg]!), `${t} ${fg}/${bg}`).toBeGreaterThanOrEqual(4.5);
+      const foreground = themeColour(v, fg), background = themeColour(v, bg);
+      expect(foreground, fg).toMatch(/^#[0-9a-f]{3}([0-9a-f]{3})?$/i); expect(background, bg).toMatch(/^#[0-9a-f]{3}([0-9a-f]{3})?$/i);
+      expect(ratio(foreground, background), `${t} ${fg}/${bg}`).toBeGreaterThanOrEqual(4.5);
     }
   });
   it("wall.css takes every colour from custom properties (no hex/rgb/hsl literals) and only uses defined vars", () => {

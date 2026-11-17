@@ -17,7 +17,79 @@ _ACTIVITY_SEALED = "*"  # Cannot be a valid run_id.
 
 
 class PlanProjection(dict):
-    """Canonical JSON projection; all lifecycle state is serialized."""
+    """Canonical JSON; an absent optional lifecycle map defaults to empty.
+
+    Omit the empty map from legacy JSON. Once a run is recorded, all current
+    and retired lifecycle data is an ordinary serialized projection field.
+    """
+
+    def __missing__(self, key):
+        if key == "agent_lifecycle":
+            return {}
+        raise KeyError(key)
+
+    def get(self, key, default=None):
+        if key == "agent_lifecycle" and key not in self and default is None:
+            return {}
+        return super().get(key, default)
+
+
+# Undo records retain references to individual fields, never copies of the
+# projection containers. Only fold_plan allocates this private accumulator.
+_MISSING = object()
+_APPEND = object()
+
+
+class _FoldAccumulator(PlanProjection):
+    _undo = None
+
+    def _apply(self, event, *, templates=None, last_by_agent=None):
+        op = _validated_op(event)
+        self._undo = []
+        try:
+            return _apply_op_event(self, event, op, templates=templates,
+                                   last_by_agent=last_by_agent)
+        except BaseException:
+            # Reverse nested writes as well as derived state and retirement.
+            for target, key, previous in reversed(self._undo):
+                if key is _APPEND:
+                    del target[previous:]
+                elif previous is _MISSING:
+                    target.pop(key, None)
+                else:
+                    target[key] = previous
+            raise
+        finally:
+            self._undo = None
+
+
+def _set(state, target, key, value):
+    undo = getattr(state, "_undo", None)
+    if undo is not None:
+        undo.append((target, key, target.get(key, _MISSING)))
+    target[key] = value
+
+
+def _pop(state, target, key):
+    if key in target:
+        undo = getattr(state, "_undo", None)
+        if undo is not None:
+            undo.append((target, key, target[key]))
+        return target.pop(key)
+    return None
+
+
+def _setdefault(state, target, key, value):
+    if key not in target:
+        _set(state, target, key, value)
+    return target[key]
+
+
+def _append(state, target, value):
+    undo = getattr(state, "_undo", None)
+    if undo is not None:
+        undo.append((target, _APPEND, len(target)))
+    target.append(value)
 
 
 def _is_safe_int(v) -> bool:
@@ -78,14 +150,14 @@ def _derived(task: dict, by_id: dict):
 
 
 def _remember_retired(state: dict, scope: str, run_id: str):
-    retired = state["replayed_ops"].setdefault(_ACTIVITY_RETIRED, {})
-    runs = retired.setdefault(scope, [])
+    retired = _setdefault(state, state["replayed_ops"], _ACTIVITY_RETIRED, {})
+    runs = _setdefault(state, retired, scope, [])
     if _ACTIVITY_SEALED in runs or run_id in runs:
         return
     if run_id == _ACTIVITY_SEALED or len(runs) >= _ACTIVITY_RETIRED_MAX:
-        retired[scope] = [_ACTIVITY_SEALED]
+        _set(state, retired, scope, [_ACTIVITY_SEALED])
     else:
-        runs.append(run_id)
+        _append(state, runs, run_id)
 
 
 def _is_retired(state: dict, scope: str, run_id: str) -> bool:
@@ -94,7 +166,7 @@ def _is_retired(state: dict, scope: str, run_id: str) -> bool:
 
 
 def _retire_live(state: dict, micro: dict):
-    live = micro.pop("live", None)
+    live = _pop(state, micro, "live")
     if live is not None:
         # Replay-cache metadata survives JSON continuation without extending
         # the public task or microtask shape. Run IDs are opaque tokens.
@@ -136,8 +208,8 @@ def _recompute(state: dict):
         for t in tasks:
             s, r = _derived(t, by_id)
             if t.get("state") != s or t.get("ready") != r:
-                t["state"] = s
-                t["ready"] = r
+                _set(state, t, "state", s)
+                _set(state, t, "ready", r)
                 changed = True
         by_id = {t["id"]: t for t in tasks}
         if not changed:
@@ -158,7 +230,7 @@ def _recompute(state: dict):
     else:
         progress = 0.0
     progress_pct = int(progress * 100)
-    state["rollup"] = {
+    _set(state, state, "rollup", {
         "tasks_total": tasks_total,
         "tasks_done": tasks_done,
         "tasks_blocked": tasks_blocked,
@@ -167,7 +239,7 @@ def _recompute(state: dict):
         "micro_done": micro_done,
         "progress": float(progress),
         "progress_pct": int(progress_pct),
-    }
+    })
     _retire_inactive_activity(state)
 
 
@@ -249,6 +321,13 @@ def _validate_event_envelope(event: dict):
 
 
 def apply_op_event(state: dict, event: dict, *, templates: Mapping[str, dict] | None = None, last_by_agent: Mapping[str, int] | None = None) -> tuple[dict, dict]:
+    op = _validated_op(event)
+    # Public callers always receive a detached projection and result.
+    return _apply_op_event(copy.deepcopy(state), event, op, templates=templates,
+                           last_by_agent=last_by_agent)
+
+
+def _validated_op(event):
     # Envelope + op shape validation (raises bad_op)
     _validate_event_envelope(event)
     if "op" not in event:
@@ -256,6 +335,12 @@ def apply_op_event(state: dict, event: dict, *, templates: Mapping[str, dict] | 
     # validate_op_shape takes the op object; invalid -> bad_op/limit_exceeded
     op = validate_op_shape(event.get("op"))
     # Note: validate_op_shape already deep-copied; use its return
+    return op
+
+
+def _apply_op_event(new, event, op, *, templates=None, last_by_agent=None):
+    # The public wrapper clones its input; the private accumulator journals
+    # writes to its exclusively owned projection until this operation returns.
 
     lamport = event["lamport"]
     ts = event["ts"]
@@ -263,27 +348,30 @@ def apply_op_event(state: dict, event: dict, *, templates: Mapping[str, dict] | 
     kind = op["kind"]
     op_id = op.get("op_id") if "op_id" in op else None
 
-    # Validated operations and canonical projections are safe to copy.
-    new = copy.deepcopy(state)
     # Ensure expected keys exist (in case caller passed empty-like)
-    for key in ("plan", "tasks", "memory", "archived_plans", "rollup", "replayed_ops", "rejected", "last_lamport"):
+    for key in ("plan", "tasks", "memory", "agent_lifecycle", "archived_plans", "rollup", "replayed_ops", "rejected", "last_lamport"):
         if key not in new:
-            new[key] = empty_projection()[key]
+            _set(new, new, key, empty_projection()[key])
 
     # Idempotency: same (agent, op_id) returns first result
     if op_id is not None:
         replay_key = json.dumps([agent, op_id], separators=(",", ":"))
         if replay_key in new.get("replayed_ops", {}):
             cached = copy.deepcopy(new["replayed_ops"][replay_key])
+            if kind == "agent.lifecycle" or (isinstance(cached, dict) and cached.get("kind") == "agent.lifecycle"):
+                if not isinstance(cached, dict) or cached.get("op") != op:
+                    raise PlanError("bad_op", "op_id conflict")
             # Update last_lamport for replayed
             if lamport > new.get("last_lamport", 0):
-                new["last_lamport"] = lamport
+                _set(new, new, "last_lamport", lamport)
             result = copy.deepcopy(cached)
             if isinstance(result, dict):
                 result["replayed"] = True
             else:
                 result = {"replayed": True, "value": result}
-            return new, result
+            if not new["agent_lifecycle"]:
+                _pop(new, new, "agent_lifecycle")
+            return PlanProjection(new), result
 
     plan = new.get("plan")
 
@@ -294,7 +382,67 @@ def apply_op_event(state: dict, event: dict, *, templates: Mapping[str, dict] | 
 
     result = None
 
-    if kind == "plan.open":
+    record = new["agent_lifecycle"].get(agent)
+    fenced_beat = (kind == "activity.beat" and record is not None
+                   and (op["run_id"] != record["run_id"]
+                        or record["lifecycle"] in ("finished", "failed")))
+
+    if kind == "agent.lifecycle":
+        run_id, lifecycle = op["run_id"], op["state"]
+        retired = list(record["retired_run_ids"]) if record is not None else []
+        current = record is not None and record["run_id"] == run_id
+        terminal = current and record["lifecycle"] in ("finished", "failed")
+        noop = False
+        detail = f"agent {agent} run {run_id}"
+        if not current:
+            if run_id in retired and lifecycle == "alive":
+                noop = True
+            elif lifecycle != "deployed" or run_id in retired:
+                raise PlanError("not_conformant", detail + ": deployment required or run retired")
+        elif lifecycle == "alive":
+            last_alive = record.get("last_alive_ts")
+            noop = (terminal or ts < record["ts"]
+                    or (last_alive is not None and ts - last_alive < 30000))
+        elif lifecycle == "deployed" or terminal:
+            if terminal and lifecycle != record["lifecycle"]:
+                raise PlanError("not_conformant", detail + ": terminal run")
+            if any(key in op and op[key] != record.get(key)
+                   for key in ("swarm", "harness", "reason")):
+                raise PlanError("not_conformant", detail + ": conflicting repeat")
+            noop = True
+        if noop:
+            # Successful no-ops reserve their exact payload and original result
+            # through the common replay-cache path, including JSON continuation.
+            result = {"kind": kind, "op_id": op_id, "lamport": record["lamport"],
+                      "noop": True, "op": copy.deepcopy(op)}
+        else:
+            if not current:
+                if record is not None and record["run_id"] not in retired:
+                    retired.append(record["run_id"])
+                record = {"run_id": run_id, "deployed_ts": ts, "retired_run_ids": retired}
+            else:
+                record = copy.deepcopy(record)
+            for key in ("swarm", "harness", "reason"):
+                if key in op:
+                    record[key] = op[key]
+            record.update(lifecycle=lifecycle, ts=ts, lamport=lamport)
+            if lifecycle == "alive":
+                record["last_alive_ts"] = ts
+            _set(new, new["agent_lifecycle"], agent, record)
+            result = {"kind": kind, "op_id": op_id, "lamport": lamport, "op": copy.deepcopy(op)}
+
+    elif fenced_beat:
+        # A stale registered run cannot touch execution fields, even without a plan.
+        if op["run_id"] == record["run_id"]:
+            reason = "terminal_run"
+        elif op["run_id"] in record["retired_run_ids"]:
+            reason = "retired_run"
+        else:
+            reason = "run_mismatch"
+        result = {"kind": kind, "op_id": op_id, "agent": agent, "beat_ts": ts,
+                  "ignored": True, "reason": reason}
+
+    elif kind == "plan.open":
         if plan is not None and plan.get("state") == "active":
             raise PlanError("plan_exists", "plan exists")
         # template verification
@@ -323,11 +471,11 @@ def apply_op_event(state: dict, event: dict, *, templates: Mapping[str, dict] | 
         }
         # Closed plans were already archived at close time. Reopening only
         # resets per-plan tasks; project memory and replay history survive.
-        new["tasks"] = []
+        _set(new, new, "tasks", [])
         # Retirement (including sealed scopes) belongs to the old plan only;
         # preserve ordinary replay receipts while allowing reused task/run IDs.
-        new["replayed_ops"].pop(_ACTIVITY_RETIRED, None)
-        new["plan"] = new_plan
+        _pop(new, new["replayed_ops"], _ACTIVITY_RETIRED)
+        _set(new, new, "plan", new_plan)
         result = {"kind": kind, "op_id": op_id}
         _recompute(new)
 
@@ -335,11 +483,14 @@ def apply_op_event(state: dict, event: dict, *, templates: Mapping[str, dict] | 
         act = require_active()
         if op["base_rev"] != act.get("rev"):
             raise PlanError("stale_rev", "stale plan rev")
-        act["state"] = "closed"
-        act["rev"] = lamport
-        act["closed_outcome"] = op.get("outcome") if "outcome" in op else None
+        unfinished = [t["id"] for t in new["tasks"] if t.get("state") not in ("done", "cancelled")]
+        if unfinished:
+            raise PlanError("not_conformant", "unfinished tasks: " + ", ".join(unfinished))
+        _set(new, act, "state", "closed")
+        _set(new, act, "rev", lamport)
+        _set(new, act, "closed_outcome", op.get("outcome") if "outcome" in op else None)
         tasks_snapshot = new["tasks"]
-        new["archived_plans"].append({
+        _append(new, new["archived_plans"], {
             "id": act["id"],
             "title": act["title"],
             "template_id": act["template_id"],
@@ -359,8 +510,8 @@ def apply_op_event(state: dict, event: dict, *, templates: Mapping[str, dict] | 
         tpl = _template_for_plan(new, templates)
         if tpl is not None:
             _check_phase_in_template(op["phase"], tpl)
-        act["phase"] = op["phase"]
-        act["rev"] = lamport
+        _set(new, act, "phase", op["phase"])
+        _set(new, act, "rev", lamport)
         result = {"kind": kind, "op_id": op_id}
         _recompute(new)
 
@@ -424,11 +575,11 @@ def apply_op_event(state: dict, event: dict, *, templates: Mapping[str, dict] | 
         }
         # normalize estimate/assignee defaults: if key absent -> None
         if "assignee" not in op:
-            task["assignee"] = None
+            _set(new, task, "assignee", None)
         if "estimate" not in op:
-            task["estimate"] = None
-        tasks.append(task)
-        new["tasks"] = tasks
+            _set(new, task, "estimate", None)
+        _append(new, tasks, task)
+        _set(new, new, "tasks", tasks)
         result = {"kind": kind, "op_id": op_id}
         _recompute(new)
 
@@ -439,6 +590,8 @@ def apply_op_event(state: dict, event: dict, *, templates: Mapping[str, dict] | 
             raise PlanError("not_found", "task")
         if op["base_rev"] != task.get("rev"):
             raise PlanError("stale_rev", "stale task rev")
+        if op.get("state") == "cancelled" and task.get("assignee") not in (None, agent):
+            raise PlanError("claimed_by_other", "claimed")
         tpl = _template_for_plan(new, templates)
         if tpl is not None and "phase" in op:
             _check_phase_in_template(op["phase"], tpl)
@@ -459,24 +612,24 @@ def apply_op_event(state: dict, event: dict, *, templates: Mapping[str, dict] | 
                 raise PlanError("dep_cycle", "dep cycle")
         # Apply mutations
         if "title" in op:
-            task["title"] = op["title"]
+            _set(new, task, "title", op["title"])
         if "type" in op:
-            task["type"] = op["type"]
+            _set(new, task, "type", op["type"])
         if "phase" in op:
-            task["phase"] = op["phase"]
+            _set(new, task, "phase", op["phase"])
         if "accept" in op:
-            task["accept"] = op["accept"]
+            _set(new, task, "accept", op["accept"])
         if "deps" in op:
-            task["deps"] = list(op["deps"])
+            _set(new, task, "deps", list(op["deps"]))
         if "estimate" in op:
-            task["estimate"] = op["estimate"]
+            _set(new, task, "estimate", op["estimate"])
         if "state" in op:
-            task["explicit_state"] = op["state"]
+            _set(new, task, "explicit_state", op["state"])
             if op["state"] is None and "reason" not in op:
-                task["blocked_reason"] = None
+                _set(new, task, "blocked_reason", None)
         if "reason" in op:
-            task["blocked_reason"] = op["reason"]
-        task["rev"] = lamport
+            _set(new, task, "blocked_reason", op["reason"])
+        _set(new, task, "rev", lamport)
         result = {"kind": kind, "op_id": op_id}
         _recompute(new)
 
@@ -512,10 +665,10 @@ def apply_op_event(state: dict, event: dict, *, templates: Mapping[str, dict] | 
                 raise PlanError("claimed_by_other", "not silent")
         if assignee != agent:
             _retire_task_activity(new, task)
-        task["assignee"] = agent
-        task["claim_lamport"] = lamport
-        task["claim_ts"] = ts
-        task["rev"] = lamport
+        _set(new, task, "assignee", agent)
+        _set(new, task, "claim_lamport", lamport)
+        _set(new, task, "claim_ts", ts)
+        _set(new, task, "rev", lamport)
         result = {"kind": kind, "op_id": op_id}
         _recompute(new)
 
@@ -529,11 +682,19 @@ def apply_op_event(state: dict, event: dict, *, templates: Mapping[str, dict] | 
         assignee = task.get("assignee")
         if assignee not in (None, agent):
             raise PlanError("claimed_by_other", "claimed")
+        if "claim_lamport" in op and op["claim_lamport"] != task.get("claim_lamport"):
+            raise PlanError("stale_rev", "stale claim lamport")
+        if task.get("state") in ("done", "cancelled"):
+            raise PlanError("not_conformant", "cannot release terminal task " + task["id"])
         _retire_task_activity(new, task)
-        task["assignee"] = None
-        task["claim_lamport"] = None
-        task["claim_ts"] = None
-        task["rev"] = lamport
+        for micro in task.get("microtasks", []):
+            if micro.get("state") == "active":
+                _set(new, micro, "state", "pending")
+                _set(new, micro, "rev", lamport)
+        _set(new, task, "assignee", None)
+        _set(new, task, "claim_lamport", None)
+        _set(new, task, "claim_ts", None)
+        _set(new, task, "rev", lamport)
         result = {"kind": kind, "op_id": op_id}
         _recompute(new)
 
@@ -558,9 +719,9 @@ def apply_op_event(state: dict, event: dict, *, templates: Mapping[str, dict] | 
             "evidence": [],
             "rev": lamport,
         }
-        micros.append(micro)
-        task["microtasks"] = micros
-        task["rev"] = lamport
+        _append(new, micros, micro)
+        _set(new, task, "microtasks", micros)
+        _set(new, task, "rev", lamport)
         result = {"kind": kind, "op_id": op_id}
         _recompute(new)
 
@@ -591,7 +752,7 @@ def apply_op_event(state: dict, event: dict, *, templates: Mapping[str, dict] | 
                 else:
                     for micro in eligible:
                         if not _is_retired(new, micro["id"], run_id):
-                            micro["live"] = {"agent": agent, "run_id": run_id, "beat_ts": ts, "beat_lamport": lamport}
+                            _set(new, micro, "live", {"agent": agent, "run_id": run_id, "beat_ts": ts, "beat_lamport": lamport})
         # A beat changes only liveness and the journal/replay cursors.
         result = {"kind": kind, "op_id": op_id, "agent": agent, "beat_ts": ts}
 
@@ -610,17 +771,27 @@ def apply_op_event(state: dict, event: dict, *, templates: Mapping[str, dict] | 
         if micro is None:
             raise PlanError("not_found", "micro")
         assignee = task.get("assignee")
-        if assignee not in (None, agent):
+        if assignee is None:
+            raise PlanError("not_conformant", "claim task " + task_id + " before setting microtasks")
+        if assignee != agent:
             raise PlanError("claimed_by_other", "claimed")
-        micro["state"] = op["state"]
+        if "claim_lamport" in op and op["claim_lamport"] != task.get("claim_lamport"):
+            raise PlanError("stale_rev", "stale claim lamport")
+        if op["state"] in ("active", "done"):
+            by_id = {t["id"]: t for t in new["tasks"]}
+            unsatisfied = [d for d in task.get("deps", [])
+                           if d not in by_id or by_id[d].get("state") not in ("done", "cancelled")]
+            if unsatisfied:
+                raise PlanError("not_conformant", "unsatisfied dependencies: " + ", ".join(unsatisfied))
+        _set(new, micro, "state", op["state"])
         if "outcome" in op:
-            micro["outcome"] = op["outcome"]
+            _set(new, micro, "outcome", op["outcome"])
         if "took" in op:
-            micro["took"] = op["took"]
+            _set(new, micro, "took", op["took"])
         if "evidence" in op:
-            micro["evidence"] = copy.deepcopy(op["evidence"])
-        micro["rev"] = lamport
-        task["rev"] = lamport
+            _set(new, micro, "evidence", copy.deepcopy(op["evidence"]))
+        _set(new, micro, "rev", lamport)
+        _set(new, task, "rev", lamport)
         result = {"kind": kind, "op_id": op_id}
         _recompute(new)
 
@@ -655,8 +826,8 @@ def apply_op_event(state: dict, event: dict, *, templates: Mapping[str, dict] | 
                                 raise PlanError("limit_exceeded", "memory chars")
                         break
                 # If section not in template, no limit check
-        mem[section] = {"id": section, "text": op["text"], "rev": lamport, "by": agent, "ts": ts}
-        new["memory"] = mem
+        _set(new, mem, section, {"id": section, "text": op["text"], "rev": lamport, "by": agent, "ts": ts})
+        _set(new, new, "memory", mem)
         result = {"kind": kind, "op_id": op_id}
         _recompute(new)
 
@@ -665,16 +836,18 @@ def apply_op_event(state: dict, event: dict, *, templates: Mapping[str, dict] | 
 
     # Update last_lamport
     if lamport > new.get("last_lamport", 0):
-        new["last_lamport"] = lamport
+        _set(new, new, "last_lamport", lamport)
     # Cache replay result
     if op_id is not None:
         replay_key = json.dumps([agent, op_id], separators=(",", ":"))
-        new["replayed_ops"][replay_key] = copy.deepcopy(result)
-    return new, result
+        _set(new, new["replayed_ops"], replay_key, copy.deepcopy(result))
+    if not new["agent_lifecycle"]:
+        _pop(new, new, "agent_lifecycle")
+    return PlanProjection(new), result
 
 
 def fold_plan(events: Iterable[dict], *, templates: Mapping[str, dict] | None = None) -> dict:
-    state = empty_projection()
+    state = _FoldAccumulator(empty_projection())
     raw = list(events)
     # Collect sortable events: dict with str id and valid lamport >=1
     sortable = []
@@ -722,16 +895,16 @@ def fold_plan(events: Iterable[dict], *, templates: Mapping[str, dict] | None = 
             op_id_for_reject = None
         snapshot = dict(last_by_agent)
         try:
-            state, _ = apply_op_event(state, e, templates=templates, last_by_agent=snapshot)
+            state._apply(e, templates=templates, last_by_agent=snapshot)
         except PlanError as ex:
             # Apply failed: record rejection, update last_lamport
-            state["rejected"] = list(state.get("rejected", [])) + [{"id": e.get("id"), "lamport": e.get("lamport"), "op_id": op_id_for_reject, "code": ex.code}]
+            state["rejected"].append({"id": e.get("id"), "lamport": e.get("lamport"), "op_id": op_id_for_reject, "code": ex.code})
             if e.get("lamport") > state.get("last_lamport", 0):
                 state["last_lamport"] = e.get("lamport")
         except Exception as ex:
             # Unexpected errors should still be bad_op? Treat as bad_op to keep fold fail-safe
             code = "bad_op"
-            state["rejected"] = list(state.get("rejected", [])) + [{"id": e.get("id"), "lamport": e.get("lamport"), "op_id": op_id_for_reject, "code": code}]
+            state["rejected"].append({"id": e.get("id"), "lamport": e.get("lamport"), "op_id": op_id_for_reject, "code": code})
             if e.get("lamport") > state.get("last_lamport", 0):
                 state["last_lamport"] = e.get("lamport")
         _update_activity(e)
@@ -742,6 +915,7 @@ def fold_plan(events: Iterable[dict], *, templates: Mapping[str, dict] | None = 
             "plan": state.get("plan"),
             "tasks": state.get("tasks", []),
             "memory": state.get("memory", {}),
+            "agent_lifecycle": state.get("agent_lifecycle", {}),
             "archived_plans": state.get("archived_plans", []),
             "rollup": state.get("rollup"),
             "replayed_ops": state.get("replayed_ops", {}),
@@ -749,6 +923,8 @@ def fold_plan(events: Iterable[dict], *, templates: Mapping[str, dict] | None = 
             "last_lamport": state.get("last_lamport", 0),
         }
     )
+    if not final["agent_lifecycle"]:
+        final.pop("agent_lifecycle", None)
     # Recompute to be safe (preserves derived)
     _recompute(final)
     # Keep rejected/last as computed (recompute doesn't touch them)

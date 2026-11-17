@@ -1,5 +1,5 @@
 import type { PlanningTemplate, TemplateRejectCode, PlanOpEvent, PlanOpErrorCode } from "./types";
-import { PLAN_LIMITS, ID_RE, ROOM_RE, AGENT_RE, OP_ID_RE, TASK_ID_RE, MICRO_ID_RE } from "./limits";
+import { PLAN_LIMITS, ROOM_RE, AGENT_RE, OP_ID_RE, TASK_ID_RE, MICRO_ID_RE } from "./limits";
 
 const DANGEROUS: ReadonlySet<string> = new Set(["__proto__", "constructor", "prototype"]);
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,47}$/;
@@ -373,7 +373,7 @@ export function validateTemplate(raw: unknown):
 const OP_KINDS: ReadonlySet<string> = new Set([
   "plan.open", "plan.close", "plan.phase",
   "task.add", "task.set", "task.claim", "task.release",
-  "micro.add", "micro.set", "memory.set", "activity.beat",
+  "micro.add", "micro.set", "memory.set", "activity.beat", "agent.lifecycle",
 ]);
 
 function strLenCheck(v: unknown, lo: number, hi: number): PlanOpErrorCode | null {
@@ -419,6 +419,25 @@ export function validateOpShapeCode(op: Record<string, unknown>): PlanOpErrorCod
       return null;
     };
 
+    if (kind === "agent.lifecycle") {
+      const e = unknown(new Set(["kind", "state", "run_id", "swarm", "harness", "reason", "op_id"]));
+      if (e) return e;
+      if (typeof op["state"] !== "string" || !["deployed", "alive", "finished", "failed"].includes(op["state"])) return "bad_op";
+      if (!fullMatch(/^[A-Za-z0-9_-]{1,64}$/, op["run_id"]) || !fullMatch(OP_ID_RE, op["op_id"])) return "bad_op";
+      for (const key of ["swarm", "harness", "reason"]) {
+        if (!hasOwn(op, key)) continue;
+        const value = op[key];
+        const c = strLenCheck(value, key === "reason" ? 0 : 1, key === "reason" ? 512 : PLAN_LIMITS.PLAN_TITLE_MAX);
+        if (c) return c;
+        // Iterate Unicode scalars so valid astral pairs remain printable data.
+        for (const ch of value as string) {
+          const point = ch.codePointAt(0)!;
+          if (point < 0x20 || (point >= 0x7f && point <= 0x9f) || (point >= 0xd800 && point <= 0xdfff)) return "bad_op";
+        }
+        if (key !== "reason" && !(value as string).trim()) return "bad_op";
+      }
+      return null;
+    }
     if (kind === "activity.beat") {
       const e = unknown(new Set(["kind", "task_id", "micro_id", "run_id", "note", "op_id"]));
       if (e) return e;
@@ -578,7 +597,8 @@ export function validateOpShapeCode(op: Record<string, unknown>): PlanOpErrorCod
       return null;
     }
     if (kind === "task.release") {
-      const e = unknown(new Set(["kind", "op_id", "task_id", "base_rev"])); if (e) return e;
+      const e = unknown(new Set(["kind", "op_id", "task_id", "base_rev", "claim_lamport"])); if (e) return e;
+      if (hasOwn(op, "claim_lamport") && (!isSafeInt(op["claim_lamport"]) || op["claim_lamport"] <= 0)) return "bad_op";
       if (!hasOwn(op, "task_id")) return "bad_op";
       if (typeof op["task_id"] !== "string" || !TASK_ID_RE.test(op["task_id"] as string)) return "bad_op";
       if (hasOwn(op, "base_rev")) { const c = baseRevCheck(op["base_rev"], 1); if (c) return c; }
@@ -597,7 +617,8 @@ export function validateOpShapeCode(op: Record<string, unknown>): PlanOpErrorCod
       return null;
     }
     if (kind === "micro.set") {
-      const e = unknown(new Set(["kind", "op_id", "micro_id", "state", "outcome", "took", "evidence"])); if (e) return e;
+      const e = unknown(new Set(["kind", "op_id", "micro_id", "state", "outcome", "took", "evidence", "claim_lamport"])); if (e) return e;
+      if (hasOwn(op, "claim_lamport") && (!isSafeInt(op["claim_lamport"]) || op["claim_lamport"] <= 0)) return "bad_op";
       if (!hasOwn(op, "micro_id") || !hasOwn(op, "state")) return "bad_op";
       if (typeof op["micro_id"] !== "string" || !MICRO_ID_RE.test(op["micro_id"] as string)) return "bad_op";
       const states: ReadonlySet<string> = new Set(["done", "active", "blocked", "pending"]);
@@ -657,7 +678,7 @@ export function opEventErrorCode(raw: unknown): PlanOpErrorCode | null {
       return "bad_op";
     }
     const id = ev["id"];
-    if (typeof id !== "string" || !ID_RE.test(id)) return "bad_op";
+    if (typeof id !== "string" || id.length === 0) return "bad_op";
     const room = ev["room"];
     if (typeof room !== "string" || !ROOM_RE.test(room)) return "bad_op";
     const agent = ev["agent"];

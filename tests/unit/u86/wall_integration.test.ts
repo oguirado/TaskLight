@@ -1,3 +1,4 @@
+// A-Q1: U148/U150 named non-article task roots retain their classes and identity hooks.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startAgentWall, type AgentWall } from "../../../src/app/agent_wall";
 import type { AgentChatHandlers, AgentChatVM } from "../../../src/agentsui/types";
@@ -71,8 +72,10 @@ function vm(): TaskChatVM {
   return observed.chatVm!;
 }
 function clickTask(h: Scenario, id = "T01"): void {
-  const card = element(h.wallHost, `article.task[data-task-id="${id}"]`);
-  element(card, ".task-title").click();
+  const card = element(h.wallHost, `.task[data-task-id="${id}"]`);
+  // A-R41: replace the removed card/title chat entry with the scoped legacy route.
+  const vmId = card.getAttribute("data-task-vm-id") ?? card.getAttribute("data-task-id")!;
+  openLegacyMessages(h.wallHost, vmId);
 }
 function assertTask(h: Scenario, room: string, id: string, assignee: string | null, title: string): void {
   expect(h.chatHost.getAttribute("data-open")).toBe("true");
@@ -99,12 +102,12 @@ function neighbors(f: ReturnType<typeof fixture>): void {
 const DRIFT: DriftVerdict = { verdict: "drift", source: "rules", reason: "Legacy plan changed" };
 
 describe("A1 exact plan selection with no legacy state (M1, M2, M4)", () => {
-  it.each(["real bare card", "qualified callback"] as const)("A1 %s opens and sends to the task assignee", async entry => {
+  it.each(["real legacy Messages", "qualified callback"] as const)("A1 %s opens and sends to the task assignee", async entry => {
     const f = fixture(); f.open(); f.task();
     expect(f.store.states()).toEqual([]);
     const before = f.store.events("demo"); const h = await start(f);
     const ingest = vi.spyOn(f.store, "ingest");
-    if (entry === "real bare card") clickTask(h); else open("plan:demo:T01");
+    if (entry === "real legacy Messages") clickTask(h); else open("plan:demo:T01");
     assertTask(h, "demo", "T01", "worker-a", "Export CSV");
     expect(ingest).not.toHaveBeenCalled(); expect(f.store.states()).toEqual([]);
     expect(f.store.events("demo")).toEqual(before);
@@ -130,7 +133,7 @@ describe("A1 exact plan selection with no legacy state (M1, M2, M4)", () => {
 });
 
 describe("A2 unassigned and wrong-recipient controls (M3)", () => {
-  it("A2 real unassigned card opens empty and disables every recipient action", async () => {
+  it("A2 real unassigned Messages selection opens empty and disables every recipient action", async () => {
     const f = fixture(); f.open(); f.task(null); neighbors(f);
     const h = await start(f, DRIFT); clickTask(h);
     assertTask(h, "demo", "T01", null, "Export CSV");
@@ -278,6 +281,9 @@ describe("A4 lifecycle and local rejection (M1, M3, M4)", () => {
     const h = await start(f); open("plan:demo:T01"); assertTask(h, "demo", "T01", "worker-a", "Export CSV");
     const send = action("onSend"); typeDraft(h.chatHost, "orphaned draft");
     if (condition === "closed plan") {
+      // A-U109c: (a) the assignee cancels open work before closing the fixture, M6 / Amendment C.2.
+      f.op("demo", { kind: "task.set", task_id: "T01",
+        base_rev: f.store.plan("demo")!.projection.tasks[0]!.rev, state: "cancelled" }, "worker-a");
       f.op("demo", { kind: "plan.close", base_rev: f.store.plan("demo")!.projection.plan!.rev, outcome: "Stopped" });
     } else {
       const current = f.store.plan("demo")!;
@@ -292,6 +298,9 @@ describe("A4 lifecycle and local rejection (M1, M3, M4)", () => {
     const f = fixture(); f.open(); f.task(); f.legacy("worker-a");
     const h = await start(f); open("plan:demo:T01"); const send = action("onSend");
     if (condition === "closed plan") {
+      // A-U109c: (a) the assignee cancels open work before closing the fixture, M6 / Amendment C.2.
+      f.op("demo", { kind: "task.set", task_id: "T01",
+        base_rev: f.store.plan("demo")!.projection.tasks[0]!.rev, state: "cancelled" }, "worker-a");
       f.op("demo", { kind: "plan.close", base_rev: f.store.plan("demo")!.projection.plan!.rev, outcome: "Stopped" });
     } else {
       const current = f.store.plan("demo")!;
@@ -343,7 +352,7 @@ describe("A6 hostile text and A7 legacy regression", () => {
     expect(h.chatHost.getAttribute("data-open")).toBe("false"); assertNoPost(h);
   });
 
-  it("A7 legacy card routes to gemini-agent and explicit Close survives refresh", async () => {
+  it("A7 legacy Messages routes to gemini-agent and explicit Close survives refresh", async () => {
     const f = fixture(); f.legacy("github-agent", "viewpoint"); f.legacy("gemini-agent", "viewpoint", "Gemini conversation");
     const h = await start(f); clickTask(h, "agent:viewpoint:gemini-agent");
     expect(h.chatHost.getAttribute("data-open")).toBe("true");
@@ -363,3 +372,13 @@ describe("A6 hostile text and A7 legacy regression", () => {
     expect(h.chatHost.getAttribute("data-open")).toBe("false"); assertNoPost(h);
   });
 });
+
+// A-R41: task conversations open only inside the expanded Messages (legacy) entry.
+function openLegacyMessages(host: HTMLElement, taskId?: string): void {
+  const toggle = host.querySelector<HTMLButtonElement>(".messages-toggle")!;
+  if (toggle.getAttribute("aria-expanded") !== "true") toggle.click();
+  const button = taskId === undefined ? host.querySelector<HTMLButtonElement>(".messages-open")
+    : [...host.querySelectorAll<HTMLButtonElement>(".messages-task")]
+      .find(node => node.getAttribute("data-task-vm-id") === taskId);
+  expect(button).toBeDefined(); button!.click();
+}

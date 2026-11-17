@@ -22,6 +22,23 @@ from contextlib import ExitStack, contextmanager, redirect_stderr, redirect_stdo
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[4]
+
+# A-FLK1: Preserve real sleeps only for direct stdlib wait callers. Product
+# sleeps still fail, including product callbacks reached through stdlib frames.
+_REAL_SLEEP = time.sleep
+
+
+def _sleep_guard(message="real sleep forbidden"):
+    def guarded_sleep(delay):
+        caller_globals = sys._getframe(1).f_globals
+        if any(caller_globals is vars(sys.modules[name])
+               for name in ("subprocess", "threading", "selectors")
+               if name in sys.modules):
+            return _REAL_SLEEP(delay)
+        raise AssertionError(message)
+    return guarded_sleep
+
+
 HERE = Path(__file__).resolve().parent
 APP = ROOT / "bridge/room/app.py"
 TOOLS = (
@@ -116,7 +133,7 @@ def deterministic(home):
         stack.enter_context(patch.dict(os.environ, {'CW_HOME': str(home), 'PYTHONDONTWRITEBYTECODE': '1'}))
         stack.enter_context(patch.object(time, 'time', return_value=1700000000.0))
         stack.enter_context(patch.object(time, 'monotonic', side_effect=lambda: next(ticks)))
-        stack.enter_context(patch.object(time, 'sleep', side_effect=AssertionError('real sleep forbidden')))
+        stack.enter_context(patch.object(time, 'sleep', new=_sleep_guard()))
         stack.enter_context(patch.object(socket, 'socket', side_effect=AssertionError('network forbidden')))
         stack.enter_context(patch.object(secrets, 'token_hex', side_effect=lambda n: format(next(ids), '0%dx' % (2*n))))
         yield
@@ -402,7 +419,10 @@ def assert_schemas(tools):
         kind(fields['estimate'], 'null')
         assert_micro_array(fields['microtasks'])
     standalone = schemas['microtask_add']['properties']
-    assert set(standalone) == {'room', 'agent', 'task_id', 'text', 'accept', 'base_rev', 'op_id'}
+    # A-U140r1: SPEC_U140 (review B3) adds the optional plan-generation fence to mutation tools.
+    fence = standalone.get('expected_opened_lamport')
+    assert fence is None or (fence.get('type') == 'integer' and fence.get('minimum') == 1), fence
+    assert set(standalone) - {'expected_opened_lamport'} == {'room', 'agent', 'task_id', 'text', 'accept', 'base_rev', 'op_id'}
     assert kind(standalone['text'], 'string').get('minLength') == 1
     assert kind(standalone['text'], 'string').get('maxLength') == 80
     assert kind(standalone['accept'], 'string').get('maxLength') == 160

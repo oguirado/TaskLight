@@ -167,7 +167,12 @@ describe("U90 validated events and projection contract", () => {
       send({ kind: "micro.set", micro_id: "T01.M01", state: "active" });
     }
     const owner = ["reassign", "takeover"].includes(scenario) ? "mallory" : "alice";
-    if (["release", "reassign"].includes(scenario)) send({ kind: "task.claim", task_id: "T01" }, owner);
+    if (["release", "reassign"].includes(scenario)) {
+      // A-U109c: (a) release resets active work; reclaim/reactivate before probing retired runs, M5.
+      expect(projectedMicro(state).state).toBe("pending");
+      send({ kind: "task.claim", task_id: "T01" }, owner);
+      send({ kind: "micro.set", micro_id: "T01.M01", state: "active" }, owner);
+    }
     send({ ...fixture.beat.op, op_id: `late${String(n).padStart(4, "0")}` }, owner);
     expect(projectedMicro(state)).not.toHaveProperty("live");
     expect(deriveActivity(state.tasks[0]!, projectedMicro(state), n * 100)).toBe("unknown");
@@ -193,10 +198,17 @@ describe("U90 validated events and projection contract", () => {
     expect(publicTasks(apply(noApplicable, event(13, allPendingOp)))).toEqual(publicTasks(noApplicable));
   });
 
-  it("M5 micro.set retains unassigned authority and its existing arguments", () => {
+  it("M5 micro.set requires ownership and retains its existing arguments", () => {
     let state = initial();
     state = apply(state, event(10, { kind: "task.release", task_id: "T01" }));
-    state = apply(state, event(11, { kind: "micro.set", micro_id: "T01.M01", state: "pending" }, "mallory"));
+    // A-U109c: (a) even pending writes require ownership; an unassigned write is rejected, M3/M7.
+    const snapshot = copy(state);
+    const rejected = applyOp(state, event(11, { kind: "micro.set", micro_id: "T01.M01", state: "pending" }, "mallory"));
+    expect(rejected).toMatchObject({ ok: false, code: "not_conformant", detail: expect.stringContaining("claim") });
+    expect(state).toEqual(snapshot);
+    expect(rejected.projection.tasks).toEqual(snapshot.tasks);
+    state = apply(state, event(12, { kind: "task.claim", task_id: "T01" }, "mallory"));
+    state = apply(state, event(13, { kind: "micro.set", micro_id: "T01.M01", state: "pending" }, "mallory"));
     expect(projectedMicro(state).state).toBe("pending");
   });
 

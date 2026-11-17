@@ -1,0 +1,22 @@
+{
+  "status": "FROZEN_FAIL_FIRST",
+  "source": "MEASURED",
+  "sha256": {
+    "bridge/room/hook.py": "e5671e57198df96bafa980856585c46d3f0277bf662b50e710d5931d8c99f733",
+    ".unit/SPEC.md": "25555b0af2039ea2c787c75fe3e02f073e2a6ca4bd251fe23baa86853e1a1119",
+    "bridge/tests/room/u133/ORACLE.md": "143b0f067b2d5aed21e7da9d9cf3af5ef1eaca74b37f6e096904d43a5681dd45",
+    "bridge/tests/room/u133/__init__.py": "8cc00880fcc5e5931695547945f81ff334c1bfdc019fcad2ca869ab962b62c28",
+    "bridge/tests/room/u133/cli_probe.py": "fa3833d896852bb3e788105e2edec25d1cbb9c28d836d7df4347a80594e6755f",
+    "bridge/tests/room/u133/fixtures.json": "c10bbc400271440031c517b71f36bafeda2af7f584b54d769493d7e6a117b8f6",
+    "bridge/tests/room/u133/regression_runner.py": "dc4d404f35b1282f9c9d13c0bf323279a0ec68a27edc47a157f3739fa5f9ae17",
+    "bridge/tests/room/u133/regressions.json": "10bf39b0ac3e3dbcab48260736937087a191900493ec6e389100079d92fe9534",
+    "bridge/tests/room/u133/support.py": "e0ab4c55a6a6db34039ae4054a921a62e58f87130e6f02e7db495dfe513548f7",
+    "bridge/tests/room/u133/test_boundaries.py": "79c17e8128d944d231c1117dcf8d00912597dedd7479e8be29ad2b75d1459e61",
+    "bridge/tests/room/u133/test_cleanup.py": "86bb5889c4f1d93d28fcf74c533a644a9cccb9f1fb396271a54d3a424c644db8",
+    "bridge/tests/room/u133/test_controls.py": "df0b6d72a27368739aa7140658ace5ab209c76225cd6ccbded1ef0e30f782b4d",
+    "bridge/tests/room/u133/test_entries.py": "fa0e5bf4d49a0f6b86ad8fd985007ac5251706ed132f8cbd0af01a6899064683",
+    "bridge/tests/room/u133/test_integration.py": "48e8487c0e171beda88f2ff858ef199126e8a20dd948380140e9808703f9d0f5",
+    "bridge/tests/room/u133/test_protocol.py": "154f12e2c1e8436453f4a42abda7029333a8a1366ad386d18f71898e0e647d71",
+    "bridge/tests/room/u133/verification.json": "c0e9dcd80c0ab2025cb76a657c45e8b1b331e1db27c9a9006526d0258c5029ca"
+  }
+}

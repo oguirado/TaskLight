@@ -1,6 +1,7 @@
 """U87 acceptance and mutation oracles. Production files are never rewritten."""
 import ast
 import copy
+import hashlib
 import importlib
 import io
 import json
@@ -100,20 +101,63 @@ class DiscoveryOracle(FutureCase):
 
 class ParityOracle(FutureCase):
     def parity(self, name):
-        outcomes, journals, spies = [], [], []
+        from bridge.room import store
+        outcomes, journals, spies, batch_hashes = [], [], [], []
         for adapter in ("cli", "mcp"):
             home = self.tmp / adapter
-            with deterministic(home):
+            # A-U121c: capture caller order/local keys for exact durable batch hashes, M3.
+            with deterministic(home), patch.object(store, "post_ops", wraps=store.post_ops) as batches:
                 args = fixture(home, name)
+                if name == "plan_close":
+                    # A-U109c: (a) both adapters explicitly cancel open work before close, M6/M7.
+                    prepared = call(adapter, "task_update", dict(room="demo", agent="worker",
+                                    task_id="T01", base_rev=2, state="cancelled"))
+                    self.assertEqual(prepared[0], 0)
+                    self.assertEqual(prepared[1]["untrusted"]["rev"], 3)
+                    self.assertEqual(prepared[1]["untrusted"]["task"]["state"], "cancelled")
                 with dispatch_spy(name, args) as seen:
                     result = call(adapter, name, args)
                 spies.append(seen)
                 outcomes.append(result)
                 journals.append(journal(home))
+                batch_hashes.append([
+                    hashlib.sha256(json.dumps(
+                        {"strict": c.kwargs.get("strict", False), "ops": c.args[2]},
+                        sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+                        allow_nan=False).encode("utf-8")).hexdigest()
+                    for c in batches.call_args_list])
+        self.assertEqual(batch_hashes[0], batch_hashes[1])
         self.assertEqual(outcomes[0], outcomes[1], "complete decoded payload differs")
         self.assertEqual(outcomes[0][0], 0, outcomes)
         self.assertEqual(journals[0], journals[1], "complete journal bytes differ")
         expected = json.loads((APP.parent.parent / "tests/room/u87/expected.json").read_text())[name]
+        if name == "plan_close":
+            # A-U109c: (a) account exactly for the prerequisite event, retaining byte parity, M6/M7.
+            expected["payload"]["untrusted"]["rev"] = 4
+            for path, text in expected["journals"].items():
+                lines = text.splitlines()
+                closing = json.loads(lines[-1])
+                cancellation = copy.deepcopy(closing)
+                cancellation["op"] = dict(kind="task.set", task_id="T01",
+                                           base_rev=2, state="cancelled")
+                closing.update(id="e-0000000000000004", lamport=4)
+                encode = lambda ev: json.dumps(ev, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+                expected["journals"][path] = "\n".join(lines[:-1] + [encode(cancellation), encode(closing)]) + "\n"
+        # A-U121c: add only required comparison metadata to the frozen byte expectation, M3.
+        pending = iter(batch_hashes[0])
+        recorded = {}
+        for path, text in expected["journals"].items():
+            events = [json.loads(line) for line in text.splitlines()]
+            for event in events:
+                if "batch" in event:
+                    members = tuple(event["batch"]["member_ids"])
+                    if members not in recorded:
+                        recorded[members] = next(pending)
+                    event["batch"]["request_sha256"] = recorded[members]
+            expected["journals"][path] = "".join(
+                json.dumps(event, sort_keys=True, separators=(",", ":"),
+                           ensure_ascii=False) + "\n" for event in events)
+        self.assertEqual(list(pending), [])
         self.assertEqual(outcomes[0][1], expected["payload"], "pre-U87 successful payload changed")
         self.assertEqual({p: b.decode() for p, b in journals[0].items()}, expected["journals"],
                          "pre-U87 committed journal changed")
@@ -485,7 +529,8 @@ class MutationOracle(FutureCase):
 class PromptOracle(FutureCase):
     def test_amendment_executor_loop_appended_and_existing_entries_exact(self):
         prompts = rpc("prompts/list")["result"]["prompts"]
-        self.assertEqual(prompts[:-1], [
+        # A-U111b: U111 appends swarm_coordinator/swarm_executor after executor_loop (mandated)
+        self.assertEqual(prompts[:3], [
             {"name": "plan_from_template", "description": "Plan from template.", "arguments": [
                 {"name": "template_id", "description": "Template id.", "required": True},
                 {"name": "brief", "description": "Brief text.", "required": True}]},
@@ -496,8 +541,8 @@ class PromptOracle(FutureCase):
                 {"name": "room", "description": "Room.", "required": False},
                 {"name": "agent", "description": "Agent.", "required": False}]},
         ])
-        self.assertEqual(prompts[-1]["name"], "executor_loop")
-        self.assertEqual([(a["name"], a.get("required", False)) for a in prompts[-1]["arguments"]],
+        self.assertEqual(prompts[3]["name"], "executor_loop")
+        self.assertEqual([(a["name"], a.get("required", False)) for a in prompts[3]["arguments"]],
                          [("room", True), ("agent", True), ("task_id", False)])
 
     def test_amendment_executor_loop_steering(self):
@@ -564,7 +609,8 @@ class RegressionOracle(BaseCase):
 
     def test_a7_missing_modules_skip_and_internal_dependency_propagates(self):
         from bridge.room import ext
-        self.assertEqual(ext.EXT_MODULES, ("events", "activity", "export"))
+        # A-U132c: retain U110 send and include U132 lifecycle and U119 acquire.
+        self.assertEqual(ext.EXT_MODULES, ("events", "activity", "export", "send", "lifecycle", "acquire"))
         with patch.object(ext, "EXT_MODULES", ("u87_intentionally_missing",)):
             self.assertEqual(ext.load(), ext.EXT_TOOLS)
         real_import = importlib.import_module

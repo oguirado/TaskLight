@@ -1,6 +1,7 @@
 import type {
   PlanningTemplate, PlanProjection, PlanTask, TaskStatus, PlanConformance,
   PlanApplyResult, PlanFoldResult, PlanOpEvent, PlanOpErrorCode, PlanMicrotask,
+  AgentLifecycle, AgentLifecycleRecord,
 } from "./types";
 import { PLAN_LIMITS, AGENT_RE } from "./limits";
 import { opEventErrorCode, isPlainObjectExport, isJsonSafe, collectionHasDangerous, safeField, hasDangerousOwnKey } from "./validate";
@@ -33,24 +34,36 @@ function cloneDeep<T>(v: T): T {
   return out as T;
 }
 
+// Keep the optional empty default available to readers without changing
+// legacy JSON. A recorded lifecycle map is always an enumerable field.
+function lifecycleDefault(projection: PlanProjection): PlanProjection {
+  if (!projection.agent_lifecycle || Object.keys(projection.agent_lifecycle).length === 0) {
+    Object.defineProperty(projection, "agent_lifecycle", {
+      value: {}, enumerable: false, configurable: true, writable: true,
+    });
+  }
+  return projection;
+}
+
 export function emptyProjection(): PlanProjection {
   try {
-    return {
+    return lifecycleDefault({
       plan: null,
       tasks: [],
       memory: {},
+      agent_lifecycle: {},
       archived_plans: [],
       rollup: { tasks_total: 0, tasks_done: 0, tasks_blocked: 0, tasks_ready: 0, micro_total: 0, micro_done: 0, progress: 0, progress_pct: 0 },
       replayed_ops: {},
       rejected: [],
       last_lamport: 0,
-    };
+    });
   } catch {
-    return {
-      plan: null, tasks: [], memory: {}, archived_plans: [],
+    return lifecycleDefault({
+      plan: null, tasks: [], memory: {}, agent_lifecycle: {}, archived_plans: [],
       rollup: { tasks_total: 0, tasks_done: 0, tasks_blocked: 0, tasks_ready: 0, micro_total: 0, micro_done: 0, progress: 0, progress_pct: 0 },
       replayed_ops: {}, rejected: [], last_lamport: 0,
-    };
+    });
   }
 }
 
@@ -400,6 +413,7 @@ function projectionRollback(proj: PlanProjection, replayKey: string | undefined)
   const savedRetired = retired && typeof retired === "object" ? { ...(retired as RetiredRuns) } : retired;
   return () => {
     Object.assign(proj, saved);
+    if (!Object.prototype.hasOwnProperty.call(saved, "agent_lifecycle")) delete proj.agent_lifecycle;
     if (hadRetired) cache[ACTIVITY_RETIRED] = savedRetired;
     else delete cache[ACTIVITY_RETIRED];
     // The replay check established that this receipt did not exist before apply.
@@ -426,6 +440,7 @@ function applyOpInternal(
     if (!("plan" in baseRec)) base.plan = null;
     if (!Array.isArray(base.tasks)) base.tasks = [];
     if (!isPlainObjectExport(base.memory)) base.memory = {};
+    if (!isPlainObjectExport(base.agent_lifecycle) || Object.keys(base.agent_lifecycle ?? {}).length === 0) delete base.agent_lifecycle;
     if (!Array.isArray(base.archived_plans)) base.archived_plans = [];
     if (!base.rollup || typeof base.rollup !== "object") base.rollup = emptyProjection().rollup;
     if (!isPlainObjectExport(base.replayed_ops)) base.replayed_ops = {};
@@ -442,7 +457,15 @@ function applyOpInternal(
   let code: PlanOpErrorCode | null = null;
   try { code = opEventErrorCode(ev); } catch { code = "bad_op"; }
   if (code !== null) {
-    return { ok: false, code, projection: base };
+    let detail: string = code;
+    const rawOp = safeField(ev, "op").value;
+    const rawKind = safeField(rawOp, "kind").value;
+    const fence = safeField(rawOp, "claim_lamport");
+    if (code === "bad_op" && (rawKind === "micro.set" || rawKind === "task.release") &&
+        fence.has && (!isSafeInt(fence.value) || fence.value <= 0)) {
+      detail = "claim_lamport must be a positive safe integer";
+    }
+    return { ok: false, code, detail, projection: base };
   }
   // Valid: safe direct reads
   const evRec = ev as Record<string, unknown>;
@@ -458,19 +481,86 @@ function applyOpInternal(
   // Replay check before domain
   const replayKey = opId === undefined ? undefined : JSON.stringify([agent, opId]);
   if (replayKey !== undefined && Object.prototype.hasOwnProperty.call(base.replayed_ops, replayKey)) {
+    const cached = base.replayed_ops[replayKey] as Record<string, unknown>;
+    if (kind === "agent.lifecycle" || safeField(cached, "kind").value === "agent.lifecycle") {
+      const stored = safeField(cached, "op").value as Record<string, unknown> | undefined;
+      if (!stored || Object.keys(stored).length !== Object.keys(op).length ||
+          !Object.keys(op).every(key => Object.prototype.hasOwnProperty.call(stored, key) && stored[key] === op[key])) {
+        return { ok: false, code: "bad_op", detail: "op_id conflict", projection: base };
+      }
+    }
     return { ok: true, projection: base, replayed: true };
   }
 
   let rollback: (() => void) | undefined;
-  const fail = (c: PlanOpErrorCode): PlanApplyResult => {
+  const fail = (c: PlanOpErrorCode, detail: string = c): PlanApplyResult => {
     rollback?.();
-    return { ok: false, code: c, projection: base };
+    return { ok: false, code: c, detail, projection: base };
   };
 
   try {
     // Keep the eligible watermark, but roll back every domain/replay mutation
     // on rejection or exception, including failures inside recompute.
     rollback = projectionRollback(base, replayKey);
+    const records = base.agent_lifecycle ?? {};
+    const record = Object.prototype.hasOwnProperty.call(records, agent) ? records[agent] as AgentLifecycleRecord : undefined;
+    if (kind === "agent.lifecycle") {
+      const runId = op["run_id"] as string;
+      const lifecycle = op["state"] as AgentLifecycle;
+      const retired = record ? [...record.retired_run_ids] : [];
+      const current = record !== undefined && record.run_id === runId;
+      const terminal = current && (record.lifecycle === "finished" || record.lifecycle === "failed");
+      const detail = `agent ${agent} run ${runId}`;
+      let noop = false;
+      if (!current) {
+        if (retired.includes(runId) && lifecycle === "alive") noop = true;
+        else if (lifecycle !== "deployed" || retired.includes(runId)) {
+          return fail("not_conformant", detail + ": deployment required or run retired");
+        }
+      } else if (lifecycle === "alive") {
+        noop = terminal || ts < record.ts || (record.last_alive_ts !== undefined && ts - record.last_alive_ts < 30000);
+      } else if (lifecycle === "deployed" || terminal) {
+        if (terminal && lifecycle !== record.lifecycle) return fail("not_conformant", detail + ": terminal run");
+        if (["swarm", "harness", "reason"].some(key => Object.prototype.hasOwnProperty.call(op, key) &&
+            op[key] !== (record as unknown as Record<string, unknown>)[key])) {
+          return fail("not_conformant", detail + ": conflicting repeat");
+        }
+        noop = true;
+      }
+      if (noop) {
+        if (replayKey !== undefined) {
+          // Reserve suppressed deliveries so retries keep the original result.
+          (base.replayed_ops as Record<string, unknown>)[replayKey] = {
+            kind, op_id: opId, lamport: record!.lamport, noop: true, op: cloneDeep(op),
+          };
+        }
+        return { ok: true, projection: base, replayed: false };
+      }
+      let next: AgentLifecycleRecord;
+      if (current) next = { ...record, lifecycle, ts, lamport };
+      else {
+        if (record && !retired.includes(record.run_id)) retired.push(record.run_id);
+        next = { lifecycle, run_id: runId, deployed_ts: ts, ts, lamport, retired_run_ids: retired };
+      }
+      for (const key of ["swarm", "harness", "reason"] as const) {
+        if (Object.prototype.hasOwnProperty.call(op, key)) next[key] = op[key] as string;
+      }
+      if (lifecycle === "alive") next.last_alive_ts = ts;
+      Object.defineProperty(base, "agent_lifecycle", {
+        value: { ...base.agent_lifecycle, [agent]: next },
+        enumerable: true, configurable: true, writable: true,
+      });
+      if (replayKey !== undefined) {
+        (base.replayed_ops as Record<string, unknown>)[replayKey] = { kind, op_id: opId, lamport, op: cloneDeep(op) };
+      }
+      return { ok: true, projection: base, replayed: false };
+    }
+    if (kind === "activity.beat" && record &&
+        (op["run_id"] !== record.run_id || record.lifecycle === "finished" || record.lifecycle === "failed")) {
+      // Stale registered runs never reach plan admission or execution mutation.
+      if (replayKey !== undefined) (base.replayed_ops as Record<string, unknown>)[replayKey] = { kind, op_id: opId, agent, beat_ts: ts };
+      return { ok: true, projection: base, replayed: false };
+    }
     if (kind === "plan.open") {
       const plan = base.plan as Record<string, unknown> | null;
       if (plan && plan["state"] === "active") return fail("plan_exists");
@@ -551,10 +641,12 @@ function applyOpInternal(
 
     // All other kinds require active plan
     const plan = base.plan as Record<string, unknown> | null;
-    if (!plan || plan["state"] !== "active") return fail("no_plan");
+    if (!plan || plan["state"] !== "active") return fail("no_plan", "no active plan");
 
     if (kind === "plan.close") {
-      if ((op["base_rev"] as number) !== (plan["rev"] as number)) return fail("stale_rev");
+      if ((op["base_rev"] as number) !== (plan["rev"] as number)) return fail("stale_rev", "stale plan rev");
+      const unfinished = base.tasks.filter(t => t.state !== "done" && t.state !== "cancelled").map(t => t.id);
+      if (unfinished.length) return fail("not_conformant", "unfinished tasks: " + unfinished.join(", "));
       plan["state"] = "closed";
       plan["rev"] = lamport;
       plan["closed_outcome"] = Object.prototype.hasOwnProperty.call(op, "outcome") ? op["outcome"] : null;
@@ -639,7 +731,8 @@ function applyOpInternal(
       const tasks = base.tasks as unknown as Array<Record<string, unknown>>;
       const task = findTask(tasks, op["task_id"] as string);
       if (!task) return fail("not_found");
-      if ((op["base_rev"] as number) !== (task["rev"] as number)) return fail("stale_rev");
+      if ((op["base_rev"] as number) !== (task["rev"] as number)) return fail("stale_rev", "stale task rev");
+      if (op["state"] === "cancelled" && task["assignee"] != null && task["assignee"] !== agent) return fail("claimed_by_other", "claimed");
       if (template !== undefined && Object.prototype.hasOwnProperty.call(op, "phase")) {
         const pids = phaseIdsFor(template);
         if (pids && !pids.has(op["phase"] as string)) return fail("bad_op");
@@ -711,11 +804,19 @@ function applyOpInternal(
     if (kind === "task.release") {
       const tasks = base.tasks as unknown as Array<Record<string, unknown>>;
       const task = findTask(tasks, op["task_id"] as string);
-      if (!task) return fail("not_found");
-      if (Object.prototype.hasOwnProperty.call(op, "base_rev") && (op["base_rev"] as number) !== (task["rev"] as number)) return fail("stale_rev");
+      if (!task) return fail("not_found", "task");
+      if (Object.prototype.hasOwnProperty.call(op, "base_rev") && (op["base_rev"] as number) !== (task["rev"] as number)) return fail("stale_rev", "stale task rev");
       const assignee = task["assignee"] as string | null | undefined;
-      if (assignee !== null && assignee !== undefined && assignee !== agent) return fail("claimed_by_other");
+      if (assignee !== null && assignee !== undefined && assignee !== agent) return fail("claimed_by_other", "claimed");
+      if (Object.prototype.hasOwnProperty.call(op, "claim_lamport") && op["claim_lamport"] !== task["claim_lamport"]) return fail("stale_rev", "stale claim lamport");
+      if (task["state"] === "done" || task["state"] === "cancelled") return fail("not_conformant", "cannot release terminal task " + task["id"]);
       retireTaskActivity(base, task as unknown as PlanTask);
+      for (const micro of task["microtasks"] as Array<Record<string, unknown>>) {
+        if (micro["state"] === "active") {
+          micro["state"] = "pending";
+          micro["rev"] = lamport;
+        }
+      }
       task["assignee"] = null;
       task["claim_lamport"] = null;
       task["claim_ts"] = null;
@@ -778,13 +879,23 @@ function applyOpInternal(
       const taskId = microId.split(".", 1)[0] as string;
       const tasks = base.tasks as unknown as Array<Record<string, unknown>>;
       const task = findTask(tasks, taskId);
-      if (!task) return fail("not_found");
+      if (!task) return fail("not_found", "task");
       const micros = Array.isArray(task["microtasks"]) ? (task["microtasks"] as Array<Record<string, unknown>>) : [];
       let micro: Record<string, unknown> | null = null;
       for (const m of micros) if (m && m["id"] === microId) { micro = m; break; }
-      if (!micro) return fail("not_found");
+      if (!micro) return fail("not_found", "micro");
       const assignee = task["assignee"] as string | null | undefined;
-      if (assignee !== null && assignee !== undefined && assignee !== agent) return fail("claimed_by_other");
+      if (assignee == null) return fail("not_conformant", "claim task " + taskId + " before setting microtasks");
+      if (assignee !== agent) return fail("claimed_by_other", "claimed");
+      if (Object.prototype.hasOwnProperty.call(op, "claim_lamport") && op["claim_lamport"] !== task["claim_lamport"]) return fail("stale_rev", "stale claim lamport");
+      if (op["state"] === "active" || op["state"] === "done") {
+        const byId = new Map(tasks.map(t => [t["id"], t]));
+        const unsatisfied = (task["deps"] as string[]).filter(d => {
+          const dep = byId.get(d);
+          return !dep || (dep["state"] !== "done" && dep["state"] !== "cancelled");
+        });
+        if (unsatisfied.length) return fail("not_conformant", "unsatisfied dependencies: " + unsatisfied.join(", "));
+      }
       micro["state"] = op["state"];
       if (Object.prototype.hasOwnProperty.call(op, "outcome")) micro["outcome"] = op["outcome"];
       if (Object.prototype.hasOwnProperty.call(op, "took")) micro["took"] = op["took"];
@@ -809,9 +920,9 @@ export function applyOp(proj: PlanProjection, ev: unknown, template?: PlanningTe
   } catch {
     try {
       const base = (() => { try { return cloneProjection(proj); } catch { return emptyProjection(); } })();
-      return { ok: false, code: "bad_op", projection: base };
+      return { ok: false, code: "bad_op", detail: "bad_op", projection: base };
     } catch {
-      return { ok: false, code: "bad_op", projection: emptyProjection() };
+      return { ok: false, code: "bad_op", detail: "bad_op", projection: emptyProjection() };
     }
   }
 }
@@ -828,7 +939,11 @@ function safeUpdateActivity(lastByAgent: Map<string, number>, e: Record<string, 
   } catch { /* ignore */ }
 }
 
-export function foldPlan(events: unknown, template?: PlanningTemplate): PlanFoldResult {
+export type PlanTemplateResolver = (templateId: string, templateHash: string) => PlanningTemplate | undefined;
+
+// A supplied template retains the original single-template contract. A resolver
+// selects templates at admitted generation boundaries within the same replay.
+export function foldPlan(events: unknown, template?: PlanningTemplate | PlanTemplateResolver): PlanFoldResult {
   try {
     if (!Array.isArray(events)) {
       return { projection: emptyProjection(), stats: { applied: 0, replayed: 0, rejected: 0, invalid: 0, errors: [] } };
@@ -905,9 +1020,16 @@ export function foldPlan(events: unknown, template?: PlanningTemplate): PlanFold
     // Sort by (lamport, id ordinal)
     const ordered = [...sortable].sort((a, b) => {
       if (a.lamport !== b.lamport) return a.lamport - b.lamport;
-      if (a.id < b.id) return -1;
-      if (a.id > b.id) return 1;
-      return 0;
+      // Python compares strings by Unicode code point, including astral IDs.
+      let i = 0, j = 0;
+      while (i < a.id.length && j < b.id.length) {
+        const left = a.id.codePointAt(i)!;
+        const right = b.id.codePointAt(j)!;
+        if (left !== right) return left - right;
+        i += left > 0xffff ? 2 : 1;
+        j += right > 0xffff ? 2 : 1;
+      }
+      return (a.id.length - i) - (b.id.length - j);
     });
     // Dedup by id (first wins)
     const seen = new Set<string>();
@@ -918,6 +1040,34 @@ export function foldPlan(events: unknown, template?: PlanningTemplate): PlanFold
       deduped.push(e);
     }
 
+    const templates = new Map<string, PlanningTemplate | undefined>();
+    const knownTemplates = new Map<string, PlanningTemplate>();
+    if (typeof template === "function") {
+      // Resolve each identity once, including historical generations. A known
+      // identity with an unresolved hash must still undergo hash validation.
+      for (const e of deduped) {
+        if (safeField(e.raw, "act").value !== "op") continue;
+        const op = safeField(e.raw, "op").value;
+        if (safeField(op, "kind").value !== "plan.open") continue;
+        const id = safeField(op, "template_id").value;
+        const hash = safeField(op, "template_hash").value;
+        if (typeof id !== "string" || typeof hash !== "string") continue;
+        const key = JSON.stringify([id, hash]);
+        if (templates.has(key)) continue;
+        let candidate: PlanningTemplate | undefined;
+        try {
+          const resolved = template(id, hash);
+          if (resolved !== null && typeof resolved === "object" && !Array.isArray(resolved) && resolved.hash === hash) {
+            candidate = resolved;
+          }
+        } catch { /* Unavailable catalogues preserve untemplated replay. */ }
+        templates.set(key, candidate);
+        if (candidate !== undefined) knownTemplates.set(id, candidate);
+      }
+    }
+    // Resolver-based replay has no generation context until an opening is
+    // admitted. Explicit single-template callers keep their original context.
+    let activeTemplate = typeof template === "function" ? undefined : template;
     const lastByAgent = new Map<string, number>();
     for (const e of deduped) {
       const er = e.raw;
@@ -942,13 +1092,25 @@ export function foldPlan(events: unknown, template?: PlanningTemplate): PlanFold
       const beforeLast = state.last_lamport;
       void beforeLast;
       let result: PlanApplyResult & { replayed?: boolean };
+      let eventTemplate = activeTemplate;
+      const op = safeField(er, "op").value;
+      const opening = safeField(op, "kind").value === "plan.open";
+      if (opening && typeof template === "function") {
+        const id = safeField(op, "template_id").value;
+        const hash = safeField(op, "template_hash").value;
+        eventTemplate = typeof id === "string" && typeof hash === "string"
+          ? templates.get(JSON.stringify([id, hash])) ?? knownTemplates.get(id)
+          : undefined;
+      }
       try {
-        result = applyOpInternal(state, er, template, snapshot, true) as PlanApplyResult & { replayed?: boolean };
+        result = applyOpInternal(state, er, eventTemplate, snapshot, true) as PlanApplyResult & { replayed?: boolean };
       } catch {
-        result = { ok: false, code: "bad_op", projection: state };
+        result = { ok: false, code: "bad_op", detail: "bad_op", projection: state };
       }
       if (result.ok) {
         state = result.projection;
+        // Rejected and op_id-replayed openings cannot replace the admitted context.
+        if (opening && result.replayed !== true) activeTemplate = eventTemplate;
         if ((result as { replayed?: boolean }).replayed === true) replayedN += 1;
         else applied += 1;
       } else {
@@ -967,6 +1129,8 @@ export function foldPlan(events: unknown, template?: PlanningTemplate): PlanFold
       safeUpdateActivity(lastByAgent, er);
     }
 
+    // Preserve legacy JSON when the optional map has no recorded runs.
+    if (state.agent_lifecycle && Object.keys(state.agent_lifecycle).length === 0) delete state.agent_lifecycle;
     // Final recompute to ensure derived fresh (preserves rejected/watermark)
     try { recompute(state); } catch { /* ignore */ }
     return { projection: state, stats: { applied, replayed: replayedN, rejected: rejectedN, invalid, errors } };

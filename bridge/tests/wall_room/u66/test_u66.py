@@ -12,6 +12,8 @@ from unittest import mock
 
 from bridge.plan.conformance import check_conformance
 from bridge.plan.fold import fold_plan
+from bridge.plan.errors import PlanError
+from bridge.plan.ops import validate_op_shape
 from bridge.plan.template import validate_template
 from bridge.room import app, mcp, store
 from bridge.wall import room_relay as relay
@@ -20,6 +22,7 @@ from bridge.tests.wall_room import support as S
 
 ROOT = Path(__file__).resolve().parents[4]
 HEX_ID = "0123456789abcdef0123456789abcdef"
+RUN_IDS = (HEX_ID + "-exec-a", HEX_ID + "-exec-b")
 
 
 def web_template():
@@ -29,6 +32,15 @@ def web_template():
 
 def event(**op):
     return S.event(1, act="op", op=dict(kind="plan.open", **op))
+
+
+def run_event(kind, run_id, lamport=1):
+    op = dict(kind=kind, run_id=run_id, op_id="run-op-%04d" % lamport)
+    if kind == "agent.lifecycle":
+        op.update(state="deployed", harness="external")
+    else:
+        op.update(task_id="T01", micro_id="T01.M01")
+    return S.event(lamport, act="op", op=op)
 
 
 class SanitizeOracle(unittest.TestCase):
@@ -101,6 +113,68 @@ class SanitizeOracle(unittest.TestCase):
     def test_a4_clean_op_id_is_unchanged(self):
         source = event(op_id="agent-op-0001")
         self.assertEqual(relay.sanitize_event(source), source)
+
+    def test_u157_run_ids_are_valid_stable_distinct_and_invalid_ids_stay_rejected(self):
+        identities = {}
+        for run_id in (*RUN_IDS, "r", "r" * 64, HEX_ID * 2):
+            expected = (run_id if redact(run_id)[0] == run_id else
+                        "h-" + hashlib.sha256(run_id.encode("utf-8")).hexdigest()[:32])
+            for kind in ("agent.lifecycle", "activity.beat"):
+                with self.subTest(kind=kind, run_id=run_id):
+                    source = run_event(kind, run_id)
+                    before = copy.deepcopy(source)
+                    outputs = [relay.sanitize_event(source) for _ in range(2)]
+                    if outputs[0] is not None:
+                        identities[(kind, run_id)] = outputs[0]["op"]["run_id"]
+                    for clean in outputs:
+                        self.assertIsNotNone(clean)
+                        self.assertEqual(clean["op"]["run_id"], expected)
+                        validate_op_shape(clean["op"])
+                    self.assertEqual(outputs[0], outputs[1])
+                    self.assertEqual(source, before)
+        for run_id in RUN_IDS:
+            self.assertNotEqual(redact(run_id)[0], run_id, "fixture must trigger redaction")
+            self.assertEqual(identities[("agent.lifecycle", run_id)],
+                             identities[("activity.beat", run_id)])
+        self.assertNotEqual(identities[("agent.lifecycle", RUN_IDS[0])],
+                            identities[("agent.lifecycle", RUN_IDS[1])])
+        for kind in ("agent.lifecycle", "activity.beat"):
+            for run_id in ("", "x" * 65, HEX_ID * 2 + "x", "bad.id", "bad/id",
+                           "run\n", "é", S.FAKE_SECRET, None, 17, True, [], {}):
+                with self.subTest(kind=kind, invalid=run_id):
+                    clean = relay.sanitize_event(run_event(kind, run_id))
+                    if clean is not None:
+                        with self.assertRaises(PlanError) as caught:
+                            validate_op_shape(clean["op"])
+                        self.assertEqual(caught.exception.code, "bad_op")
+                        self.assertNotIn(S.FAKE_VALUE, repr(clean))
+
+    def test_u157_only_top_level_run_identity_gets_a_surrogate(self):
+        run_id = RUN_IDS[0]
+        source = event(run_id=run_id, brief={"run_id": run_id},
+                       microtasks=[{"run_id": run_id}], title=run_id + " " + S.FAKE_SECRET)
+        clean = relay.sanitize_event(source)
+        self.assertIsNotNone(clean)
+        self.assertRegex(clean["op"]["run_id"], r"^[A-Za-z0-9_-]{1,64}$")
+        self.assertEqual(clean["op"]["brief"]["run_id"], redact(run_id)[0])
+        self.assertEqual(clean["op"]["microtasks"][0]["run_id"], redact(run_id)[0])
+        self.assertEqual(clean["op"]["title"], redact(source["op"]["title"])[0])
+        self.assertNotIn(run_id, repr(clean))
+        self.assertNotIn(S.FAKE_VALUE, repr(clean))
+        for kind, field in (("agent.lifecycle", "reason"), ("activity.beat", "note")):
+            source = run_event(kind, run_id)
+            source["op"][field] = run_id + " " + S.FAKE_SECRET
+            clean = relay.sanitize_event(source)
+            self.assertIsNotNone(clean)
+            validate_op_shape(clean["op"])
+            self.assertEqual(clean["op"][field], redact(source["op"][field])[0])
+        real = redact
+        def residue(text, _disable=frozenset()):
+            if text in (run_id, "residue"):
+                return "residue", 1, ["HIGH_ENTROPY"]
+            return real(text)
+        with S.patched_redact(residue):
+            self.assertIsNone(relay.sanitize_event(run_event("agent.lifecycle", run_id)))
 
     def test_a6_nested_template_hash_has_no_exemption(self):
         clean = relay.sanitize_event(event(brief={"template_hash": self.digest}))
@@ -200,6 +274,23 @@ class FrameOracle(unittest.TestCase):
         frames = [self.frames(event(op_id=HEX_ID), replay) for replay in (False, True)]
         self.assertEqual([frame["event"]["op"]["op_id"] for frame in frames], [expected] * 2)
         self.assertNotIn(HEX_ID, repr(frames))
+
+    def test_u157_lifecycle_and_beats_share_run_identity_in_live_and_replay(self):
+        transported = {}
+        for run_id in RUN_IDS:
+            for kind in ("agent.lifecycle", "activity.beat"):
+                source = run_event(kind, run_id)
+                frames = [self.frames(source, replay) for replay in (False, True)]
+                for frame in frames:
+                    self.assertRegex(frame["event"]["op"]["run_id"], r"^[A-Za-z0-9_-]{1,64}$")
+                    validate_op_shape(frame["event"]["op"])
+                    self.assertNotIn(run_id, repr(frame))
+                self.assertEqual(frames[0]["event"], frames[1]["event"])
+                transported[(kind, run_id)] = frames[0]["event"]["op"]["run_id"]
+            self.assertEqual(transported[("agent.lifecycle", run_id)],
+                             transported[("activity.beat", run_id)])
+        self.assertNotEqual(transported[("agent.lifecycle", RUN_IDS[0])],
+                            transported[("agent.lifecycle", RUN_IDS[1])])
 
 
 class McpOracle(unittest.TestCase):

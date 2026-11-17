@@ -1,0 +1,24 @@
+{
+  "status": "FAIL_FIRST",
+  "tests": 81,
+  "red": 81,
+  "green": 0,
+  "skipped": 0,
+  "exact_run_line": "Ran 81 tests in 0.074s",
+  "exact_summary": "FAILED (errors=81)",
+  "stub_error": "NotImplementedError: U133 stub",
+  "stub_error_count": 81,
+  "other_error_count": 0,
+  "existing_todo": {
+    "tests": 8,
+    "green": 8,
+    "summary": "OK"
+  },
+  "existing_room": {
+    "tests": 804,
+    "summary": "FAILED (failures=10, errors=7)",
+    "comparison": "UNCHANGED"
+  },
+  "integration": "HOLD: U132 and U109 ADMIT receipts AUSENTE",
+  "host_timing": "INCONCLUSIVE"
+}

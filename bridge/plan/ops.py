@@ -29,6 +29,8 @@ from .limits import (
 _DANGEROUS = frozenset({"__proto__", "constructor", "prototype"})
 _SAFE_MAX = 9007199254740991
 _RUN_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
+LIFECYCLE_REASON_MAX = 512
+LIFECYCLE_STATES = frozenset({"deployed", "alive", "finished", "failed"})
 
 
 def _bad(msg: str = "") -> PlanError:
@@ -131,11 +133,32 @@ def validate_op_shape(op: object) -> dict:
     if _canonical_bytes(op) > OP_BYTES_MAX:
         raise _limit("op bytes")
     kind = op.get("kind")
-    if not isinstance(kind, str) or (kind not in OP_KINDS and kind != "activity.beat"):
+    if not isinstance(kind, str) or (kind not in OP_KINDS and kind not in ("activity.beat", "agent.lifecycle")):
         raise _bad("kind")
     _check_op_id(op)
 
-    if kind == "activity.beat":
+    if kind == "agent.lifecycle":
+        _check_unknown(op, {"kind", "state", "run_id", "swarm", "harness", "reason", "op_id"})
+        for req in ("state", "run_id", "op_id"):
+            if req not in op:
+                raise _bad(f"missing {req}")
+        if not isinstance(op["state"], str) or op["state"] not in LIFECYCLE_STATES:
+            raise _bad("lifecycle state")
+        if not isinstance(op["run_id"], str) or _RUN_ID_RE.fullmatch(op["run_id"]) is None:
+            raise _bad("run_id")
+        for key in ("swarm", "harness", "reason"):
+            if key not in op:
+                continue
+            value = op[key]
+            _check_str_len(value, 0 if key == "reason" else 1,
+                           LIFECYCLE_REASON_MAX if key == "reason" else TITLE_MAX)
+            if any(ord(ch) < 0x20 or 0x7f <= ord(ch) <= 0x9f
+                   or 0xd800 <= ord(ch) <= 0xdfff for ch in value):
+                raise _bad(f"{key} controls or surrogate")
+            if key != "reason" and not any(not (ch.isspace() or ch == "\ufeff") for ch in value):
+                raise _bad(f"{key} blank")
+
+    elif kind == "activity.beat":
         _check_unknown(op, {"kind", "task_id", "micro_id", "run_id", "note", "op_id"})
         for req in ("task_id", "run_id", "op_id"):
             if req not in op:
@@ -315,7 +338,10 @@ def validate_op_shape(op: object) -> dict:
                 raise _bad("takeover bool")
 
     elif kind == "task.release":
-        _check_unknown(op, {"kind", "op_id", "task_id", "base_rev"})
+        _check_unknown(op, {"kind", "op_id", "task_id", "base_rev", "claim_lamport"})
+        if "claim_lamport" in op:
+            if not _is_safe_int(op["claim_lamport"]) or op["claim_lamport"] <= 0:
+                raise _bad("claim_lamport must be a positive safe integer")
         if "task_id" not in op:
             raise _bad("missing task_id")
         if not isinstance(op["task_id"], str) or TASK_ID_RE.fullmatch(op["task_id"]) is None:
@@ -338,7 +364,10 @@ def validate_op_shape(op: object) -> dict:
             _check_str_len(op["accept"], 0, ACCEPT_MAX)
 
     elif kind == "micro.set":
-        _check_unknown(op, {"kind", "op_id", "micro_id", "state", "outcome", "took", "evidence"})
+        _check_unknown(op, {"kind", "op_id", "micro_id", "state", "outcome", "took", "evidence", "claim_lamport"})
+        if "claim_lamport" in op:
+            if not _is_safe_int(op["claim_lamport"]) or op["claim_lamport"] <= 0:
+                raise _bad("claim_lamport must be a positive safe integer")
         for req in ("micro_id", "state"):
             if req not in op:
                 raise _bad(f"missing {req}")

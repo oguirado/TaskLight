@@ -19,7 +19,7 @@ button.status-line:hover .status-text {
   text-underline-offset: 2px;
 }
 button.status-line:focus-visible {
-  outline: 2px solid var(--c-accent);
+  outline: 2px solid var(--c-focus);
   outline-offset: 2px;
 }
 
@@ -33,7 +33,9 @@ button.status-line:focus-visible {
   display: flex;
   flex-direction: column;
   gap: var(--sp-4);
-  max-height: 70vh;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+  max-height: 60vh;
   overflow-y: auto;
   padding: var(--sp-5) var(--sp-4) var(--sp-4);
   background: var(--c-surface-1);
@@ -81,6 +83,8 @@ button.status-line:focus-visible {
   font-weight: var(--fw-medium);
 }
 .model-sheet-scope-select {
+  min-inline-size: 0;
+  max-inline-size: 100%;
   min-height: var(--touch);
   padding: 0 var(--sp-3);
   border: 1px solid var(--c-line-strong);
@@ -133,6 +137,8 @@ button.status-line:focus-visible {
 }
 .model-row-main {
   display: flex;
+  flex-wrap: wrap;
+  min-inline-size: 0;
   align-items: center;
   gap: var(--sp-2);
   min-height: var(--touch);
@@ -144,7 +150,7 @@ button.status-line:focus-visible {
   accent-color: var(--c-accent);
 }
 .model-row-radio:focus-visible {
-  outline: 2px solid var(--c-accent);
+  outline: 2px solid var(--c-focus);
   outline-offset: 2px;
 }
 .model-row-name {
@@ -162,7 +168,7 @@ button.status-line:focus-visible {
   font-weight: var(--fw-medium);
 }
 .model-row-state {
-  padding-left: calc(var(--sp-2) * 2 + 20px);
+  padding-left: calc(var(--sp-2) * 2 + var(--sp-5));
   color: var(--c-text-2);
   font-size: var(--fs-0);
   line-height: var(--lh-snug);
@@ -223,7 +229,7 @@ button.status-line:focus-visible {
   margin-left: auto;
 }
 .model-sheet :focus-visible {
-  outline: 2px solid var(--c-accent);
+  outline: 2px solid var(--c-focus);
   outline-offset: 2px;
 }
 
@@ -240,13 +246,37 @@ button.status-line:focus-visible {
   color: var(--c-text-2);
 }
 
+/* Keep sheet and liaison decoration stationary under either preference. */
+.ui-reduced-motion .model-sheet,
+.ui-reduced-motion .model-sheet::before,
+.ui-reduced-motion .model-sheet::after,
+.ui-reduced-motion .model-sheet *,
+.ui-reduced-motion .model-sheet *::before,
+.ui-reduced-motion .model-sheet *::after,
+.ui-reduced-motion .liaison-panel,
+.ui-reduced-motion .liaison-panel::before,
+.ui-reduced-motion .liaison-panel::after,
+.ui-reduced-motion .liaison-panel *,
+.ui-reduced-motion .liaison-panel *::before,
+.ui-reduced-motion .liaison-panel *::after {
+  animation-duration: 0ms !important;
+  transition-duration: 0ms !important;
+}
 @media (prefers-reduced-motion: reduce) {
-  .model-sheet {
-    transition: none;
-  }
-  .liaison-panel {
-    transition: none;
-    animation: none;
+  .model-sheet,
+  .model-sheet::before,
+  .model-sheet::after,
+  .model-sheet *,
+  .model-sheet *::before,
+  .model-sheet *::after,
+  .liaison-panel,
+  .liaison-panel::before,
+  .liaison-panel::after,
+  .liaison-panel *,
+  .liaison-panel *::before,
+  .liaison-panel *::after {
+    animation-duration: 0ms !important;
+    transition-duration: 0ms !important;
   }
 }
 
@@ -263,6 +293,64 @@ button.status-line:focus-visible {
   line-height: var(--lh-body);
 }
 .liaison-panel :focus-visible {
-  outline: 2px solid var(--c-accent);
+  outline: 2px solid var(--c-focus);
   outline-offset: 2px;
+}
+
+/* Models and secondary legacy access share the rail's existing theme tokens. */
+.models-trigger,
+.messages-toggle,
+.messages-open {
+  min-height: var(--touch);
+}
+.model-availability,
+.model-room-policy,
+.messages-body {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--fs-0);
+  line-height: var(--lh-body);
+  color: var(--c-text-2);
+}
+.model-availability,
+.model-room-policy {
+  margin: 0;
+}
+.messages-legacy {
+  padding: var(--sp-2) var(--sp-3);
+  border-top: 1px solid var(--c-line);
+}
+.messages-toggle,
+.messages-open {
+  appearance: none;
+  max-width: 100%;
+  padding: var(--sp-1) 0;
+  border: none;
+  border-radius: var(--r-1);
+  background: none;
+  color: var(--c-text-2);
+  font: inherit;
+  text-align: start;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.messages-toggle:hover,
+.messages-open:hover {
+  color: var(--c-text-1);
+}
+.messages-legacy :focus-visible {
+  outline: 2px solid var(--c-focus);
+  outline-offset: 2px;
+}
+.messages-body[hidden] {
+  display: none;
+}
+
+/* U127w (R42 review): long model labels wrap inside the sheet. */
+.model-row-state,
+.model-group-title,
+.model-group-note,
+.model-sheet-foot button {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }

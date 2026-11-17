@@ -48,6 +48,8 @@ class EvidenceHashTests(unittest.TestCase):
                 paths = [secret_dir / name for name in ("first.txt", "second.txt")]
                 for i, path in enumerate(paths):
                     path.write_bytes(b"Evidence fixture contents" + bytes([i]))
+                # A-U109c: SPEC_U109 M3 - only the assignee may write a microtask; claim T01 first.
+                self.call("task_claim", dict(room="evidence", agent="alice", task_id="T01"))
                 self.call("microtask_set", dict(
                     room="evidence", agent="alice", id="T01.M01", state="done",
                     evidence=[str(path) for path in paths]))

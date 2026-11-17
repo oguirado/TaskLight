@@ -1,11 +1,17 @@
 """Claude Code PostToolUse hook helper: mirrors todos into room plan/step."""
 
+# Route the explicit lifecycle entry before importing todo-only dependencies.
+import sys
+
+if __name__ == "__main__" and sys.argv[1:] == ["--lifecycle"]:
+    from bridge.room.hook import main as lifecycle_main
+    sys.exit(lifecycle_main())
+
 import contextlib
 import fcntl
 import json
 import os
 import re
-import sys
 
 STATUS_MAP = {"pending": "pending", "in_progress": "active", "completed": "done"}
 LOG_CAP = 256 * 1024
@@ -210,6 +216,9 @@ def _parse_items(raw):
 
 
 def main():
+    if sys.argv[1:] == ["--lifecycle"]:
+        from bridge.room.hook import main as lifecycle_main
+        return lifecycle_main()
     room = None
     try:
         data = sys.stdin.buffer.read()

@@ -50,7 +50,11 @@ describe("U90 repair: task retirement and projection parity", () => {
   });
 
   it("plan close records task retirement", () => {
-    const state = parity([...fixture.seed, beat(10), event(11, { kind: "plan.close", base_rev: 1 })]);
+    // A-U109c: (a) close requires terminal tasks; cancellation preserves historical retirement, M6.
+    const state = parity([...fixture.seed, beat(10),
+      event(11, { kind: "task.set", task_id: "T01", base_rev: 5, state: "cancelled" }),
+      event(12, { kind: "task.set", task_id: "T02", base_rev: 3, state: "cancelled" }),
+      event(13, { kind: "plan.close", base_rev: 1 })]);
     expect((state.replayed_ops["activity.retired"] as Record<string, string[]>)["T01"]).toContain("run_A");
     expect(projectedMicro(state).live).toBeUndefined();
   });

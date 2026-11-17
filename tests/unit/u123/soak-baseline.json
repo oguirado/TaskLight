@@ -1,0 +1,96 @@
+{
+  "label": "baseline",
+  "count": 100000,
+  "seed": 19095277,
+  "runtime": {
+    "node": "v24.14.0",
+    "arch": "arm64",
+    "platform": "linux"
+  },
+  "status": "BLOCK",
+  "heapSlopeBudget": "AUSENTE — no inventar",
+  "comparison": "INCONCLUSIVE: paired run AUSENTE",
+  "startLoad5": 9.44,
+  "fixtureSha256": "f2781bacb8ea18a7ede6c70a402c466e439a1a8e6ba3ba0de79c7951b6545918",
+  "surfaceSha256": "5703f4657d068d835cced246dc43b7b73df2071b4b5f7d936544d272e6f84549",
+  "measurementStartLoad5": 9.44,
+  "storage": {
+    "pinned": {
+      "objects": 9,
+      "jsonBytes": 2013,
+      "shallowBytes": 792
+    },
+    "recent": {
+      "objects": 99991,
+      "jsonBytes": 14675667,
+      "shallowBytes": 8799208
+    },
+    "auxiliary": {
+      "eventLikeNonEnvelopeObjects": 0,
+      "shallowBytes": 0,
+      "exclusiveRetainedBytes": 4569680
+    },
+    "exclusiveStoreBytes": 20710864,
+    "dedup": {
+      "ids": 100000,
+      "idUtf8Bytes": 1800000,
+      "scope": "accepted unique IDs and logical UTF-8 size; allocation layout unspecified"
+    },
+    "replaySummaries": {
+      "scope": "logical public replay metadata; not additive to exclusive heap totals",
+      "receiptEntries": 781,
+      "receiptJsonBytes": 94834,
+      "legacyAgentStates": 2,
+      "legacyStateJsonBytes": 341,
+      "privateAllocationAttribution": "AUSENTE — no inventar"
+    }
+  },
+  "measurements": {
+    "samples": [
+      {
+        "accepted": 1000,
+        "postGcHeapBytes": 10004576,
+        "rssBytes": 98889728,
+        "load5": 9.44
+      },
+      {
+        "accepted": 25000,
+        "postGcHeapBytes": 17275520,
+        "rssBytes": 171233280,
+        "load5": 9.44
+      },
+      {
+        "accepted": 50000,
+        "postGcHeapBytes": 24451808,
+        "rssBytes": 261459968,
+        "load5": 9.44
+      },
+      {
+        "accepted": 100000,
+        "postGcHeapBytes": 39340096,
+        "rssBytes": 304250880,
+        "load5": 9.44
+      }
+    ],
+    "initialPostGcHeapBytes": 9259360,
+    "postGcRetainedHeapBytes": 39178336,
+    "peakRssBytes": 315949056,
+    "heapSlopeBytesPerAcceptedEvent": 295.67532069862506,
+    "heapSlopeIncludes": "store, size map and timing samples; exclusive store bytes are reported separately",
+    "updateLatencyNs": {
+      "p50": 1392,
+      "p95": 2193,
+      "max": 1448920
+    },
+    "readLatencyNs": {
+      "p50": 279574707,
+      "p95": 508257021,
+      "max": 508257021
+    }
+  },
+  "semantic": "PASS",
+  "retention": "BLOCK",
+  "retentionReason": "raw recent retention exceeds budget: objects=99991/5000, bytes=14675667/16777216",
+  "endLoad5": 9.52,
+  "timing": "MEASURED"
+}

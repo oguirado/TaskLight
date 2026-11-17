@@ -1,0 +1,51 @@
+{
+  "captured_sources_unchanged": true,
+  "groups": {
+    "plan": {
+      "error_ids": [],
+      "errors": 0,
+      "exit_code": 0,
+      "failure_ids": [],
+      "failures": 0,
+      "skipped": 0,
+      "summary": "OK",
+      "tests": 567
+    },
+    "room-selected": {
+      "error_ids": [],
+      "errors": 0,
+      "exit_code": 0,
+      "failure_ids": [],
+      "failures": 0,
+      "skipped": 0,
+      "summary": "OK",
+      "tests": 124
+    },
+    "u116-python": {
+      "error_ids": [
+        "bridge.tests.property.test_storage.StorageProperties.test_conflicting_same_op_id_retains_first_result_without_other_mutation"
+      ],
+      "errors": 1,
+      "exit_code": 1,
+      "failure_ids": [],
+      "failures": 0,
+      "skipped": 0,
+      "summary": "FAILED (failures=0, errors=1)",
+      "tests": 22
+    }
+  },
+  "matches_pre_u122_reference": true,
+  "outside_u122": [
+    {
+      "observed": "RoomError: bad_op: op_id conflict",
+      "reason": "Existing transport/store disagreement about conflicting request bodies",
+      "source_sha256": {
+        "bridge/room/store.py": "40b8efa26284a0c07663520cfa4c352d599caa99301e9309a24dbfdaea9d8db8"
+      },
+      "status": "BLOCKED",
+      "test": "bridge.tests.property.test_storage.StorageProperties.test_conflicting_same_op_id_retains_first_result_without_other_mutation"
+    }
+  ],
+  "schema": "u122-regressions/v1",
+  "scope": "existing Python plan suite, selected in-process room suites, full Python U116 suite"
+}

@@ -64,7 +64,9 @@ describe("O2 plan and task anatomy", () => {
     const root = renderPhaseTaskCards(document, groupTasksByPhase(tasks, phases));
     const cards = all(root, ".task"); expect(cards).toHaveLength(4);
     for (const s of ["T01", "Build release", "implementation", "builder", "20 min", "Review result", "Missing permission", "Waits for T01"]) expect(text(root)).toContain(s);
-    expect(text(q(cards[0]!, ".status"))).toMatch(/running|progress|active/i);
+    // A-R41: ordinary progress uses the task ring; no repeated In progress badge.
+    expect(cards[0]!.querySelector(".status")).toBeNull();
+    expect(text(cards[0]!)).toContain("Task:");
     expect(text(q(cards[1]!, ".status"))).toMatch(/blocked/i);
     expect(cards[2]!.getAttribute("data-ready")).toBe("false");
     expect(text(q(cards[3]!, ".status"))).toMatch(/done/i);
@@ -85,10 +87,16 @@ describe("O2 plan and task anatomy", () => {
     expect(formatWaitsFor(undefined)).toBe(""); expect(formatWaitsFor([])).toBe("");
     expect(formatWaitsFor(["T03", "T04"])).toBe("Waits for T03, T04");
   });
-  it("O2 plan card opens the task through onOpenTask", () => {
+  // A-R41: plan cards retain disclosures and never open per-task chat.
+  it("O2 plan card is read-only even with onOpenTask", () => {
     const onOpenTask = vi.fn();
     const root = renderPhaseTaskCards(document, groupTasksByPhase([task()], phases), { onOpenTask });
-    q(root, ".task").click(); expect(onOpenTask).toHaveBeenCalledWith("T01");
+    q(root, ".task").click(); expect(onOpenTask).not.toHaveBeenCalled();
+    // A-U148: the title opens local read-only details, preserving the no-chat contract.
+    q(root, ".task-title").closest("summary")!.click();
+    expect(q(root, "details").hasAttribute("open")).toBe(true);
+    expect(text(q(root, ".task-detail-body"))).toContain("Prepare release");
+    expect(onOpenTask).not.toHaveBeenCalled();
   });
 });
 describe("O3 outcome disclosure", () => {
@@ -134,6 +142,8 @@ describe("O8 bounded and hostile plan inputs", () => {
       estimate: hostile, status: "blocked", blockedReason: hostile, nanoVerdict: { verdict: "drift", reason: hostile, source },
       steps: [step({ label: hostile, detail: { outcome: hostile, evidence: [hostile], source } })],
     })], phases));
+    // A-U148: secondary task metadata is disclosed from the title.
+    q(root, ".task-title").closest("summary")!.click();
     disclosure(root).click(); expect(visibleText(root).split(hostile).length - 1).toBeGreaterThanOrEqual(7); safeDOM(root);
   });
   it("O8 fifty tasks and twenty microtasks truncate deterministically across phase groups", () => {

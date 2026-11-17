@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAgentStore, toWallVM } from "../../../src/app/agent_store";
 import { startAgentWall } from "../../../src/app/agent_wall";
+import { deriveSwarmViewModel } from "../../../src/app/swarm_vm";
 import type { AgentWall, AgentWallDeps } from "../../../src/app/agent_wall";
 import type { DriftVerdict } from "../../../src/agents/types";
 import type { WallVM } from "../../../src/views/types";
@@ -89,7 +90,13 @@ describe("U61b additive planning hooks", () => {
     wall = startAgentWall({ wallHost: document.createElement("div"), chatHost: document.createElement("div"),
       store: Object.assign(createAgentStore(), { plans: () => input }), clock, userAgent: "human",
       reviewer: { review: async () => undefined }, link: { post: vi.fn() } });
-    expect(mounted.vms.at(-1)).toEqual(toWallVM([], new Map(), {
+    // A-R40: Wall adds the frozen swarm projection and truthful availability; preserve every legacy field, U138 M2/M7 / U118 M5.
+    const actual = mounted.vms.at(-1) as WallVM & { swarm?: ReturnType<typeof deriveSwarmViewModel>; availability?: string };
+    const { swarm, availability, ...legacy } = actual;
+    expect(availability).toBe("Models unavailable");
+    expect(swarm).toEqual(deriveSwarmViewModel({ room: actual.workspace, projection: input[0]!.projection,
+      events: [], nowMs: NOW, connected: true }));
+    expect(legacy).toEqual(toWallVM([], new Map(), {
       ...options, model: { state: "unavailable", label: "" }, view: "wall", archiveScope: "workspace",
     }, input));
   });

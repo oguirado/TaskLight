@@ -98,9 +98,11 @@ describe("U36 styles/views.css: colour only from custom properties", () => {
 });
 
 describe("U36 styles: forbidden constructs", () => {
-  it.each([["views.css", views], ["tokens.css", tokens]] as const)("no !important in %s", (_n, get) => {
+  // A-U127: M4 Amendment B1 requires zero-duration priority to override inline decoration.
+  it.each([["views.css", views], ["tokens.css", tokens]] as const)("no !important outside zero motion durations in %s", (_n, get) => {
     expect(get().length).toBeGreaterThan(100);
-    expect(get()).not.toMatch(/!\s*important/i);
+    const withoutDurationOverrides = get().replace(/(?:animation|transition)-duration\s*:\s*0ms\s*!important\s*;/g, "");
+    expect(withoutDurationOverrides).not.toMatch(/!\s*important/i);
   });
   it("no #id selectors in views.css (selectors only; hex colours are a separate rule)", () => {
     expect(views().length).toBeGreaterThan(100);

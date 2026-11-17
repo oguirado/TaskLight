@@ -32,17 +32,22 @@ describe("R1 all ten operations and canonical snapshots", () => {
       event(9, {kind: "task.release", task_id: "T01"}),
       event(10, {kind: "plan.phase", base_rev: 1, phase: "finish"}),
       event(11, {kind: "memory.set", section: "notes", text: "Decision", base_rev: 0}),
-      event(12, {kind: "plan.close", base_rev: 10, outcome: "Finished"})];
+      // A-U109c: (a) explicitly cancel unfinished work before closing, M6.
+      event(12, {kind: "task.set", task_id: "T01", base_rev: 9, state: "cancelled"}),
+      event(13, {kind: "task.set", task_id: "T02", base_rev: 8, state: "cancelled"}),
+      event(14, {kind: "task.set", task_id: "T03", base_rev: 4, state: "cancelled"}),
+      event(15, {kind: "plan.close", base_rev: 10, outcome: "Finished"})];
     const p = folded(events);
     expect(p.rejected).toEqual([]);
     expect(p.tasks.map(t => t.id)).toEqual(["T01", "T02", "T03"]);
-    expect(p.plan).toMatchObject({id: "p1", state: "closed", rev: 12, closed_outcome: "Finished"});
-    expect(p.tasks[0]).toMatchObject({rev: 9, assignee: null, claim_lamport: null, claim_ts: null});
+    expect(p.plan).toMatchObject({id: "p1", state: "closed", rev: 15, closed_outcome: "Finished"});
+    expect(p.tasks[0]).toMatchObject({rev: 12, assignee: null, claim_lamport: null, claim_ts: null});
     expect(p.tasks[0]!.microtasks[0]).toMatchObject({state: "done", rev: 7});
     expect(p.memory["notes"]).toMatchObject({rev: 11, ts: events[10]!.ts});
   });
   it("R1 micro mutations advance task and micro revision but not plan", () => {
-    const before = projection();
+    // A-U109c: (a) claim before testing micro/task revision propagation, M3.
+    const before = accepted(projection(), event(10, {kind: "task.claim", task_id: "T01"}));
     const p = accepted(before, event(20, {kind: "micro.set", micro_id: "T01.M01", state: "active"}));
     expect(p.tasks[0]!.rev).toBe(20); expect(p.tasks[0]!.microtasks[0]!.rev).toBe(20);
     expect(p.plan!.rev).toBe(before.plan!.rev);
@@ -50,11 +55,14 @@ describe("R1 all ten operations and canonical snapshots", () => {
   it("R1 operation evidence remains independent of legacy event evidence", () => {
     const proof = {path: "proof", sha256: "a".repeat(64)};
     const legacy = {path: "legacy-proof", sha256: "b".repeat(64)};
-    const p = accepted(projection(), event(20, {kind: "micro.set", micro_id: "T01.M01", state: "done", evidence: [proof]}, {evidence: [legacy]}));
+    // A-U109c: (a) claim before testing independent evidence channels, M3.
+    const owned = accepted(projection(), event(10, {kind: "task.claim", task_id: "T01"}));
+    const p = accepted(owned, event(20, {kind: "micro.set", micro_id: "T01.M01", state: "done", evidence: [proof]}, {evidence: [legacy]}));
     expect(p.tasks[0]!.microtasks[0]!.evidence).toEqual([proof]);
   });
   it("R1 input and nested output snapshots are independent", () => {
-    const p = projection(); const before = clone(p);
+    // A-U109c: (a) claim before testing immutable microtask snapshots, M3.
+    const p = accepted(projection(), event(10, {kind: "task.claim", task_id: "T01"})); const before = clone(p);
     const result = accepted(freeze(p), event(20, {kind: "micro.set", micro_id: "T01.M01", state: "done"}));
     expect(p).toEqual(before); expect(result).not.toBe(p);
     expect(result.tasks).not.toBe(p.tasks);
@@ -65,9 +73,11 @@ describe("R1 all ten operations and canonical snapshots", () => {
   it("R1 memory works before plan and closed plan; reopen archives and preserves memory", () => {
     let p = accepted(projection("empty"), event(1, {kind: "memory.set", section: "notes", text: "Keep", base_rev: 0}));
     p = accepted(p, event(2, open())); p = accepted(p, event(3, add()));
-    p = accepted(p, event(4, {kind: "plan.close", base_rev: 2}));
-    p = accepted(p, event(5, {kind: "memory.set", section: "notes", text: "Kept", base_rev: 1}));
-    p = accepted(p, event(6, open())); p = accepted(p, event(7, add()));
+    // A-U109c: (a) explicitly cancel open work before the memory/reopen probe, M6.
+    p = accepted(p, event(4, {kind: "task.set", task_id: "T01", base_rev: 3, state: "cancelled"}));
+    p = accepted(p, event(5, {kind: "plan.close", base_rev: 2}));
+    p = accepted(p, event(6, {kind: "memory.set", section: "notes", text: "Kept", base_rev: 1}));
+    p = accepted(p, event(7, open())); p = accepted(p, event(8, add()));
     expect(p.tasks.map(t => t.id)).toEqual(["T01"]); expect(p.archived_plans).toHaveLength(1);
     expect(p.memory["notes"]!.text).toBe("Kept");
   });
@@ -177,9 +187,11 @@ describe("R4 accepted-result replay and event ingestion", () => {
   });
   it("R4 replay history survives reopening", () => {
     let p = accepted(projection("plan_open"), event(10, add({op_id: "repeat_01"})));
-    p = accepted(p, event(11, {kind: "plan.close", base_rev: 1}));
-    p = accepted(p, event(12, open()));
-    const r = applyOp(p, event(13, add({op_id: "repeat_01"})), template);
+    // A-U109c: (a) cancel the task before testing replay across reopen, M6.
+    p = accepted(p, event(11, {kind: "task.set", task_id: "T01", base_rev: 10, state: "cancelled"}));
+    p = accepted(p, event(12, {kind: "plan.close", base_rev: 1}));
+    p = accepted(p, event(13, open()));
+    const r = applyOp(p, event(14, add({op_id: "repeat_01"})), template);
     expect(r).toMatchObject({ok: true, replayed: true}); expect(r.projection.tasks).toEqual([]);
     expect(Object.keys(r.projection.replayed_ops)).toContain(JSON.stringify(["alice", "repeat_01"]));
   });
@@ -225,7 +237,9 @@ describe("R5 derived state, progress and dependency readiness", () => {
   it("R5 fold recomputes readiness after dependency completion", () => {
     const events = [event(1, open()), event(2, add()), event(3, add({deps: ["T01"]}))];
     expect(folded(events).tasks[1]!.ready).toBe(false);
-    expect(folded([...events, event(4, {kind: "micro.set", micro_id: "T01.M01", state: "done"})]).tasks[1]!.ready).toBe(true);
+    // A-U109c: (a) the prerequisite must be owned before completion, M3.
+    expect(folded([...events, event(4, {kind: "task.claim", task_id: "T01"}),
+      event(5, {kind: "micro.set", micro_id: "T01.M01", state: "done"})]).tasks[1]!.ready).toBe(true);
   });
   it("R5 ordinal tie ordering uses id and does not mutate events", () => {
     const first = event(2, add({title: "First"})); const second = event(3, add({title: "Second"}), {lamport: 2});

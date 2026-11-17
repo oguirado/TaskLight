@@ -1,0 +1,79 @@
+{
+  "status": "FAIL_FIRST",
+  "provenance": "MEASURED",
+  "spec": {
+    "path": ".unit/SPEC.md",
+    "sha256": "94b82b8460bfbcd968dadd42b62ef730d2693a4f24ebe3803f26d0085560a89e",
+    "baseline_commit": "4528625acafa5e435c4b34b6d1fd6adfacee6dd3",
+    "baseline_provenance": "CITED"
+  },
+  "verification": {
+    "python": {
+      "command": "python3 -m unittest discover -s bridge/tests/room/u110 -t .",
+      "exit_code": 1,
+      "summary": [
+        "Ran 48 tests in 0.021s",
+        "FAILED (errors=48)"
+      ],
+      "output_sha256": "58a6c433ad761fcf73faea21cba107ae9a2638011162a0ae64813801b7edcc9d",
+      "tests": 48,
+      "red": 48,
+      "green": 0,
+      "expected_exception": "NotImplementedError: U110 stub",
+      "stub_exception_count": 48,
+      "gate": "EXPECTED_RED"
+    },
+    "vitest": {
+      "command": "npx vitest run tests/unit/u110 --no-cache --no-fsModuleCache --configLoader runner",
+      "exit_code": 0,
+      "summary": [
+        "Test Files  1 passed (1)",
+        "Tests  4 passed (4)"
+      ],
+      "output_sha256": "ea72ae43436f27d4ec38c26d283c299f6f0cb188da92ff318bb7939aee130b29",
+      "tests": 4,
+      "red": 0,
+      "green": 4,
+      "gate": "PASS_EXISTING_TYPE_BOUNDARY"
+    }
+  },
+  "typecheck": {
+    "command": "npx tsc --noEmit -p .",
+    "exit_code": 1,
+    "existing_diagnostics": 16,
+    "u110_diagnostics": 0,
+    "identical_to_baseline": true,
+    "output_sha256": "63069af808525ab4f55a3749ca53ab2ca4edc110b320c4a0bb7b8031e3b8cfe6"
+  },
+  "candidate_diff_sha256": null,
+  "candidate_status": "AUSENTE",
+  "source_mutant_receipt": null,
+  "source_mutant_status": "AUSENTE",
+  "acceptance_status": "BLOCKED_BY_STUB",
+  "files_sha256": {
+    "bridge/room/ext/send.py": "b786addc6446a6214946980cde4dc0dd58941fbcbc22c60bac1dd17a592f179e",
+    "bridge/tests/room/u110/ORACLE.md": "7bdf08d6f11f375e2049e1f5705e9793a444c74eaf047197d8211cc49bee890a",
+    "bridge/tests/room/u110/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bridge/tests/room/u110/support.py": "e40c4508d585db688bd5cffbc1dbdeffaf13356dd48d5294dfadebb3d44af667",
+    "bridge/tests/room/u110/test_durability.py": "0a5f4b6a1eef9d4a26d0afb54a3994259d2cce5256e6267cee2003e75c3c124e",
+    "bridge/tests/room/u110/test_protocol.py": "62bf42252d166cc8745fa32a338ee1768bc453ff350a2973b038b4b6ed4af4d7",
+    "bridge/tests/room/u110/test_references.py": "6a312855e973f026dd933064e5bd0f5d1cd7b09f4954b914618a75d99608a5e1",
+    "bridge/tests/room/u110/test_validation.py": "f5b9df538d42664b8815377f97e902ef11c31323431908085b588eaf4f0da5d0",
+    "tests/unit/u110/ORACLE.md": "b38cf9ed262c09db990ea168c0199e8c0e1f0aca3b8d4693f412c67c9c90af7d",
+    "tests/unit/u110/room_event.test.ts": "2eff06311e0012f182555784670681f3a353fd36da1e31228f16c39b289f1459"
+  },
+  "oracle_sha256": "33047c3f37f4f42afce06e178905bbe449e20076c92eefa5d24ee1cdfea43cf2",
+  "existing_room_regression": {
+    "status": "PASS",
+    "provenance": "MEASURED",
+    "tests": 591,
+    "red": 0,
+    "green": 591,
+    "summary": [
+      "Ran 591 tests in 52.839s",
+      "OK"
+    ],
+    "selection": "Existing modules discovered in bridge/tests/room, excluding bridge.tests.room.u110",
+    "entry_point": "python3 -B -m unittest"
+  }
+}

@@ -1,10 +1,11 @@
+// A-Q1: U148/U150 named non-article task roots retain their classes and identity hooks.
 import { afterEach, describe, expect, it } from "vitest";
 import { mkDone, mkStep, mkTask, ms, vm, withTasks } from "./fixture";
 import { attr, cleanup, click, mount, nth, q, qa, txt } from "./helpers";
 
 afterEach(cleanup);
 
-const stepsOf = (host: ParentNode, taskId = "t1") => qa(q(host, `article.task[id="${taskId}"]`), "ol.steps > li.step");
+const stepsOf = (host: ParentNode, taskId = "t1") => qa(q(host, `.task[data-task-id][id="${taskId}"]`), "ol.steps > li.step");
 const hiddenText = (li: Element) => txt(q(li, ".step-text > .visually-hidden"));
 
 describe("B6 step rows", () => {
@@ -34,9 +35,10 @@ describe("B6 step rows", () => {
     expect(detail?.hidden).toBe(true);
   });
 
-  it("every aria-controls in the document resolves and is unique across tasks and steps", () => {
+  // A-R40: Models and Messages add separate controls; retain every step relationship, U138 M7 / U118 M4/M6.
+  it("every step aria-controls resolves and is unique across tasks and steps", () => {
     const { host } = mount(vm({ view: "wall", workspace: "w1" }));
-    const ids = qa(host, "[aria-controls]").map((e) => attr(e, "aria-controls") ?? "");
+    const ids = qa(host, "button.step-row[aria-controls]").map((e) => attr(e, "aria-controls") ?? "");
     expect(ids.length).toBe(4); // t1: 2 done, t3: 2 done
     expect(new Set(ids).size).toBe(ids.length);
     for (const id of ids) expect(document.getElementById(id)?.classList.contains("step-detail")).toBe(true);
@@ -218,7 +220,7 @@ describe("B6 expansion state survives update()", () => {
     const next = structuredClone(vm());
     const t = next.tasks.map((x) => (x.id === "t3" ? { ...x, title: "Renamed title" } : x));
     handle.update({ ...next, tasks: t });
-    expect(txt(q(host, "article#t3 h2.task-title"))).toBe("Renamed title");
+    expect(txt(q(host, ".task#t3 h2.task-title"))).toBe("Renamed title");
     expect(isOpen(host, "t3", 0)).toBe(true);
   });
 
@@ -247,9 +249,9 @@ describe("B6 expansion state survives update()", () => {
     const { host, handle } = mount(withTasks([a, b]));
     open(host, "a", 0);
     handle.update(withTasks([{ ...a, attention: "now" }, b]));
-    expect(qa(host, "article.task").map((x) => x.id)).toEqual(["a", "b"]);
+    expect(qa(host, ".task[data-task-id]").map((x) => x.id)).toEqual(["a", "b"]);
     handle.update(withTasks([a, { ...b, attention: "now" }]));
-    expect(qa(host, "article.task").map((x) => x.id)).toEqual(["b", "a"]);
+    expect(qa(host, ".task[data-task-id]").map((x) => x.id)).toEqual(["b", "a"]);
     expect(isOpen(host, "a", 0)).toBe(true);
     expect(isOpen(host, "b", 0)).toBe(false);
   });
@@ -266,7 +268,7 @@ describe("B6 expansion state survives update()", () => {
     const { host, handle } = mount();
     open(host, "t1", 0);
     handle.update(vm({ view: "agenda" }));
-    expect(host.querySelector("article.task")).toBeNull();
+    expect(host.querySelector(".task[data-task-id]")).toBeNull();
     handle.update(vm({ view: "wall" }));
     expect(isOpen(host, "t1", 0)).toBe(true);
   });
@@ -276,6 +278,7 @@ describe("B6 expansion state survives update()", () => {
     open(host, "t1", 0);
     const stripped = vm().tasks.map((t) => (t.id === "t1" ? { ...t, steps: t.steps.map((s, i) => (i === 0 ? mkStep(s.label, "pending") : s)) } : t));
     expect(() => handle.update(vm({ tasks: stripped }))).not.toThrow();
-    for (const e of qa(host, "[aria-controls]")) expect(document.getElementById(attr(e, "aria-controls") ?? "")).not.toBeNull();
+    // A-R40: the host owns the Models dialog; all local panels must still resolve, U138 M7 / U118 M4.
+    for (const e of qa(host, "[aria-controls]:not([aria-controls='model-sheet'])")) expect(document.getElementById(attr(e, "aria-controls") ?? "")).not.toBeNull();
   });
 });

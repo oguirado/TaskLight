@@ -21,7 +21,14 @@ describe("B1 structure", () => {
     expect(nth(Array.from(app.children), 0).classList.contains("rail")).toBe(true);
     const main = nth(Array.from(app.children), 1);
     expect(main.classList.contains("main")).toBe(true);
-    expect(tags(main)).toEqual(["header", "section", "div"]);
+    // A-U152: inactive lazy panels resolve every primary tab's aria-controls.
+    expect(tags(main).slice(0, 3)).toEqual(["header", "section", "div"]);
+    const inactive = Array.from(main.children).slice(3);
+    expect(inactive).toHaveLength(4);
+    for (const panel of inactive) {
+      expect(panel.getAttribute("role")).toBe("tabpanel");
+      expect((panel as HTMLElement).hidden).toBe(true);
+    }
     const [top, focus, view] = Array.from(main.children);
     expect(top?.classList.contains("topbar")).toBe(true);
     expect(focus?.classList.contains("focus")).toBe(true);
@@ -75,7 +82,8 @@ describe("B1 structure", () => {
 
   it("status lines: data-model and data-network with text", () => {
     const { host } = mount(vm({ model: { state: "downloading", label: "Downloading Gemini Nano 41 %" }, network: "offline" }));
-    const model = q(host, '.status-line[data-model="downloading"]');
+    // A-R40: health is passive beside the single Models popup, U138 M7 / U118 M4.
+    const model = q(host, '.model-health[data-model="downloading"]');
     expect(txt(q(model, ".status-text"))).toBe("Downloading Gemini Nano 41 %");
     q(model, ".status-dot");
     const net = q(host, '.status-line[data-network="offline"]');
@@ -110,12 +118,52 @@ describe("B1 structure", () => {
 });
 
 describe("B3 views and navigation", () => {
-  it("renders four nav buttons with data-nav, aria-keyshortcuts 1-4 and kbd.nav-key", () => {
+  // A-U152: complete primary tabs precede the secondary Swarm destination.
+  it("keeps ordered shortcuts, a roving tab stop and resolving panel relationships", () => {
+    const { host } = mount();
+    const buttons = qa<HTMLButtonElement>(host, ".navigation-panel button[data-nav]");
+    expect(buttons.map(button => button.dataset.nav)).toEqual(["wall", "agenda", "diary", "archive", "memory", "swarm"]);
+    expect(buttons.map(button => button.getAttribute("aria-keyshortcuts"))).toEqual(["1", "2", "3", "4", "5", "6"]);
+    const tabs = buttons.slice(0, 5);
+    expect(tabs.filter(button => button.tabIndex === 0)).toEqual([tabs[0]]);
+    expect(host.querySelector("nav.nav")?.getAttribute("role")).toBeNull();
+    expect(host.querySelector('[role="tablist"]')?.getAttribute("aria-orientation")).toBe("vertical");
+    for (const button of tabs) {
+      expect(button.getAttribute("role")).toBe("tab");
+      expect(button.getAttribute("aria-selected")).toBe(String(button.dataset.nav === "wall"));
+      const panel = document.getElementById(button.getAttribute("aria-controls")!)!;
+      expect(host.contains(panel)).toBe(true);
+      expect(panel.getAttribute("role")).toBe("tabpanel");
+      expect(panel.getAttribute("aria-labelledby")).toBe(button.id);
+      expect(panel.hidden).toBe(button.dataset.nav !== "wall");
+    }
+    expect(buttons[5]!.closest('[role="tablist"]')).toBeNull();
+    expect(buttons[5]!.getAttribute("aria-selected")).toBeNull();
+    expect(buttons[5]!.tabIndex).toBe(0);
+  });
+
+  // A-U152: each compact disclosure controls only its own complete navigation.
+  it("gives mounted navigation disclosures unique resolving relationships", () => {
+    const first = mount(), second = mount();
+    const ids = [first, second].map(({ host }) => {
+      const toggle = q<HTMLButtonElement>(host, ".nav-toggle");
+      expect(toggle.type).toBe("button");
+      expect(toggle.getAttribute("aria-expanded")).toBe("false");
+      const id = toggle.getAttribute("aria-controls")!;
+      const panel = document.getElementById(id)!;
+      expect(host.contains(panel)).toBe(true);
+      expect(panel.querySelectorAll("button[data-nav]")).toHaveLength(6);
+      return id;
+    });
+    expect(new Set(ids).size).toBe(2);
+  });
+  // A-R40: restore five primary tabs and keep Swarm secondary, U138 M1.
+  it("renders five primary nav buttons with data-nav, aria-keyshortcuts 1-5 and kbd.nav-key", () => {
     const { host } = mount();
     const items = qa<HTMLButtonElement>(host, "nav.nav button.nav-item");
-    expect(items.map((b) => attr(b, "data-nav"))).toEqual(["wall", "agenda", "diary", "archive"]);
-    expect(items.map((b) => attr(b, "aria-keyshortcuts"))).toEqual(["1", "2", "3", "4"]);
-    expect(items.map((b) => txt(q(b, "kbd.nav-key")))).toEqual(["1", "2", "3", "4"]);
+    expect(items.map((b) => attr(b, "data-nav"))).toEqual(["wall", "agenda", "diary", "archive", "memory"]);
+    expect(items.map((b) => attr(b, "aria-keyshortcuts"))).toEqual(["1", "2", "3", "4", "5"]);
+    expect(items.map((b) => txt(q(b, "kbd.nav-key")))).toEqual(["1", "2", "3", "4", "5"]);
     for (const b of items) {
       expect(b.tagName).toBe("BUTTON");
       expect(attr(b, "type")).toBe("button");
@@ -165,7 +213,8 @@ describe("B3 views and navigation", () => {
 
   it("nav labels are the view names", () => {
     const { host } = mount();
-    expect(txts(host, "nav.nav .nav-label")).toEqual(["Wall", "Agenda", "Diary", "Archive"]);
+    // A-R40: Memory is the last primary tab, U138 M1.
+    expect(txts(host, "nav.nav .nav-label")).toEqual(["Wall", "Agenda", "Diary", "Archive", "Memory"]);
   });
 });
 

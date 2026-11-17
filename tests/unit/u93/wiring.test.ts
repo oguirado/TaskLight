@@ -111,7 +111,8 @@ describe("U93 M1 wall bindings", () => {
   it("binds a clicked plan card to the active workspace when task IDs repeat", () => {
     const f = planFixture(); f.open("work"); f.task("worker-w", "Work task", "work");
     const h = start(f); observed.wallHandlers!.onWorkspace!("work");
-    element(h.wallHost, 'article.task[data-task-id="T01"] .task-title').click();
+    // A-R41: task selection for liaison now starts inside legacy Messages.
+    openLegacyMessages(h.wallHost, "plan:work:T01");
     expect(h.wall.selection()).toEqual({ room: "work", taskId: "T01", assignee: "worker-w" });
     expect(observed.post).not.toHaveBeenCalled();
   });
@@ -138,6 +139,10 @@ describe("U93 M1 wall bindings", () => {
     h.op("demo", { kind: "task.release", task_id: "T01" }, "worker-a");
     h.op("demo", { kind: "task.claim", task_id: "T01" }, "replacement");
     h.wall.refresh(); expect(h.wall.selection()?.assignee).toBe("replacement"); expect(listener).toHaveBeenCalledOnce();
+    // A-U109c: (a) each current owner cancels before the close/invalidation probe, M6 / Amendment C.2.
+    for (const task of h.store.plan("demo")!.projection.tasks) {
+      h.op("demo", { kind: "task.set", task_id: task.id, base_rev: task.rev, state: "cancelled" }, task.assignee!);
+    }
     h.op("demo", { kind: "plan.close", base_rev: h.store.plan("demo")!.projection.plan!.rev });
     h.wall.refresh(); expect(h.wall.selection()).toBeNull(); expect(listener).toHaveBeenCalledTimes(2);
   });
@@ -232,3 +237,13 @@ describe("U93 M1 hosted mount", () => {
     expect(observed.post).toHaveBeenCalledExactlyOnceWith({ room: "demo", to: "worker-a", text: "Direct message" });
   });
 });
+
+// A-R41: task conversations open only inside the expanded Messages (legacy) entry.
+function openLegacyMessages(host: HTMLElement, taskId?: string): void {
+  const toggle = host.querySelector<HTMLButtonElement>(".messages-toggle")!;
+  if (toggle.getAttribute("aria-expanded") !== "true") toggle.click();
+  const button = taskId === undefined ? host.querySelector<HTMLButtonElement>(".messages-open")
+    : [...host.querySelectorAll<HTMLButtonElement>(".messages-task")]
+      .find(node => node.getAttribute("data-task-vm-id") === taskId);
+  expect(button).toBeDefined(); button!.click();
+}

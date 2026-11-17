@@ -48,9 +48,8 @@ describe("H1 never-throw public boundaries", () => {
     ["infinite lamport", {lamport: Infinity}], ["NaN ts", {ts: NaN}], ["infinite ts", {ts: Infinity}],
     ["boolean ts", {ts: false}], ["fraction ts", {ts: 1.5}],
     ["positive timestamp bound", {ts: 8.64e15 + 1}], ["negative timestamp bound", {ts: -8.64e15 - 1}],
-    ["uppercase event id", {id: "e-AAAAAAAAAAAAAAAA"}],
-    ["event id length", {id: "e-00000000000000000"}],
-    ["event id", {id: "e-abc"}], ["room leading dash", {room: "-room"}],
+    // A-PAR1b: event ids are any non-empty string (TS aligned to the Python reducer); format rows removed.
+    ["empty event id", {id: ""}], ["room leading dash", {room: "-room"}],
     ["room length", {room: "x".repeat(49)}], ["agent length", {agent: "x".repeat(49)}],
     ["room", {room: "Bad Room"}], ["agent", {agent: "Bad Agent"}],
     ["unknown kind", {op: {kind: "unknown"}}], ["cyclic op", {op: cyclic}],
@@ -95,9 +94,10 @@ describe("H1 never-throw public boundaries", () => {
     });
   for (const [field, cap] of [["outcome", 240], ["took", 32]] as const)
     it(`H1 micro ${field} cap`, () => {
+      // A-U109c: (a) valid boundary writes require the assignee fixture, M3.
       const op = {kind: "micro.set", micro_id: "T01.M01", state: "done"};
-      expect(applyOp(projection(), event(10, {...op, [field]: "x".repeat(cap)}), template).ok).toBe(true);
-      expect(applyOp(projection(), event(10, {...op, [field]: "x".repeat(cap+1)}), template)).toMatchObject({ok: false, code: "bad_op"}); // A-U60a: field length range = bad_op (Python U55 canonical)
+      expect(applyOp(projection("task_claim"), event(10, {...op, [field]: "x".repeat(cap)}), template).ok).toBe(true);
+      expect(applyOp(projection("task_claim"), event(10, {...op, [field]: "x".repeat(cap+1)}), template)).toMatchObject({ok: false, code: "bad_op"}); // A-U60a: field length range = bad_op (Python U55 canonical)
     });
 
   it("H1 canonical operation payload byte boundary is inclusive", () => {
