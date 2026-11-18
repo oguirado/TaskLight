@@ -135,7 +135,10 @@ def _read_result(path, *, warn=True):
 
 
 def _warn_result():
-    warning = "tasklight run: result file missing or invalid; result omitted\n"
+    _warn("tasklight run: result file missing or invalid; result omitted\n")
+
+
+def _warn(warning):
     stderr = sys.stderr
     if stderr is not None:
         try:
@@ -210,6 +213,16 @@ def _group_has_live_members(pgid):
     return False
 
 
+def _cancellation(signals, wall, observed_at):
+    if signals:
+        received_at, number = signals[0]
+        if received_at <= observed_at and (wall is None or received_at <= wall):
+            return number, "wrapper:" + signal.Signals(number).name
+    if wall is not None and observed_at >= wall:
+        return signal.SIGTERM, "wall_timeout"
+    return None, None
+
+
 def _wait_for_child(child, options, spawned_at, lifecycle, signals, result):
     next_beat = spawned_at + options.beat
     wall = spawned_at + options.wall_s if options.wall_s is not None else None
@@ -218,6 +231,7 @@ def _wait_for_child(child, options, spawned_at, lifecycle, signals, result):
     killed = False
 
     while True:
+        code = None
         if group:
             try:
                 # poll()/wait() would release the leader's PID before we can
@@ -227,38 +241,39 @@ def _wait_for_child(child, options, spawned_at, lifecycle, signals, result):
                 # There is no kernel child to pin, so never signal its group.
                 group = False
                 continue
-            if exited is not None:
-                if reason is None:
-                    return child.wait(), None
-                result.observe_exit(time.monotonic())
-                # If procfs is unavailable, reap once the group KILL has
-                # been sent and the leader has exited.
-                if killed and (not sys.platform.startswith("linux")
-                               or _group_has_live_members(child.pid) is not True):
-                    return child.wait(), reason
+            exited = exited is not None
         else:
             code = child.poll()
-            if code is not None:
-                return code, reason
+            exited = code is not None
 
+        # Recording a heartbeat can delay the first observation of an exit.
+        # Resolve cancellation against the spawn-based deadline before reaping.
         now = time.monotonic()
         if reason is None:
-            if signals and (wall is None or signals[0][0] <= wall):
-                number = signals[0][1]
-                reason = "wrapper:" + signal.Signals(number).name
-            elif wall is not None and now >= wall:
-                number, reason = signal.SIGTERM, "wall_timeout"
-            if reason is not None:
+            number, reason = _cancellation(signals, wall, now)
+            if reason is not None and (group or not exited):
                 if group or options.no_group:
                     _signal_child(child, number, group=group)
                     escalation = time.monotonic() + SHUTDOWN_GRACE
                 else:
                     return child.wait(), reason
-            elif now >= next_beat:
-                lifecycle.emit("alive")
-                next_beat += options.beat
-                if next_beat <= time.monotonic():
-                    next_beat = time.monotonic() + options.beat
+
+        if exited:
+            if not group:
+                return code, reason
+            if reason is None:
+                return child.wait(), None
+            result.observe_exit(now)
+            # If procfs is unavailable, reap once the group KILL has
+            # been sent and the leader has exited.
+            if killed and (not sys.platform.startswith("linux")
+                           or _group_has_live_members(child.pid) is not True):
+                return child.wait(), reason
+        elif reason is None and now >= next_beat:
+            lifecycle.emit("alive")
+            next_beat += options.beat
+            if next_beat <= time.monotonic():
+                next_beat = time.monotonic() + options.beat
 
         if escalation is not None and now >= escalation:
             _signal_child(child, signal.SIGKILL, group=group)
@@ -281,9 +296,12 @@ def _wait_for_child(child, options, spawned_at, lifecycle, signals, result):
         else:
             try:
                 timeout = min(POLL_INTERVAL, delay) if options.no_group else delay
-                return child.wait(timeout=timeout), reason
+                code = child.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
-                pass
+                continue
+            if reason is None:
+                _, reason = _cancellation(signals, wall, time.monotonic())
+            return code, reason
 
 
 def main(argv=None):
@@ -308,7 +326,7 @@ def main(argv=None):
         except OSError as exc:
             code = 127 if isinstance(exc, FileNotFoundError) else 126
             lifecycle.emit("failed", "exit:" + str(code))
-            sys.stderr.write("tasklight run: child could not start\n")
+            _warn("tasklight run: child could not start\n")
             return code
         spawned_at = time.monotonic()
         lifecycle.emit("alive")

@@ -1,0 +1,1 @@
+"""Wave manifest validation regressions."""

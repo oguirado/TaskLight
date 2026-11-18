@@ -44,14 +44,24 @@ def _lane_command(lane, room, parent, parent_run):
     try:
         for arg in (*argv, path):
             os.fsencode(arg)
-        canonical_path = os.path.realpath(path)
+        result_keys = {os.path.realpath(path)}
+        try:
+            info = os.stat(path)
+        except FileNotFoundError:
+            pass
+        else:
+            result_keys.add((info.st_dev, info.st_ino))
     except (OSError, ValueError):
         raise ValueError("invalid argv or result_file") from None
 
     command = [sys.executable, "-m", "bridge.room", "run",
-               "--room", room, "--agent", agent, "--run-id", run_id,
-               "--parent", parent, "--parent-run", parent_run,
-               "--result-file=" + path]
+               "--room", room, "--agent", agent, "--parent", parent]
+    for flag, value in (("--run-id", run_id), ("--parent-run", parent_run)):
+        if value.startswith("-"):
+            command.append(f"{flag}={value}")
+        else:
+            command.extend((flag, value))
+    command.append("--result-file=" + path)
     if "harness" in lane:
         command.append("--harness=" + lane["harness"])
     if "wall_s" in lane:
@@ -68,7 +78,7 @@ def _lane_command(lane, room, parent, parent_run):
         raise ValueError("stdin must be devnull or inherit")
     stdin = None if stdin_mode == "inherit" else subprocess.DEVNULL
     command += ["--", *argv]
-    return (agent, run_id), canonical_path, (command, stdin)
+    return (agent, run_id), result_keys, (command, stdin)
 
 
 def _read_manifest(path):
@@ -88,20 +98,24 @@ def _read_manifest(path):
     if not isinstance(lanes, list) or not 1 <= len(lanes) <= 64:
         raise ValueError("lanes must contain between 1 and 64 entries")
     pin = app.session_pin_from_env()
-    commands, paths = {}, set()
+    commands, result_files, seen_agents = {}, set(), set()
     for index, lane in enumerate(lanes):
         try:
-            identity, result_path, command = _lane_command(lane, room, parent, parent_run)
-            app.guard_session({"agent": identity[0]}, pin=pin, lifecycle=True)
+            identity, result_keys, command = _lane_command(lane, room, parent, parent_run)
+            agent, _ = identity
+            app.guard_session({"agent": agent}, pin=pin, lifecycle=True)
             if identity in commands:
                 raise ValueError("duplicate agent/run_id pair")
-            if result_path in paths:
+            if result_files & result_keys:
                 raise ValueError("duplicate result_file")
+            if agent in seen_agents:
+                raise ValueError("duplicate agent")
         except store.RoomError:
             raise ValueError(f"lanes[{index}]: lifecycle requires a harness session") from None
         except ValueError as exc:
             raise ValueError(f"lanes[{index}]: {exc}") from None
-        paths.add(result_path)
+        seen_agents.add(agent)
+        result_files.update(result_keys)
         commands[identity] = command
     return room, commands
 
