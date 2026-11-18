@@ -1,5 +1,10 @@
 import type { RoomEvidence, StepState } from "../agents/types";
 
+export const PIPELINE_TEMPLATE = "unit-pipeline-v1";
+export const PIPELINE_HASH = "48db6ad6179ca9cdae3d5ca05f9ac0fcf584c5a79608f8f9962fde77a2628b33";
+export const PIPELINE_STEPS = ["diagnosis", "spec", "oracle", "author", "verify", "review", "import"] as const;
+export const PIPELINE_REPAIR_FROM = PIPELINE_STEPS.indexOf("author");
+
 export type MicroState = StepState; // "done" | "active" | "blocked" | "pending" (src/agents/types.ts:2)
 export type PlanLifecycle = "active" | "closed";
 export type TaskStatus = "pending" | "active" | "blocked" | "done" | "cancelled";
@@ -7,12 +12,14 @@ export type TaskStatus = "pending" | "active" | "blocked" | "done" | "cancelled"
 export type PlanOpKind =
   | "plan.open" | "plan.close" | "plan.phase"
   | "task.add" | "task.set" | "task.claim" | "task.release"
-  | "micro.add" | "micro.set" | "memory.set" | "activity.beat" | "agent.lifecycle" | "unit.decision";
+  | "micro.add" | "micro.set" | "memory.set" | "activity.beat" | "agent.lifecycle" | "unit.decision" | "unit.bind" | "unit.repair";
 
 export type PlanOpErrorCode =
   | "no_plan" | "plan_exists" | "unknown_template" | "bad_template"
   | "bad_op" | "not_found" | "stale_rev" | "dep_cycle"
   | "claimed_by_other" | "limit_exceeded" | "not_conformant";
+
+export type PlanOpRejectionCode = PlanOpErrorCode | "bad_args";
 
 export type TemplateRejectCode =
   | "NOT_PLAIN" | "MISSING_FIELD" | "UNKNOWN_FIELD" | "WRONG_TYPE" | "BAD_VERSION"
@@ -67,11 +74,38 @@ export interface UnitDecisionOp extends PlanOpBase {
   kind: "unit.decision"; op_id: string; task_id: string; micro_id?: string;
   verdict: "ADMIT" | "HOLD" | "REJECT"; reason: string;
   evidence?: readonly { path: string; sha256: string }[];
-  result_agent?: string; result_run_id?: string;
+  result_agent?: string; result_run_id?: string; binding_lamport?: number;
   /** Legacy result reference; mutually exclusive with the result_* pair. */
   agent?: string; run_id?: string; base_rev?: never;
 }
 export interface UnitDecision extends UnitDecisionOp { lamport: number }
+
+interface PipelineOp extends PlanOpBase {
+  op_id: string; task_id: string; expected_opened_lamport: number; base_rev?: never;
+}
+export interface UnitBindOp extends PipelineOp {
+  kind: "unit.bind"; micro_id: string; result_agent: string; result_run_id: string;
+  registration_lamport?: number;
+}
+export interface UnitRepairOp extends PipelineOp {
+  kind: "unit.repair"; reason: string;
+}
+export interface PipelineAttempt {
+  lamport: number; result_agent: string; result_run_id: string;
+  state: "bound" | "accepted" | "failed" | "blocked";
+  terminal?: { lamport: number; state: "finished" | "failed"; verdict: AgentResult["verdict"] | null };
+  decision?: UnitDecision;
+}
+export interface PipelineStep {
+  micro_id: string; binding: number | null; attempts: readonly PipelineAttempt[];
+}
+export function currentPipelineAttempt(step: PipelineStep): PipelineAttempt | undefined {
+  return step.binding === null ? undefined : step.attempts.at(-1);
+}
+
+export interface UnitPipeline {
+  orchestrator: string; steps: readonly PipelineStep[];
+}
 
 export type AgentLifecycle = "deployed" | "alive" | "finished" | "failed";
 export interface AgentResult {
@@ -92,7 +126,8 @@ export interface AgentLifecycleRecord {
 
 export type PlanOpBody =
   | PlanOpenOp | PlanCloseOp | PlanPhaseOp | TaskAddOp | TaskSetOp
-  | TaskClaimOp | TaskReleaseOp | MicroAddOp | MicroSetOp | MemorySetOp | ActivityBeatOp | AgentLifecycleOp | UnitDecisionOp;
+  | TaskClaimOp | TaskReleaseOp | MicroAddOp | MicroSetOp | MemorySetOp | ActivityBeatOp | AgentLifecycleOp | UnitDecisionOp
+  | UnitBindOp | UnitRepairOp;
 
 export interface PlanOpEvent {
   id: string; lamport: number; ts: number; room: string; agent: string; act: "op"; text: string; op: PlanOpBody;
@@ -109,6 +144,7 @@ export interface PlanTask {
   estimate: string | null; explicit_state: "blocked" | "cancelled" | null; blocked_reason: string | null;
   state: TaskStatus; ready: boolean; rev: number; microtasks: readonly PlanMicrotask[];
   decisions?: readonly UnitDecision[]; last_decision?: UnitDecision | null;
+  pipeline?: UnitPipeline;
 }
 export interface PlanMemorySection { id: string; text: string; rev: number; by: string; ts: number }
 export interface PlanState {
@@ -128,14 +164,14 @@ export interface PlanProjection {
   rollup: { tasks_total: number; tasks_done: number; tasks_blocked: number; tasks_ready: number;
     micro_total: number; micro_done: number; progress: number; progress_pct: number };
   replayed_ops: Readonly<Record<string, unknown>>;
-  rejected: readonly { id: string; lamport: number; op_id: string | null; code: PlanOpErrorCode }[];
+  rejected: readonly { id: string; lamport: number; op_id: string | null; code: PlanOpRejectionCode }[];
   last_lamport: number;
 }
 export interface PlanFoldStats {
   applied: number; replayed: number; rejected: number; invalid: number;
-  errors: readonly { id?: string; lamport?: number; code: PlanOpErrorCode }[];
+  errors: readonly { id?: string; lamport?: number; code: PlanOpRejectionCode }[];
 }
 export interface PlanFoldResult { projection: PlanProjection; stats: PlanFoldStats }
 export type PlanApplyResult =
   | { ok: true; projection: PlanProjection; replayed: boolean }
-  | { ok: false; code: PlanOpErrorCode; detail: string; projection: PlanProjection };
+  | { ok: false; code: PlanOpRejectionCode; detail: string; projection: PlanProjection };

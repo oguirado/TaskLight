@@ -4,6 +4,7 @@ import cliLibraryJson from "../../templates/planning/cli-library.json";
 import mobileAppJson from "../../templates/planning/mobile-app.json";
 import dataMlJson from "../../templates/planning/data-ml.json";
 import autonomousSoftwareJson from "../../templates/planning/autonomous-software.json";
+import pipelineJson from "../../templates/planning/unit-pipeline-v1.json";
 import type { PlanningTemplate } from "../plan";
 
 export interface TemplateMemorySectionMeta {
@@ -76,6 +77,7 @@ const META_BY_ID = new Map<string, StarterTemplateMeta>([
   ["mobile-app", normalizeTemplate(mobileAppJson, "mobile-app")],
   ["data-ml", normalizeTemplate(dataMlJson, "data-ml")],
   ["autonomous-software", normalizeTemplate(autonomousSoftwareJson, "autonomous-software")],
+  ["unit-pipeline-v1", normalizeTemplate(pipelineJson, "unit-pipeline-v1")],
 ]);
 
 export function getStarterTemplateMeta(templateId: string): StarterTemplateMeta | undefined {
@@ -171,6 +173,7 @@ const STARTER_RAW_BY_ID = new Map<string, unknown>([
   ["mobile-app", mobileAppJson],
   ["data-ml", dataMlJson],
   ["autonomous-software", autonomousSoftwareJson],
+  ["unit-pipeline-v1", pipelineJson],
 ]);
 
 export function resolveStarterTemplate(templateId: string, templateHash: string): PlanningTemplate | undefined {

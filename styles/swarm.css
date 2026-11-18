@@ -411,6 +411,10 @@
 .swarm-lanes[data-stale="true"] {
   opacity: 0.55;
 }
+.swarm-stale {
+  color: var(--c-text-2);
+  font-weight: var(--fw-semibold);
+}
 .swarm-sync-error {
   padding: var(--sp-3);
   border: 1px solid var(--c-st-blocked);
@@ -494,6 +498,9 @@
   border-radius: 50%;
   transform: rotate(35deg);
 }
+.swarm-bubble-pipeline[data-state="active"] {
+  background-image: conic-gradient(var(--c-st-running) var(--swarm-fill), var(--c-surface-1) 0);
+}
 .swarm-bubble-micro[data-state="done"] {
   background-color: var(--c-st-done);
 }
@@ -517,6 +524,18 @@
   gap: var(--sp-2);
   min-block-size: 44px;
   min-inline-size: 0;
+}
+.swarm-microtask:has(.swarm-bubble-pipeline) {
+  flex-wrap: wrap;
+}
+.swarm-pipeline-run,
+.swarm-pipeline-attempt {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+.swarm-pipeline-attempt {
+  flex-basis: 100%;
+  padding-inline-start: var(--sp-4);
 }
 .swarm-sr-only {
   position: absolute;

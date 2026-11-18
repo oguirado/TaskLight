@@ -360,7 +360,7 @@ class OracleCase(unittest.TestCase):
         target = path or self.path
         target.parent.mkdir(parents=True, exist_ok=True)
         data = raw if raw is not None else encoded(self.events if items is None else items)
-        self.assertLess(len(data), 8 * 1024 * 1024, 'fixture must remain below the journal cap')
+        self.assertLess(len(data), store.CAP, 'fixture must remain below the journal cap')  # A-C4m: 16 MiB cap
         target.write_bytes(data)
         return target.read_bytes()
 

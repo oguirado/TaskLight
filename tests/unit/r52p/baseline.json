@@ -1,0 +1,192 @@
+{
+  "control": {
+    "source_sha256": "398099878486af4085568186dad23639e3e9f8a335a89572cfbc9759bbadd8d4",
+    "samples": [
+      {
+        "fixture_sha256": "10e0c1e5132282c471fa3277cab74b149f70c8cad25b05215eb09db2cda7c5ed",
+        "stream_sha256": "23dd4fdabda6e73cc48a4703db11105fd599e880f204b663a887cadf7f77cbcb",
+        "correct": true,
+        "fresh": true,
+        "node": "v24.14.0",
+        "python": "3.12.3",
+        "scratch_device": 66306,
+        "load": [
+          10.3408203125,
+          15.525390625,
+          18.6171875
+        ],
+        "available_kib": 82905100,
+        "ingest_ms": 3.107116,
+        "projection_ms": 54.627554,
+        "peak_rss_bytes": 156450816
+      },
+      {
+        "fixture_sha256": "10e0c1e5132282c471fa3277cab74b149f70c8cad25b05215eb09db2cda7c5ed",
+        "stream_sha256": "23dd4fdabda6e73cc48a4703db11105fd599e880f204b663a887cadf7f77cbcb",
+        "correct": true,
+        "fresh": true,
+        "node": "v24.14.0",
+        "python": "3.12.3",
+        "scratch_device": 66306,
+        "load": [
+          10.47412109375,
+          15.466796875,
+          18.58154296875
+        ],
+        "available_kib": 82939796,
+        "ingest_ms": 4.67101,
+        "projection_ms": 51.535159,
+        "peak_rss_bytes": 149983232
+      },
+      {
+        "fixture_sha256": "10e0c1e5132282c471fa3277cab74b149f70c8cad25b05215eb09db2cda7c5ed",
+        "stream_sha256": "23dd4fdabda6e73cc48a4703db11105fd599e880f204b663a887cadf7f77cbcb",
+        "correct": true,
+        "fresh": true,
+        "node": "v24.14.0",
+        "python": "3.12.3",
+        "scratch_device": 66306,
+        "load": [
+          10.47412109375,
+          15.466796875,
+          18.58154296875
+        ],
+        "available_kib": 82977036,
+        "ingest_ms": 3.553534,
+        "projection_ms": 50.533347,
+        "peak_rss_bytes": 156078080
+      },
+      {
+        "fixture_sha256": "10e0c1e5132282c471fa3277cab74b149f70c8cad25b05215eb09db2cda7c5ed",
+        "stream_sha256": "23dd4fdabda6e73cc48a4703db11105fd599e880f204b663a887cadf7f77cbcb",
+        "correct": true,
+        "fresh": true,
+        "node": "v24.14.0",
+        "python": "3.12.3",
+        "scratch_device": 66306,
+        "load": [
+          10.47412109375,
+          15.466796875,
+          18.58154296875
+        ],
+        "available_kib": 82967480,
+        "ingest_ms": 3.592974,
+        "projection_ms": 50.138049,
+        "peak_rss_bytes": 160047104
+      },
+      {
+        "fixture_sha256": "10e0c1e5132282c471fa3277cab74b149f70c8cad25b05215eb09db2cda7c5ed",
+        "stream_sha256": "23dd4fdabda6e73cc48a4703db11105fd599e880f204b663a887cadf7f77cbcb",
+        "correct": true,
+        "fresh": true,
+        "node": "v24.14.0",
+        "python": "3.12.3",
+        "scratch_device": 66306,
+        "load": [
+          10.47412109375,
+          15.466796875,
+          18.58154296875
+        ],
+        "available_kib": 83002668,
+        "ingest_ms": 3.439133,
+        "projection_ms": 52.574906,
+        "peak_rss_bytes": 157171712
+      }
+    ]
+  },
+  "candidate": {
+    "source_sha256": "11235031d73e3815ce7bad41a3cda943823275ed38e9fbba6b8fc3139df56916",
+    "samples": [
+      {
+        "fixture_sha256": "10e0c1e5132282c471fa3277cab74b149f70c8cad25b05215eb09db2cda7c5ed",
+        "stream_sha256": "23dd4fdabda6e73cc48a4703db11105fd599e880f204b663a887cadf7f77cbcb",
+        "correct": true,
+        "fresh": true,
+        "node": "v24.14.0",
+        "python": "3.12.3",
+        "scratch_device": 66306,
+        "load": [
+          10.3408203125,
+          15.525390625,
+          18.6171875
+        ],
+        "available_kib": 82895340,
+        "ingest_ms": 3.061259,
+        "projection_ms": 30.328341,
+        "peak_rss_bytes": 145633280
+      },
+      {
+        "fixture_sha256": "10e0c1e5132282c471fa3277cab74b149f70c8cad25b05215eb09db2cda7c5ed",
+        "stream_sha256": "23dd4fdabda6e73cc48a4703db11105fd599e880f204b663a887cadf7f77cbcb",
+        "correct": true,
+        "fresh": true,
+        "node": "v24.14.0",
+        "python": "3.12.3",
+        "scratch_device": 66306,
+        "load": [
+          10.3408203125,
+          15.525390625,
+          18.6171875
+        ],
+        "available_kib": 82926212,
+        "ingest_ms": 3.059436,
+        "projection_ms": 31.542809,
+        "peak_rss_bytes": 147763200
+      },
+      {
+        "fixture_sha256": "10e0c1e5132282c471fa3277cab74b149f70c8cad25b05215eb09db2cda7c5ed",
+        "stream_sha256": "23dd4fdabda6e73cc48a4703db11105fd599e880f204b663a887cadf7f77cbcb",
+        "correct": true,
+        "fresh": true,
+        "node": "v24.14.0",
+        "python": "3.12.3",
+        "scratch_device": 66306,
+        "load": [
+          10.47412109375,
+          15.466796875,
+          18.58154296875
+        ],
+        "available_kib": 83013280,
+        "ingest_ms": 3.166172,
+        "projection_ms": 31.876235,
+        "peak_rss_bytes": 150470656
+      },
+      {
+        "fixture_sha256": "10e0c1e5132282c471fa3277cab74b149f70c8cad25b05215eb09db2cda7c5ed",
+        "stream_sha256": "23dd4fdabda6e73cc48a4703db11105fd599e880f204b663a887cadf7f77cbcb",
+        "correct": true,
+        "fresh": true,
+        "node": "v24.14.0",
+        "python": "3.12.3",
+        "scratch_device": 66306,
+        "load": [
+          10.47412109375,
+          15.466796875,
+          18.58154296875
+        ],
+        "available_kib": 82956228,
+        "ingest_ms": 3.06758,
+        "projection_ms": 30.833991,
+        "peak_rss_bytes": 149659648
+      },
+      {
+        "fixture_sha256": "10e0c1e5132282c471fa3277cab74b149f70c8cad25b05215eb09db2cda7c5ed",
+        "stream_sha256": "23dd4fdabda6e73cc48a4703db11105fd599e880f204b663a887cadf7f77cbcb",
+        "correct": true,
+        "fresh": true,
+        "node": "v24.14.0",
+        "python": "3.12.3",
+        "scratch_device": 66306,
+        "load": [
+          10.47412109375,
+          15.466796875,
+          18.58154296875
+        ],
+        "available_kib": 83014480,
+        "ingest_ms": 3.131868,
+        "projection_ms": 30.862679,
+        "peak_rss_bytes": 152317952
+      }
+    ]
+  }
+}

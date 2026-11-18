@@ -178,8 +178,11 @@ def _size(snapshot):
                           allow_nan=False).encode("utf-8"))
 
 
-def _pack(snapshot, budget):
+def _pack(snapshot, budget, since):
     """Drop whole tail rows in policy order; never shorten protected records."""
+    completions = snapshot["completed_since"]
+    if not snapshot["complete"] or snapshot["omitted"]["completed_since"]:
+        snapshot["cursor"] = completions[-1]["lamport"] if completions else since
     for section in _SECTIONS:
         while _size(snapshot) > budget:
             rows = snapshot["agents"]["rows"] if section == "agents" else snapshot[section]
@@ -192,9 +195,15 @@ def _pack(snapshot, budget):
                 eligible = list(range(len(rows)))
             if not eligible:
                 break
-            rows.pop(eligible[-1])
+            removed = rows.pop(eligible[-1])
             snapshot["omitted"][section] += 1
+            if section == "completed_since":
+                # An exclusive Lamport cursor cannot resume within an event.
+                while rows and rows[-1]["lamport"] == removed["lamport"]:
+                    rows.pop()
+                    snapshot["omitted"][section] += 1
             snapshot["complete"] = False
+            snapshot["cursor"] = completions[-1]["lamport"] if completions else since
     if _size(snapshot) > budget:
         raise store.RoomError("budget_too_small")
     return snapshot
@@ -254,7 +263,7 @@ def orchestrator_snapshot(args):
         # The adapters' generic error path emits a constant safe payload. A
         # domain error would ask them to sanitize its details a second time.
         raise RuntimeError("redaction_failed") from None
-    return _pack(snapshot, budget)
+    return _pack(snapshot, budget, since)
 
 
 register({

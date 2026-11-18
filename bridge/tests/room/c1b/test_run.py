@@ -117,7 +117,8 @@ def signal_case(name, mode):
             result = self.signal_run(name, catch=mode == "caught")
         expected = 19 if mode == "caught" else 128 + int(getattr(signal, name))
         self.assertEqual(result.returncode, expected, "signal forwarding must preserve the child's actual outcome")
-        reason = "exit:19" if mode == "caught" else "signal:" + name
+        # A-CL: Wrapper cancellation uses the wrapper signal as its terminal reason.
+        reason = ("signal:" if mode == "self" else "wrapper:") + name
         self.assert_lifecycle("failed", reason)
     return test
 

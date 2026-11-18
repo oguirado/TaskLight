@@ -6,12 +6,14 @@ import errno
 from . import _lock
 from ._lock import _backend as fcntl  # Compatibility for existing backend probes.
 import hashlib
+import io
 import json
 import math
 import os
 import re
 import secrets
 import stat
+import sys
 import threading
 import time
 
@@ -19,11 +21,12 @@ try:
     from bridge.plan import apply_op_event, check_conformance, fold_plan, validate_op_shape
     from bridge.plan.errors import PlanError
     from bridge.plan.conformance import completion_candidates, has_evidence
+    from bridge.plan.fold import _pipeline_current
 except Exception:  # pragma: no cover
     apply_op_event = fold_plan = validate_op_shape = check_conformance = None
     PlanError = Exception
 
-CAP = 8 * 1024 * 1024
+CAP = 16 * 1024 * 1024
 SEMANTIC_RESERVE_BYTES = 512 * 1024
 ROOM_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,47}")
 AGENT_RE = re.compile(r"[a-z0-9][a-z0-9._-]{0,47}")
@@ -60,6 +63,19 @@ def _home(home):
 
 def _room_dir(home, room):
     return os.path.join(_home(home), "rooms", room)
+
+
+def _room_directory_exists(home, room):
+    reason = "Room data could not be read."
+    try:
+        mode = os.lstat(_room_dir(home, room)).st_mode
+    except FileNotFoundError:
+        return False
+    except OSError:
+        raise RoomError("room_read_failed", reason) from None
+    if not stat.S_ISDIR(mode):
+        raise RoomError("room_read_failed", reason)
+    return True
 
 
 def _events_path(home, room):
@@ -395,6 +411,16 @@ def _is_valid_event(o):
     return True
 
 
+def _decode_event_line(raw):
+    try:
+        obj = json.loads(raw.decode("utf-8"))
+    except Exception:
+        return None
+    if isinstance(obj, dict) and _is_valid_event(obj):
+        return obj
+    return None
+
+
 def _parse_events_bytes(data):
     """Return (events, malformed). Torn last line skipped without counting."""
     if not data:
@@ -411,20 +437,8 @@ def _parse_events_bytes(data):
             continue  # torn tail
         if raw.strip() == b"":
             continue  # blank not malformed
-        try:
-            line = raw.decode("utf-8")
-        except Exception:
-            malformed += 1
-            continue
-        try:
-            obj = json.loads(line)
-        except Exception:
-            malformed += 1
-            continue
-        if not isinstance(obj, dict):
-            malformed += 1
-            continue
-        if not _is_valid_event(obj):
+        obj = _decode_event_line(raw)
+        if obj is None:
             malformed += 1
             continue
         events.append(obj)
@@ -729,7 +743,7 @@ def _tpl_kw(home=None, templates=None, needed=(), *, strict=False):
 
 
 def _admit_completion_evidence(before, after, op, *, templates=None, home=None):
-    """Check a new operation under the writer lock, after receipt lookup.
+    """Check completion authority and evidence under the writer lock, after receipt lookup.
 
     This is deliberately separate from the reducer: historical completions and
     their receipts keep their original meaning, including invalid evidence.
@@ -737,6 +751,19 @@ def _admit_completion_evidence(before, after, op, *, templates=None, home=None):
     candidates = completion_candidates(before, after, op)
     if not candidates:
         return
+    previously_done = {task["id"] for task in before["tasks"] if task["state"] == "done"}
+    for task, micro in candidates:
+        asserts_done = op["kind"] == "micro.set" and op["micro_id"] == micro["id"] and op["state"] == "done"
+        exposes_done = task["state"] == "done" and task["id"] not in previously_done
+        if not (asserts_done or exposes_done):
+            continue
+        for step in task.get("pipeline", {}).get("steps", ()):
+            if step["micro_id"] != micro["id"]:
+                continue
+            attempt = _pipeline_current(step)
+            if asserts_done or attempt is None or attempt["state"] != "accepted":
+                raise RoomError("bad_op", f"Complete pipeline step {micro['id']} with unit_decide ADMIT on its bound result.")
+
     plan = after.get("plan") or {}
     available = _load_templates(home) if templates is None else templates
     template = available.get(plan.get("template_id"))
@@ -1652,6 +1679,85 @@ def read(room, since=0, *, home=None):
     return out, malformed
 
 
+_CHECKED_PREFIX_CACHE_SIZE = 16
+_CheckedPrefix = namedtuple("_CheckedPrefix", "end digest head")
+_checked_prefix_cache = OrderedDict()
+_checked_prefix_lock = threading.Lock()
+
+
+def _checked_validation_rules():
+    return (
+        _decode_event_line, json.loads, _is_valid_event, validate_op_shape,
+        _validate_plan, _validate_step, _is_int, _is_safe_int, _is_safe_ts,
+        _ID_RE, ROOM_RE, AGENT_RE, frozenset(ACTS), frozenset(STEP_STATES),
+        _SAFE_MAX, _TS_MAX, OP_MAX_BYTES, sys.getrecursionlimit(),
+        getattr(sys, "get_int_max_str_digits", lambda: None)(),
+    )
+
+
+def _read_checked_capture(data, path, room, since, reason):
+    rules = _checked_validation_rules()
+    key = (os.path.abspath(path), room, rules)
+    with _checked_prefix_lock:
+        proof = _checked_prefix_cache.get(key)
+        if proof is not None:
+            _checked_prefix_cache.move_to_end(key)
+
+    start = hashed_end = 0
+    head = None
+    view = memoryview(data)
+    digest = hashlib.sha256()
+    if (proof is not None and proof.end <= len(data)
+            and (proof.head is None or proof.head <= since)):
+        hashed_end = proof.end
+        digest.update(view[:hashed_end])
+        if digest.digest() == proof.digest:
+            start, head = proof.end, proof.head
+
+    # A proof ends on a newline. Decode the remaining complete lines from
+    # the same capture, including any formerly torn line now complete.
+    captured = io.BytesIO(data)
+    captured.seek(start)
+    end = prefix_end = start
+    prefix_head = head
+    events = []
+    invalid = False
+    for raw in captured:
+        if not raw.endswith(b"\n"):
+            break
+        end += len(raw)
+        if raw.strip():
+            event = _decode_event_line(raw[:-1])
+            if event is None or event["room"] != room:
+                invalid = True
+                continue
+            lamport = event["lamport"]
+            if head is None or lamport > head:
+                head = lamport
+            if lamport > since:
+                events.append(event)
+        if not events:
+            prefix_end, prefix_head = end, head
+    if invalid:
+        raise RoomError("room_read_failed", reason)
+
+    # Retain the complete prefix before the first returned row. If that row
+    # came first, a whole-capture proof still helps a later cursor at its head.
+    if not prefix_end:
+        prefix_end, prefix_head = end, head
+    if prefix_end > start and rules == _checked_validation_rules():
+        if prefix_end < hashed_end:
+            digest = hashlib.sha256()
+            hashed_end = 0
+        digest.update(view[hashed_end:prefix_end])
+        with _checked_prefix_lock:
+            _checked_prefix_cache[key] = _CheckedPrefix(prefix_end, digest.digest(), prefix_head)
+            _checked_prefix_cache.move_to_end(key)
+            if len(_checked_prefix_cache) > _CHECKED_PREFIX_CACHE_SIZE:
+                _checked_prefix_cache.popitem(last=False)
+    return events, 0
+
+
 def read_checked(room, since=0, *, home=None):
     """Read an existing journal without hiding broken committed records.
 
@@ -1660,6 +1766,8 @@ def read_checked(room, since=0, *, home=None):
     This reader never initializes storage or acquires a writer lock.
     """
     _check_room(room)
+    if not _is_int(since) or since < 0:
+        raise RoomError("bad_args", "since must be a non-negative integer")
     reason = "Room data could not be read."
 
     def open_readonly(path, flags):
@@ -1676,10 +1784,7 @@ def read_checked(room, since=0, *, home=None):
             data = stream.read()
     except OSError:
         raise RoomError("room_read_failed", reason) from None
-    events, malformed = _parse_events_bytes(data)
-    if malformed or any(event["room"] != room for event in events):
-        raise RoomError("room_read_failed", reason)
-    return [event for event in events if event["lamport"] > since], 0
+    return _read_checked_capture(data, path, room, since, reason)
 
 
 def wait(room, since, *, act=None, agent=None, exclude_agent=None, to=None, timeout_s=30.0,

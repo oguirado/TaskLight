@@ -4,7 +4,10 @@ import math
 from typing import Iterable, Mapping
 
 from .errors import PlanError
-from .limits import AGENT_RE, DECISION_HISTORY_MAX
+from .limits import (
+    AGENT_RE, DECISION_HISTORY_MAX, PIPELINE_HASH, PIPELINE_REPAIR_FROM,
+    PIPELINE_STEPS, PIPELINE_TEMPLATE,
+)
 from .ops import validate_op_shape
 
 _SAFE_MAX = 9007199254740991
@@ -14,6 +17,7 @@ _ACTIVITY_RETIRED = "activity.retired"
 # Saturation seals the scope until plan.open; evicting IDs would admit old runs.
 _ACTIVITY_RETIRED_MAX = 256
 _ACTIVITY_SEALED = "*"  # Cannot be a valid run_id.
+_EXACT_REPLAY = {"agent.lifecycle", "unit.decision", "unit.bind", "unit.repair"}
 
 
 class PlanProjection(dict):
@@ -297,6 +301,72 @@ def _has_cycle(tasks_deps: dict) -> bool:
     return False
 
 
+def _pipeline_template_matches(tpl, template_hash):
+    if tpl is None:
+        return template_hash == PIPELINE_HASH
+    types = tpl.get("task_types", [])
+    return (tpl.get("hash") == template_hash and len(types) == 1
+            and types[0].get("id") == "unit"
+            and types[0].get("micro_hints") == list(PIPELINE_STEPS))
+
+
+def _pipeline_current(step):
+    # A binding is always the last attempt until repair clears it.
+    return step["attempts"][-1] if step["binding"] is not None else None
+
+
+def _pipeline_prior_accepted(steps, index):
+    for step in steps[:index]:
+        attempt = _pipeline_current(step)
+        if attempt is None or attempt["state"] != "accepted":
+            raise PlanError("not_conformant", "every preceding pipeline step must be accepted")
+
+
+def _pipeline_owner(task, agent):
+    if task is None or "pipeline" not in task:
+        raise PlanError("bad_op", "task_id must identify a pipeline unit")
+    if task["pipeline"]["orchestrator"] != agent:
+        raise PlanError("claimed_by_other", "only the unit orchestrator may direct the pipeline")
+    if task["explicit_state"] == "cancelled":
+        raise PlanError("not_conformant", "pipeline unit is cancelled")
+    return task["pipeline"]["steps"]
+
+
+def _pipeline_step(steps, micro_id):
+    for index, step in enumerate(steps):
+        if step["micro_id"] == micro_id:
+            return index, step
+    raise PlanError("bad_op", "micro_id must identify a pipeline step of task_id")
+
+
+def _pipeline_micro(state, task, index, status, lamport, *, reset=False):
+    micro = task["microtasks"][index]
+    _retire_live(state, micro)
+    _set(state, micro, "state", status)
+    _set(state, micro, "rev", lamport)
+    if reset:
+        for key, value in (("outcome", None), ("took", None), ("evidence", [])):
+            _set(state, micro, key, value)
+    _set(state, task, "rev", lamport)
+
+
+def _pipeline_terminal(state, agent, op, lamport):
+    for task in state["tasks"]:
+        for index, step in enumerate(task.get("pipeline", {}).get("steps", ())):
+            for attempt in step["attempts"]:
+                if attempt["result_agent"] != agent or attempt["result_run_id"] != op["run_id"]:
+                    continue
+                terminal = {"lamport": lamport, "state": op["state"],
+                            "verdict": op.get("result", {}).get("verdict")}
+                _set(state, attempt, "terminal", terminal)
+                if op["state"] == "failed":
+                    _set(state, attempt, "state", "failed")
+                    if attempt["lamport"] == step["binding"]:
+                        _pipeline_micro(state, task, index, "blocked", lamport)
+                        _recompute(state)
+                return
+
+
 def _validate_event_envelope(event: dict):
     if not isinstance(event, dict):
         raise PlanError("bad_op", "event must be object")
@@ -358,7 +428,7 @@ def _apply_op_event(new, event, op, *, templates=None, last_by_agent=None):
         replay_key = json.dumps([agent, op_id], separators=(",", ":"))
         if replay_key in new.get("replayed_ops", {}):
             cached = copy.deepcopy(new["replayed_ops"][replay_key])
-            if kind in ("agent.lifecycle", "unit.decision") or (isinstance(cached, dict) and cached.get("kind") in ("agent.lifecycle", "unit.decision")):
+            if kind in _EXACT_REPLAY or (isinstance(cached, dict) and cached.get("kind") in _EXACT_REPLAY):
                 if not isinstance(cached, dict) or cached.get("op") != op:
                     raise PlanError("bad_op", "op_id conflict")
             # Update last_lamport for replayed
@@ -438,6 +508,8 @@ def _apply_op_event(new, event, op, *, templates=None, last_by_agent=None):
             if lifecycle == "alive":
                 record["last_alive_ts"] = ts
             _set(new, new["agent_lifecycle"], agent, record)
+            if lifecycle in ("finished", "failed"):
+                _pipeline_terminal(new, agent, op, lamport)
             result = {"kind": kind, "op_id": op_id, "lamport": lamport, "op": copy.deepcopy(op)}
 
     elif fenced_beat:
@@ -465,13 +537,15 @@ def _apply_op_event(new, event, op, *, templates=None, last_by_agent=None):
                 raise PlanError("bad_op", "template hash mismatch")
             if "phase" in op:
                 _check_phase_in_template(op["phase"], tpl)
+        if op["template_id"] == PIPELINE_TEMPLATE and not _pipeline_template_matches(tpl, op["template_hash"]):
+            raise PlanError("bad_op", "unit pipeline template identity is unavailable or invalid")
         new_plan = {
             "id": "p1",
             "title": op["title"],
             "template_id": op["template_id"],
             "template_hash": op["template_hash"],
             "brief": copy.deepcopy(op.get("brief", {})),
-            "phase": op.get("phase") if "phase" in op else (tpl["phases"][0]["id"] if tpl is not None and tpl.get("phases") else ""),
+            "phase": op.get("phase") if "phase" in op else (tpl["phases"][0]["id"] if tpl is not None and tpl.get("phases") else ("plan" if op["template_id"] == PIPELINE_TEMPLATE else "")),
             "state": "active",
             "rev": lamport,
             "opened_lamport": lamport,
@@ -524,6 +598,44 @@ def _apply_op_event(new, event, op, *, templates=None, last_by_agent=None):
         result = {"kind": kind, "op_id": op_id}
         _recompute(new)
 
+    elif kind in ("unit.bind", "unit.repair"):
+        act = require_active()
+        if op["expected_opened_lamport"] != act["opened_lamport"]:
+            raise PlanError("stale_rev", "plan generation does not match expected_opened_lamport")
+        task = _find_task(new, op["task_id"])
+        steps = _pipeline_owner(task, agent)
+        if kind == "unit.repair":
+            if not steps[PIPELINE_REPAIR_FROM]["attempts"]:
+                raise PlanError("not_conformant", "unit_repair requires an author binding")
+            for index in range(PIPELINE_REPAIR_FROM, len(steps)):
+                _set(new, steps[index], "binding", None)
+                _pipeline_micro(new, task, index, "pending", lamport, reset=True)
+        else:
+            index, step = _pipeline_step(steps, op["micro_id"])
+            _pipeline_prior_accepted(steps, index)
+            current = _pipeline_current(step)
+            if current is not None and current["state"] not in ("failed", "blocked"):
+                raise PlanError("not_conformant", "current binding must fail or receive HOLD or REJECT")
+            worker = op["result_agent"]
+            run_id = op["result_run_id"]
+            run = new["agent_lifecycle"].get(worker)
+            if (run is None or run["run_id"] != run_id
+                    or run["lifecycle"] not in ("deployed", "alive") or run["lamport"] >= lamport
+                    or run["lamport"] != op.get("registration_lamport", run["lamport"])):
+                raise PlanError("not_conformant", "binding requires a registered nonterminal run in this room")
+            for receipt in new["replayed_ops"].values():
+                if (isinstance(receipt, dict) and receipt.get("kind") == "unit.bind"
+                        and receipt["result_agent"] == worker and receipt["result_run_id"] == run_id):
+                    raise PlanError("not_conformant", "run was already bound")
+            _append(new, step["attempts"], {"lamport": lamport, "result_agent": worker,
+                                          "result_run_id": run_id, "state": "bound"})
+            _set(new, step, "binding", lamport)
+            _pipeline_micro(new, task, index, "active", lamport, reset=True)
+        result = {"kind": kind, "op_id": op_id, "lamport": lamport, "op": copy.deepcopy(op)}
+        if kind == "unit.bind":
+            result.update(result_agent=worker, result_run_id=run_id)
+        _recompute(new)
+
     elif kind == "unit.decision":
         require_active()
         task = _find_task(new, op["task_id"])
@@ -533,22 +645,50 @@ def _apply_op_event(new, event, op, *, templates=None, last_by_agent=None):
             raise PlanError("bad_op", "unknown decision microtask")
         result_agent = op.get("result_agent", op.get("agent"))
         result_run_id = op.get("result_run_id", op.get("run_id"))
-        if result_agent is not None:
-            # Resolve any admitted terminal result, including a previous run.
-            # Replay receipts are durable and retain the original lifecycle op.
-            found = False
+        decision = dict(copy.deepcopy(op), lamport=lamport)
+        if "binding_lamport" in op and "pipeline" not in task:
+            raise PlanError("bad_op", "binding_lamport requires a pipeline step")
+        if "pipeline" in task and "micro_id" in op:
+            steps = _pipeline_owner(task, agent)
+            index, step = _pipeline_step(steps, op["micro_id"])
+            attempt = _pipeline_current(step)
+            if (attempt is None or attempt["result_agent"] != op.get("result_agent")
+                    or attempt["result_run_id"] != op.get("result_run_id")
+                    or attempt["lamport"] != op.get("binding_lamport", attempt["lamport"])):
+                raise PlanError("bad_op", "result reference must match the step's current binding")
+            if "decision" in attempt:
+                raise PlanError("not_conformant", "current binding already has a decision")
+            terminal = attempt.get("terminal")
+            if terminal is None or not attempt["lamport"] < terminal["lamport"] < lamport:
+                raise PlanError("bad_op", "current binding requires a terminal run result")
+            admitted = op["verdict"] == "ADMIT"
+            if admitted:
+                _pipeline_prior_accepted(steps, index)
+                if terminal["verdict"] is None:
+                    raise PlanError("bad_op", "ADMIT needs a recorded result")
+                if terminal["state"] != "finished" or terminal["verdict"] not in ("ADMIT", "OK"):
+                    raise PlanError("not_conformant", "ADMIT requires a finished run with verdict ADMIT or OK")
+            _set(new, attempt, "state", "accepted" if admitted else "blocked")
+            _set(new, attempt, "decision", decision)
+            _pipeline_micro(new, task, index, "done" if admitted else "blocked", lamport)
+            _recompute(new)
+        elif result_agent is not None:
+            # Accepted terminal ops stay in replay history after redeployment.
             for key, receipt in new["replayed_ops"].items():
                 if not isinstance(receipt, dict) or receipt.get("kind") != "agent.lifecycle" or receipt.get("noop"):
                     continue
                 source = receipt.get("op", {})
                 if (source.get("run_id") == result_run_id
-                        and source.get("state") in ("finished", "failed") and "result" in source
+                        and source.get("state") in ("finished", "failed")
                         and json.loads(key)[0] == result_agent):
-                    found = True
                     break
-            if not found:
+            else:
                 raise PlanError("bad_op", "unknown result reference")
-        decision = dict(copy.deepcopy(op), lamport=lamport)
+            if "result" not in source:
+                if "result_agent" not in op:
+                    raise PlanError("bad_op", "unknown result reference")
+                if op["verdict"] == "ADMIT":
+                    raise PlanError("bad_op", "ADMIT needs a recorded result")
         _set(new, task, "decisions", (task.get("decisions", []) + [decision])[-DECISION_HISTORY_MAX:])
         _set(new, task, "last_decision", decision)
         result = {"kind": kind, "op_id": op_id, "op": copy.deepcopy(op)}
@@ -580,7 +720,13 @@ def _apply_op_event(new, event, op, *, templates=None, last_by_agent=None):
         trial[new_id] = list(deps)
         if _has_cycle(trial):
             raise PlanError("dep_cycle", "dep cycle")
+        pipeline = act["template_id"] == PIPELINE_TEMPLATE
         micros_in = op.get("microtasks", [])
+        if pipeline:
+            if (op["type"] != "unit" or op.get("assignee") not in (None, agent)
+                    or ("microtasks" in op and [m["text"] for m in micros_in] != list(PIPELINE_STEPS))):
+                raise PlanError("bad_op", "pipeline task.add requires type unit, the caller as owner and the ordered recipe")
+            micros_in = op.get("microtasks", [{"text": step} for step in PIPELINE_STEPS])
         micros = []
         for idx, m in enumerate(micros_in, 1):
             micros.append({
@@ -616,6 +762,11 @@ def _apply_op_event(new, event, op, *, templates=None, last_by_agent=None):
             _set(new, task, "assignee", None)
         if "estimate" not in op:
             _set(new, task, "estimate", None)
+        if pipeline:
+            _set(new, task, "assignee", agent)
+            _set(new, task, "pipeline", {"orchestrator": agent, "steps": [
+                {"micro_id": micro["id"], "binding": None, "attempts": []} for micro in micros
+            ]})
         _append(new, tasks, task)
         _set(new, new, "tasks", tasks)
         result = {"kind": kind, "op_id": op_id}

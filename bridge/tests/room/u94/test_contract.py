@@ -20,7 +20,7 @@ class Discovery(Case):
         ext.load()
         ext.load()
         for name, keys, required in (
-            ("room_export", {"room", "agent", "what"}, {"room", "agent", "what"}),
+            ("room_export", {"room", "agent", "what", "opened_lamport"}, {"room", "agent", "what"}),  # A-C7b
             ("memory_history", {"room", "agent", "section", "limit"}, {"room", "agent", "section"}),
         ):
             found = [t for t in ext.EXT_TOOLS if t["name"] == name]

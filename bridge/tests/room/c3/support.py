@@ -172,13 +172,19 @@ class SnapshotCase(unittest.TestCase):
         self.assertIn("agents", data, "M2 successful snapshot must contain inventory")
         return data, payload
 
-    def contract(self, data):
+    def contract(self, data, *, since=0):
         required = {"room", "head_lamport", "generated_at", "freshness", "complete",
                     "agents", "attention", "available_work", "completed_since", "omitted", "cursor"}
         self.assertTrue(required <= data.keys(), "M2 missing snapshot fields")
         self.assertEqual(data["room"], "demo")
         self.assertIs(type(data["head_lamport"]), int)
-        self.assertEqual(data["cursor"], data["head_lamport"])
+        # A-C3c: Incomplete responses resume at the last retained completion or the input cursor.
+        self.assertIs(type(data["cursor"]), int)
+        if data["complete"]:
+            self.assertEqual(data["cursor"], data["head_lamport"])
+        else:
+            completions = data["completed_since"]
+            self.assertEqual(data["cursor"], completions[-1]["lamport"] if completions else since)
         self.assertIn(data["freshness"], ("current", "stale", "unavailable"))
         self.assertIs(type(data["complete"]), bool)
         agents = data["agents"]

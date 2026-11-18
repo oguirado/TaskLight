@@ -72,8 +72,9 @@ def validate_result(value):
 def check_arguments(args, allowed, required=(), *, code="bad_args", label="args",
                     error=PlanError, redact_name=None):
     """Validate structural arguments without echoing rejected values or pointers."""
+    prefix = f"{label} " if label else ""
     if not isinstance(args, dict):
-        raise error(code, label + " must be object")
+        raise error(code, prefix + "must be object")
     for key in args:
         if key not in allowed:
             name = "(unsafe name omitted)"
@@ -86,10 +87,14 @@ def check_arguments(args, allowed, required=(), *, code="bad_args", label="args"
                     if isinstance(scrubbed, str) and re.fullmatch(
                             r"[a-z][a-z0-9_]{0,31}=\[REDACTED:[A-Z_]{1,32}\]", scrubbed):
                         name = repr(scrubbed)
-            raise error(code, label + " contains unknown arg " + name)
+            raise error(code, prefix + "contains unknown arg " + name)
     missing = [key for key in required if key not in args]
     if missing:
-        raise error(code, label + " required keys: " + ", ".join(sorted(missing)))
+        detail = prefix + "required keys: " + ", ".join(sorted(missing))
+        max_detail = 199
+        if len(detail) > max_detail:
+            detail = detail[:max_detail - 3] + "..."
+        raise error(code, detail)
 
 
 def _bad(msg: str = "") -> PlanError:
@@ -171,7 +176,9 @@ def _check_op_id(op: dict):
 
 
 def _check_unknown(op: dict, allowed):
-    for k in op.keys():
+    for k in op:
+        if not isinstance(k, str):
+            raise _bad("non-string key")
         if k not in allowed:
             name = repr(k) if re.fullmatch(r"[a-z][a-z0-9_]{0,31}", k) else "(unsafe name omitted)"
             raise _bad("unknown key " + name)
@@ -233,9 +240,36 @@ def validate_op_shape(op: object) -> dict:
             if key != "reason" and not any(not (ch.isspace() or ch == "\ufeff") for ch in value):
                 raise _bad(f"{key} blank")
 
+    elif kind in ("unit.bind", "unit.repair"):
+        fields = {"op_id", "task_id", "expected_opened_lamport"}
+        fields |= {"micro_id", "result_agent", "result_run_id"} if kind == "unit.bind" else {"reason"}
+        optional = {"registration_lamport"} if kind == "unit.bind" else set()
+        _check_unknown(op, fields | optional | {"kind"})
+        for field in sorted(fields):
+            if field not in op:
+                raise _bad(f"{field} is required")
+        if not isinstance(op["task_id"], str) or TASK_ID_RE.fullmatch(op["task_id"]) is None:
+            raise _bad("task_id must be T01-T40")
+        if not _is_safe_int(op["expected_opened_lamport"]) or op["expected_opened_lamport"] < 1:
+            raise _bad("expected_opened_lamport must be a positive safe integer")
+        if kind == "unit.bind":
+            if "registration_lamport" in op:
+                _check_base_rev(op["registration_lamport"], 1)
+            for field, pattern in (("micro_id", MICRO_ID_RE), ("result_agent", AGENT_RE),
+                                   ("result_run_id", _RUN_ID_RE)):
+                if not isinstance(op[field], str) or pattern.fullmatch(op[field]) is None:
+                    raise _bad(f"invalid {field}")
+        else:
+            _check_str_len(op["reason"], 1, REASON_MAX, "reason")
+
     elif kind == "unit.decision":
         _check_unknown(op, {"kind", "op_id", "task_id", "micro_id", "verdict", "reason",
-                            "evidence", "agent", "run_id", "result_agent", "result_run_id"})
+                            "evidence", "agent", "run_id", "result_agent", "result_run_id",
+                            "binding_lamport"})
+        if "binding_lamport" in op:
+            _check_base_rev(op["binding_lamport"], 1)
+            if not {"micro_id", "result_agent", "result_run_id"} <= op.keys():
+                raise _bad("binding_lamport requires a pipeline step and result reference")
         for req in ("op_id", "task_id", "verdict", "reason"):
             if req not in op:
                 raise _bad(f"{req} is required")

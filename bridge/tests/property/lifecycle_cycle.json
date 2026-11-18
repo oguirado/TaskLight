@@ -1,0 +1,136 @@
+{
+  "cycle": {
+    "events": [
+      {
+        "id": "e-0000000000000001",
+        "lamport": 1,
+        "ts": 1800000000001,
+        "room": "demo",
+        "agent": "a",
+        "act": "op",
+        "text": "",
+        "op": {
+          "kind": "agent.lifecycle",
+          "state": "deployed",
+          "run_id": "ra",
+          "op_id": "op-cyc-a001",
+          "parent_agent": "b",
+          "parent_run_id": "rb"
+        }
+      },
+      {
+        "id": "e-0000000000000002",
+        "lamport": 2,
+        "ts": 1800000000002,
+        "room": "demo",
+        "agent": "b",
+        "act": "op",
+        "text": "",
+        "op": {
+          "kind": "agent.lifecycle",
+          "state": "deployed",
+          "run_id": "rb",
+          "op_id": "op-cyc-b001",
+          "parent_agent": "a",
+          "parent_run_id": "ra"
+        }
+      }
+    ],
+    "expected": {
+      "parents": {
+        "a": {
+          "lifecycle": "deployed",
+          "run_id": "ra",
+          "parent_agent": "b",
+          "parent_run_id": "rb",
+          "lamport": 1
+        }
+      },
+      "rejected": [
+        {
+          "id": "e-0000000000000002",
+          "lamport": 2,
+          "op_id": "op-cyc-b001",
+          "code": "bad_args"
+        }
+      ]
+    }
+  },
+  "valid_chain": {
+    "events": [
+      {
+        "id": "e-0000000000000001",
+        "lamport": 1,
+        "ts": 1800000000001,
+        "room": "demo",
+        "agent": "a",
+        "act": "op",
+        "text": "",
+        "op": {
+          "kind": "agent.lifecycle",
+          "state": "deployed",
+          "run_id": "ra",
+          "op_id": "op-chain-a001",
+          "parent_agent": "b",
+          "parent_run_id": "rb"
+        }
+      },
+      {
+        "id": "e-0000000000000002",
+        "lamport": 2,
+        "ts": 1800000000002,
+        "room": "demo",
+        "agent": "b",
+        "act": "op",
+        "text": "",
+        "op": {
+          "kind": "agent.lifecycle",
+          "state": "deployed",
+          "run_id": "rb",
+          "op_id": "op-chain-b001",
+          "parent_agent": "c",
+          "parent_run_id": "rc"
+        }
+      },
+      {
+        "id": "e-0000000000000003",
+        "lamport": 3,
+        "ts": 1800000000003,
+        "room": "demo",
+        "agent": "c",
+        "act": "op",
+        "text": "",
+        "op": {
+          "kind": "agent.lifecycle",
+          "state": "deployed",
+          "run_id": "rc",
+          "op_id": "op-chain-c001"
+        }
+      }
+    ],
+    "expected": {
+      "parents": {
+        "a": {
+          "lifecycle": "deployed",
+          "run_id": "ra",
+          "parent_agent": "b",
+          "parent_run_id": "rb",
+          "lamport": 1
+        },
+        "b": {
+          "lifecycle": "deployed",
+          "run_id": "rb",
+          "parent_agent": "c",
+          "parent_run_id": "rc",
+          "lamport": 2
+        },
+        "c": {
+          "lifecycle": "deployed",
+          "run_id": "rc",
+          "lamport": 3
+        }
+      },
+      "rejected": []
+    }
+  }
+}

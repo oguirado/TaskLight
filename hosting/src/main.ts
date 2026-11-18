@@ -11,7 +11,7 @@ import "../../styles/agents.css";
 import { boot, onGoogleSignIn, onUserActivation } from "../../src/app/boot";
 import { createConnector } from "../../src/app/connector";
 import { createAgentLink } from "../../src/app/agent_link";
-import type { RoomGapFrame, RoomSyncedFrame } from "../../src/app/agent_link";
+import type { RoomGapFrame, RoomSyncErrorCode, RoomSyncedFrame } from "../../src/app/agent_link";
 import { createAgentStore } from "../../src/app/agent_store";
 import { createSyncNotice } from "../../src/views/sync_notice";
 import * as Plan from "../../src/plan";
@@ -381,6 +381,7 @@ if (extId !== null) {
   interface RecoveryState { startSince: number; faultKeys: Set<string>; sawOverlap: boolean; sawFailure: boolean }
   const helloRooms = new Set<string>();
   const syncedRooms = new Set<string>();
+  const roomSyncErrors = new Map<string, RoomSyncErrorCode>();
   let workspaceEpoch: string | undefined;
   const readWorkspaceLink = (): WallPortState | null => {
     let state: WallPortState | null;
@@ -624,6 +625,13 @@ if (extId !== null) {
       notifyPlan();
       refreshWall();
     },
+    onRoomSyncError: ({ room, code }) => {
+      if (roomSyncErrors.get(room) === code) return;
+      roomSyncErrors.set(room, code);
+      syncedRooms.delete(room);
+      refreshWall();
+    },
+    onRoomSyncRecovered: room => { roomSyncErrors.delete(room); },
     onRoomSynced: (frame: RoomSyncedFrame) => {
       const state = readWorkspaceLink();
       if (frame.more || state?.kind !== "linked" || !helloRooms.has(frame.room)) return;
@@ -649,7 +657,7 @@ if (extId !== null) {
         notifyPlan();
       } finally {
         // Ordinary terminal replay is completion too; recovery faults are optional.
-        if ((faults.get(room)?.size ?? 0) === 0) syncedRooms.add(room);
+        if (!roomSyncErrors.has(room) && (faults.get(room)?.size ?? 0) === 0) syncedRooms.add(room);
         refreshWall();
       }
     },
@@ -701,7 +709,7 @@ if (extId !== null) {
     modelStatus, wallHost, chatHost, link, store, reviewer, clock: wallClock,
     workspaceStatus: () => {
       const state = readWorkspaceLink();
-      return { link: state, rooms: [...helloRooms], synced: [...syncedRooms] };
+      return { link: state, rooms: [...helloRooms], synced: [...syncedRooms], roomErrors: Object.fromEntries(roomSyncErrors) };
     },
     userAgent: "wall-user", planVerdicts, planBriefs, templateMemorySections,
     modelAvailability: room => {

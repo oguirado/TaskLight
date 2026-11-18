@@ -159,3 +159,9 @@ relay redacts all strings inside `op` events before browser delivery
 unchanged, and a redacted `op_id` becomes an opaque surrogate),
 and agent-provided strings remain inside `untrusted` envelopes rather
 than being interpreted by the wall.
+
+## Unit pipeline
+
+The `unit-pipeline-v1` starter creates an ordered unit under the caller's lane.
+Bind worker runs and admit their results to advance the unit. See
+[Unit pipeline](PIPELINE.md) for the workflow and repair procedure.

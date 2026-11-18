@@ -25,12 +25,12 @@ class FixtureTests(unittest.TestCase):
         self.assertEqual(one["expected"]["ingestion"], {"accepted": 9901, "duplicate": 99, "invalid": 0})
         self.assertNotEqual(one["manifest"]["fixture_sha256"], f.mixed(payload="changed")["manifest"]["fixture_sha256"])
         self.assertNotEqual(one["manifest"]["fixture_sha256"], f.mixed(seed=116)["manifest"]["fixture_sha256"])
-        self.assertLessEqual(one["manifest"]["journal_bytes"], store.CAP)
+        self.assertLessEqual(one["manifest"]["journal_bytes"], f.FIXTURE_CAP_BYTES)  # A-C4m: 16 MiB cap
         self.assertGreater(one["events"][0]["lamport"], one["events"][-1]["lamport"])
 
     def test_over_cap_rejected_before_adapter_or_persistence(self):
         with self.assertRaisesRegex(ValueError, "before measurement"):
-            f.admit(b"x"*(store.CAP+1))
+            f.admit(b"x" * (f.FIXTURE_CAP_BYTES + 1))  # A-C4m: 16 MiB cap
 
     def test_independent_python_expectations_and_omitted_accepted_events(self):
         real = a.fold(self.fixture)
@@ -46,7 +46,7 @@ class FixtureTests(unittest.TestCase):
         self.assertEqual([r["code"] for r in real["actual"]["rejections"]], ["claimed_by_other", "stale_rev", "claimed_by_other"])
 
     def test_near_cap_cursor_fields_against_full_read_reference(self):
-        self.assertEqual(self.tail["manifest"]["journal_bytes"], store.CAP-256)
+        self.assertEqual(self.tail["manifest"]["journal_bytes"], f.FIXTURE_CAP_BYTES - 256)  # A-C4m: 16 MiB cap
         for variant in ("latest", "filtered", "future"):
             result = a.tail(self.tail, variant)
             self.assertEqual(result["actual"], result["expected"])
@@ -104,7 +104,7 @@ class FixtureTests(unittest.TestCase):
         self.assertEqual(len([e for e in chunks[0] if e["act"] == "op"]), 16)
         self.assertEqual(f.sha(f.journal(chunks[0])), fixture["manifest"]["client_stream_sha256"])
         self.assertEqual(f.sha(f.journal(fixture["events"])+f.journal(chunks[0])), fixture["manifest"]["fixture_sha256"])
-        self.assertLessEqual(fixture["manifest"]["journal_bytes"], store.CAP)
+        self.assertLessEqual(fixture["manifest"]["journal_bytes"], f.FIXTURE_CAP_BYTES)  # A-C4m: 16 MiB cap
 
     def test_future_fixtures_have_fixed_scope_run_identity_and_counts(self):
         reserved = f.reservations()

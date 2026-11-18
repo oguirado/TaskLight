@@ -792,12 +792,8 @@ def _do_plan_get(args):
         if not _is_safe_int(v):
             raise RoomError("bad_op", "bad since_rev")
         upto = v
-    try:
-        os.stat(store._room_dir(None, room))
-    except FileNotFoundError:
-        raise RoomError("no_plan", "no active plan") from None
-    except OSError:
-        raise RoomError("room_read_failed", "Room data could not be read.") from None
+    if not store._room_directory_exists(None, room):
+        raise RoomError("no_plan", "no active plan")
     proj = _fold(room, upto=upto, checked=True)
     plan = proj.get("plan")
     if plan is None or not isinstance(plan, dict) or plan.get("state") != "active":

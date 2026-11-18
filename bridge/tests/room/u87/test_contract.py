@@ -622,7 +622,7 @@ class RegressionOracle(BaseCase):
         # A-C3c: retain the exact ordered inventory with the snapshot extension.
         # A-C6: retain the exact module inventory with the stateless waiter.
         self.assertEqual(ext.EXT_MODULES, ("events", "activity", "export", "send", "lifecycle", "acquire",
-                                           "orchestrator_snapshot", "waiter", "decision"))  # A-C7: new tool unit_decide
+                                           "orchestrator_snapshot", "waiter", "decision", "artifact", "pipeline"))  # A-C8: unit_bind and unit_repair
         with patch.object(ext, "EXT_MODULES", ("u87_intentionally_missing",)):
             self.assertEqual(ext.load(), ext.EXT_TOOLS)
         real_import = importlib.import_module

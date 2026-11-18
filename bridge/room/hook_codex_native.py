@@ -10,11 +10,14 @@ import json
 import math
 import os
 import re
+import stat
 import sys
 import tempfile
 
 _INPUT_MAX = 65536
 _ALIVE_SECONDS = 15
+_STATE_RETENTION_SECONDS = 24 * 60 * 60
+_RUNTIME_ENTRY = re.compile(r"codex-native-[0-9a-f]{64}\.json(?:\.lock)?")
 _COUNTER = itertools.count()
 _EVENTS = {
     "SessionStart": "deployed",
@@ -94,13 +97,53 @@ def _save_state(path, state):
             pass
 
 
-def _dispatch(event, value, deadline):
-    from bridge.room import _lock, store
-    from bridge.room.ext import cleanup
-    from bridge.room.hook import _execute, _unique, _invalid_constant
+def _load_state(path):
+    from bridge.room import store
+    from bridge.room.hook import _unique, _invalid_constant
 
-    # Child runs include both digests. Their lock is independent of optional
-    # type metadata, so concurrent hooks retain the first admitted identity.
+    try:
+        with open(path, "rb") as stream:
+            raw = stream.read(257)
+        if len(raw) > 256:
+            return {}
+        state = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique,
+                           parse_constant=_invalid_constant)
+        if not isinstance(state, dict) or state.keys() - {"agent", "last_alive"}:
+            return {}
+        if "agent" in state:
+            store._check_agent(state["agent"])
+        if "last_alive" in state:
+            last = state["last_alive"]
+            if type(last) not in (int, float) or not math.isfinite(last):
+                return {}
+        return state
+    except (FileNotFoundError, ValueError, OverflowError, RecursionError, store.RoomError):
+        return {}
+
+
+def _prune_runtime(directory, current_path, deadline):
+    cutoff = time.time() - _STATE_RETENTION_SECONDS
+    try:
+        with deadline.wait(), os.scandir(directory) as entries:
+            for entry in entries:
+                deadline.check()
+                if entry.path == current_path or not _RUNTIME_ENTRY.fullmatch(entry.name):
+                    continue
+                try:
+                    info = entry.stat(follow_symlinks=False)
+                    if stat.S_ISREG(info.st_mode) and info.st_mtime < cutoff:
+                        os.unlink(entry.path)
+                except OSError:
+                    continue
+    except (OSError, deadline.expiration):
+        pass  # Pruning can resume on the next successful state write.
+
+
+def _dispatch(event, value, deadline):
+    from bridge.room import _lock
+    from bridge.room.ext import cleanup
+    from bridge.room.hook import _execute
+
     child = value["run_id"].count("-") == 2
     throttled = event in _THROTTLED
     if not child and not throttled:
@@ -108,33 +151,17 @@ def _dispatch(event, value, deadline):
     directory = os.path.join(cleanup.room_directory(value["room"], create=True), "runtime")
     os.makedirs(directory, mode=0o700, exist_ok=True)
     path = os.path.join(directory, "codex-native-" + _digest(value["run_id"]) + ".json")
-    fd = os.open(path + ".lock", os.O_CREAT | os.O_RDWR, 0o600)
+    # A stable room lock coordinates state writes with pruning without
+    # leaving a separate lock file for each run.
+    lock_path = os.path.join(directory, "codex-native.lock")
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
     try:
         with deadline.wait():
             _lock.lock_exclusive(fd)
         try:
-            state = {}
-            try:
-                with open(path, "rb") as stream:
-                    raw = stream.read(257)
-                if len(raw) > 256:
-                    return None
-                state = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique,
-                                   parse_constant=_invalid_constant)
-                if not isinstance(state, dict) or state.keys() - {"agent", "last_alive"}:
-                    return None
-                if "agent" in state:
-                    store._check_agent(state["agent"])
-                    if child:
-                        value["agent"] = state["agent"]
-                last = state.get("last_alive")
-                if "last_alive" in state and (
-                    isinstance(last, bool) or not isinstance(last, (int, float))
-                    or not math.isfinite(last)
-                ):
-                    return None
-            except FileNotFoundError:
-                pass
+            state = _load_state(path)
+            if child and "agent" in state:
+                value["agent"] = state["agent"]
             now = time.time()
             if throttled and "last_alive" in state and now - state["last_alive"] < _ALIVE_SECONDS:
                 return None
@@ -147,6 +174,7 @@ def _dispatch(event, value, deadline):
                 if throttled:
                     state["last_alive"] = now
                 _save_state(path, state)
+                _prune_runtime(directory, path, deadline)
             return result
         finally:
             _lock.unlock(fd)

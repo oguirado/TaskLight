@@ -11,6 +11,8 @@ export interface RoomGapFrame {
   t: "room_gap"; v: 1; room: string; from_lamport: number; to_lamport: number;
   reason: "sanitize_failed" | "oversize"; rid?: string;
 }
+export type RoomSyncErrorCode = "room_read_failed" | "room_sync_failed";
+export interface RoomSyncErrorFrame { t: "room_sync_error"; v: 1; room: string; code: RoomSyncErrorCode; rid?: string }
 export interface RoomSyncedFrame { t: "room_synced"; v: 1; rid: string; room: string; upto: number; more: boolean }
 export interface AgentLinkDeps {
   extId: string;
@@ -22,16 +24,20 @@ export interface AgentLinkDeps {
   onRoomHello: (frame: RoomHelloFrame) => void;
   onRoomGap?: (frame: RoomGapFrame) => void;
   onRoomSynced?: (frame: RoomSyncedFrame) => void;
+  onRoomSyncError?: (frame: RoomSyncErrorFrame) => void;
+  onRoomSyncRecovered?: (room: string) => void;
   onWallEvent?: (raw: string) => void;
 }
 export interface AgentLink {
   start(): void;
   stop(): void;
   state(): WallPortState;
+  /** Whether replay data has arrived without a final terminal for the room. */
+  hasUnverifiedReplay?(room: string): boolean;
   /** Never rejects. */
   post(req: PostRequest): Promise<PostResult>;
 }
-export const LINK_LIMITS = { POST_TIMEOUT_MS: 5000, SYNC_CONTINUATIONS_MAX: 64 } as const;
+export const LINK_LIMITS = { POST_TIMEOUT_MS: 5000, SYNC_TIMEOUT_MS: 15000, SYNC_CONTINUATIONS_MAX: 64 } as const;
 
 const ROOM_RE = /^[a-z0-9][a-z0-9-]{0,47}$/;
 const FLOORS: ReadonlySet<string> = new Set(["ONLY_ON_DEVICE", "PREFER_ON_DEVICE"]);
@@ -50,7 +56,9 @@ export function createAgentLink(deps: AgentLinkDeps): AgentLink {
   let seq = 0;
   const syncTimers = new Set<number>();
   const pendingPosts = new Map<string, { resolve: (r: PostResult) => void; timer: number }>();
-  const outstanding = new Map<string, string>();
+  const outstanding = new Map<string, { rid: string; recoversFault: boolean; timer: number }>();
+  const faultedRooms = new Set<string>();
+  const unverifiedRooms = new Set<string>();
   const pendingSyncs = new Set<string>();
   const continuations = new Map<string, number>();
 
@@ -71,27 +79,87 @@ export function createAgentLink(deps: AgentLinkDeps): AgentLink {
     p.resolve(result);
   };
 
-  const sendSync = (port: RuntimePort, sinceMap?: Record<string, number>): void => {
-    const requested = sinceMap ?? since();
+  const cancelTimer = (id: number): void => {
+    try {
+      clock.clearTimeout(id);
+    } catch {
+      /* best-effort: callbacks also check current link state */
+    }
+  };
+
+  const releaseReplay = (room: string): void => {
+    const replay = outstanding.get(room);
+    if (replay === undefined) return;
+    outstanding.delete(room);
+    cancelTimer(replay.timer);
+  };
+
+  const resetReplays = (): void => {
+    for (const room of outstanding.keys()) releaseReplay(room);
+    pendingSyncs.clear();
+    continuations.clear();
+  };
+
+  const resetSyncTimers = (): void => {
+    for (const id of syncTimers) cancelTimer(id);
+    syncTimers.clear();
+    resetReplays();
+  };
+
+  const reportSyncError = (frame: RoomSyncErrorFrame): void => {
+    try {
+      deps.onRoomSyncError?.(frame);
+    } catch {
+      /* callback errors must not break the link */
+    }
+  };
+
+  const expireReplay = (port: RuntimePort, room: string, rid: string): void => {
+    if (stopped || latestPort !== port || outstanding.get(room)?.rid !== rid) return;
+    outstanding.delete(room);
+    continuations.delete(room);
+    const queued = pendingSyncs.delete(room);
+    if (!helloRooms?.has(room)) return;
+    const firstFault = !faultedRooms.has(room);
+    faultedRooms.add(room);
+    reportSyncError({ t: "room_sync_error", v: 1, room, code: "room_sync_failed", rid });
+    // Try once on expiry. Further failures can retry on new sync demand.
+    if ((firstFault || queued) && !stopped && latestPort === port && helloRooms?.has(room)
+      && !outstanding.has(room)) {
+      sendSync(port, { [room]: 0 });
+    }
+  };
+
+  const sendSync = (port: RuntimePort, sinceMap?: Record<string, number>, continuation?: boolean): void => {
+    // Only the first page chooses a recovery cursor; later pages carry eligibility forward.
+    const requested = sinceMap ?? { ...since() };
+    if (sinceMap === undefined) {
+      for (const room of faultedRooms) {
+        if (helloRooms?.has(room)) requested[room] = 0;
+      }
+    }
     const map: Record<string, number> = {};
     for (const room of Object.keys(requested)) {
       if (outstanding.has(room)) {
         pendingSyncs.add(room);
       } else {
-        map[room] = requested[room]!;
+        map[room] = continuation === undefined && faultedRooms.has(room) ? 0 : requested[room]!;
       }
     }
     // Preserve an empty subscription, but do not send when every room is busy.
     if (Object.keys(requested).length > 0 && Object.keys(map).length === 0) return;
     const rid = nextRid();
-    for (const room of Object.keys(map)) outstanding.set(room, rid);
     try {
+      for (const room of Object.keys(map)) {
+        const timer = clock.setTimeout(() => expireReplay(port, room, rid), LINK_LIMITS.SYNC_TIMEOUT_MS);
+        outstanding.set(room, { rid, timer, recoversFault: continuation ?? faultedRooms.has(room) });
+      }
       port.postMessage({ t: "room_sync", v: 1, rid, since: map });
     } catch {
       for (const room of Object.keys(map)) {
-        if (outstanding.get(room) === rid) outstanding.delete(room);
+        if (outstanding.get(room)?.rid === rid) releaseReplay(room);
       }
-      /* transport-level failure: the next hello/snapshot retries */
+      /* Failed setup or send: the next hello/snapshot retries. */
     }
   };
 
@@ -147,15 +215,34 @@ export function createAgentLink(deps: AgentLinkDeps): AgentLink {
         if (validEntry(entry)) members.add(entry["room"] as string);
       }
       helloRooms = members;
-      outstanding.clear();
-      pendingSyncs.clear();
-      continuations.clear();
+      resetReplays();
       try {
         onRoomHello(msg as unknown as RoomHelloFrame);
       } catch {
         /* callback errors must not break the link */
       }
       sendSync(port, helloSince(msg));
+      return;
+    }
+    if (t === "room_sync_error") {
+      const room = msg["room"];
+      const code = msg["code"];
+      const rid = msg["rid"];
+      if (msg["v"] !== 1 || typeof room !== "string" || !helloRooms?.has(room)
+        || (code !== "room_read_failed" && code !== "room_sync_failed")) return;
+      const replay = outstanding.get(room);
+      if ("rid" in msg && (typeof rid !== "string" || replay?.rid !== rid)) return;
+
+      faultedRooms.add(room);
+      if (replay !== undefined) replay.recoversFault = false;
+      if (typeof rid === "string") {
+        releaseReplay(room);
+        continuations.delete(room);
+      }
+      reportSyncError({ t, v: 1, room, code, ...(typeof rid === "string" ? { rid } : {}) });
+      if (typeof rid === "string" && pendingSyncs.delete(room)) {
+        sendSync(port, { [room]: 0 });
+      }
       return;
     }
     if (t === "room_synced") {
@@ -169,9 +256,10 @@ export function createAgentLink(deps: AgentLinkDeps): AgentLink {
         || typeof more !== "boolean") {
         return;
       }
-      if (helloRooms === null || !helloRooms.has(room as string)) return;
-      if (outstanding.get(room as string) !== rid) return;
-      outstanding.delete(room as string);
+      if (!helloRooms?.has(room)) return;
+      const replay = outstanding.get(room);
+      if (replay?.rid !== rid) return;
+      releaseReplay(room);
       const deliver = (): void => {
         try {
           onRoomSynced?.(msg as unknown as RoomSyncedFrame);
@@ -180,20 +268,28 @@ export function createAgentLink(deps: AgentLinkDeps): AgentLink {
         }
       };
       if (!more) {
-        if (pendingSyncs.delete(room as string)) {
-          sendSync(port, { [room as string]: since()[room as string] ?? 0 });
+        unverifiedRooms.delete(room);
+        if (replay.recoversFault && faultedRooms.delete(room)) {
+          try {
+            deps.onRoomSyncRecovered?.(room);
+          } catch {
+            /* callback errors must not break the link */
+          }
+        }
+        if (pendingSyncs.delete(room)) {
+          sendSync(port, { [room]: since()[room] ?? 0 });
         }
         deliver();
         return;
       }
-      const used = continuations.get(room as string) ?? 0;
+      const used = continuations.get(room) ?? 0;
       if (used >= LINK_LIMITS.SYNC_CONTINUATIONS_MAX) {
-        pendingSyncs.delete(room as string);
+        pendingSyncs.delete(room);
         deliver();
         return;
       }
-      continuations.set(room as string, used + 1);
-      sendSync(port, { [room as string]: upto as number });
+      continuations.set(room, used + 1);
+      sendSync(port, { [room]: upto }, replay.recoversFault);
       deliver();
       return;
     }
@@ -213,7 +309,7 @@ export function createAgentLink(deps: AgentLinkDeps): AgentLink {
       if (helloRooms === null || !helloRooms.has(room as string)) return;
       if ("rid" in msg) {
         const rid = msg["rid"];
-        if (typeof rid !== "string" || outstanding.get(room as string) !== rid) return;
+        if (typeof rid !== "string" || outstanding.get(room)?.rid !== rid) return;
       }
       try {
         onRoomGap?.(msg as unknown as RoomGapFrame);
@@ -232,10 +328,11 @@ export function createAgentLink(deps: AgentLinkDeps): AgentLink {
       if (helloRooms === null || !helloRooms.has(room as string)) return;
       if ("rid" in msg) {
         const rid = msg["rid"];
-        if (typeof rid !== "string" || outstanding.get(room as string) !== rid) return;
+        if (typeof rid !== "string" || outstanding.get(room)?.rid !== rid) return;
       }
       const innerRoom = (msg["event"] as Record<string, unknown>)["room"];
       if (innerRoom !== room) return;
+      if ("rid" in msg) unverifiedRooms.add(room);
       try {
         onRoomEvent(msg as unknown as RoomEventFrame);
       } catch {
@@ -272,9 +369,7 @@ export function createAgentLink(deps: AgentLinkDeps): AgentLink {
       if (latestPort === port) {
         helloRooms = null;
         latestPort = null;
-        outstanding.clear();
-        pendingSyncs.clear();
-        continuations.clear();
+        resetSyncTimers();
       }
     });
     return port;
@@ -300,14 +395,7 @@ export function createAgentLink(deps: AgentLinkDeps): AgentLink {
     stop(): void {
       if (stopped) return;
       stopped = true;
-      for (const id of syncTimers) {
-        try {
-          clock.clearTimeout(id);
-        } catch {
-          /* best-effort */
-        }
-      }
-      syncTimers.clear();
+      resetSyncTimers();
       for (const p of pendingPosts.values()) {
         try {
           clock.clearTimeout(p.timer);
@@ -322,6 +410,9 @@ export function createAgentLink(deps: AgentLinkDeps): AgentLink {
     },
     state(): WallPortState {
       return wall.state();
+    },
+    hasUnverifiedReplay(room: string): boolean {
+      return unverifiedRooms.has(room);
     },
     post(req: PostRequest): Promise<PostResult> {
       try {

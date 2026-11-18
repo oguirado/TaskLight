@@ -272,7 +272,7 @@ class MCP(unittest.TestCase):
                                              "even with findings. strict rejection keeps its error code and says created: false in detail.")
             if descriptor["name"] == "plan_get":
                 descriptor["description"] = "Read the active plan projection; tasks is a list of records with id, which callers can key by task id. plan_create takes tasks as a list with required key."
-        self.assertEqual(tools, [{**tool, "inputSchema": {**tool["inputSchema"], "properties": {**tool["inputSchema"]["properties"], "what": {"type": "string", "enum": ["plan", "memory", "integration"]}}}} if tool["name"] == "room_export" else tool for tool in expected_tools])  # A-C7: new tool unit_decide
+        self.assertEqual(tools, [{**tool, "inputSchema": {**tool["inputSchema"], "properties": {**tool["inputSchema"]["properties"], "what": {"type": "string", "enum": ["plan", "memory", "integration"]}, "opened_lamport": {"type": "integer"}}}} if tool["name"] == "room_export" else tool for tool in expected_tools])  # A-C7b
         self.assertEqual(self.result(self.rpc("resources/templates/list")), BASELINE["resourceTemplates"])
         listed = self.listed()
         legacy = [r for r in listed if r["uri"] != URI]

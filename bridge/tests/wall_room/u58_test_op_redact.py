@@ -12,13 +12,33 @@ from . import support as S
 HOME = str(S.REPO / '.unit' / 'u58-in-memory-home')  # Never created or accessed.
 KINDS = ('plan.open', 'plan.close', 'plan.phase', 'task.add', 'task.set',
          'task.claim', 'task.release', 'micro.add', 'micro.set', 'memory.set')
-POISON = 'U58_POISON'
+# A-R52LG: Use a residue marker that can also be a valid plan.open brief key.
+POISON = 'u58-poison'
 EXPAND = 'U58_EXPAND'
 
 
 def op_event(lamport=1, **fields):
-    payload = {'kind': 'task.add', 'title': 'clean', 'op_id': 'oracle_0001'}
+    # A-R52LG: Supply the required task.add fields for checked reads.
+    payload = {'kind': 'task.add', 'title': 'clean', 'op_id': 'oracle_0001',
+               'type': 'unit', 'phase': 'build'}
     return S.event(lamport, act='op', op=payload, **fields)
+
+
+def expanding_event(lamport=1):
+    # A-R52LG: Distribute the expansion markers across valid microtask text fields.
+    event = op_event(lamport)
+    event['op']['microtasks'] = [{'text': EXPAND * 8} for _ in range(10)]
+    return event
+
+
+def patch_event_copy(event, effect):
+    # A-R52LG: Inject faults in the relay's copy of an otherwise valid journal row.
+    def deepcopy(value):
+        return effect(value) if value is event else copy.deepcopy(value)
+
+    copier = mock.Mock(wraps=copy)
+    copier.deepcopy.side_effect = deepcopy
+    return mock.patch.object(relay, 'copy', copier)
 
 
 def frame(event, replay=False, floor='PREFER_ON_DEVICE'):
@@ -60,7 +80,8 @@ class RelayHarness(unittest.TestCase):
             # Deliberately reverse storage order; replay must sort by lamport.
             return [e for e in reversed(self.events)
                     if e['room'] == room and e['lamport'] > since], 0
-        patch = mock.patch.object(relay.store, 'read', side_effect=read)
+        # A-R52LG: Prime, live poll and replay now consume the checked reader.
+        patch = mock.patch.object(relay.store, 'read_checked', side_effect=read)
         patch.start()
         self.addCleanup(patch.stop)
         self.send = S.Frames()
@@ -139,17 +160,34 @@ class OpRedaction(RelayHarness):
             with self.subTest(path='operation-masking'):
                 self.assertIsNotNone(clean)
                 self.assertTrue(any('[REDACTED:' in s for s in strings(clean['op'])))
-            for mode in ('poll', 'sync'):
-                with self.subTest(mode=mode):
-                    self.events[:] = [event]
-                    self.send.clear()
-                    self.r = relay.RoomRelay(self.rcfg, self.send, home=HOME, clock=S.Clock())
-                    self.assertEqual(self.r.poll() if mode == 'poll' else self.sync(),
-                                     1 if mode == 'poll' else 0)
-                    self.assertNotIn(S.FAKE_VALUE, repr(self.send.frames))
-                    self.assertEqual(self.send.of('room_event'), [frame(clean, mode == 'sync')])
-                    self.assertEqual(self.r.stats()['events_sent'], 1)
-                    self.assertEqual(event, before)
+            # A-R52LG: Keep the synthetic sanitizer probe above and use valid
+            # operation, plan and step rows for live and replay delivery.
+            task = op_event(text=secret, evidence=event['evidence'])
+            task['op'].update(title=secret, accept=secret,
+                              microtasks=[{'text': secret, 'accept': secret}])
+            plan_open = S.event(1, act='op', op={
+                'kind': 'plan.open', 'op_id': 'oracle_0001', 'title': secret,
+                'template_id': 'web-app', 'template_hash': 'a' * 64,
+                'brief': {'purpose': secret},
+            })
+            plan = S.event(1, act='plan', plan=event['plan'])
+            step = S.event(1, act='step', step={
+                **event['step'], 'took': 'API_KEY=' + S.FAKE_VALUE,
+            })
+            for event in (task, plan_open, plan, step):
+                before = copy.deepcopy(event)
+                clean = relay.sanitize_event(event)
+                for mode in ('poll', 'sync'):
+                    with self.subTest(mode=mode, act=event['act'], op=event.get('op', {}).get('kind')):
+                        self.events[:] = [event]
+                        self.send.clear()
+                        self.r = relay.RoomRelay(self.rcfg, self.send, home=HOME, clock=S.Clock())
+                        self.assertEqual(self.r.poll() if mode == 'poll' else self.sync(),
+                                         1 if mode == 'poll' else 0)
+                        self.assertNotIn(S.FAKE_VALUE, repr(self.send.frames))
+                        self.assertEqual(self.send.of('room_event'), [frame(clean, mode == 'sync')])
+                        self.assertEqual(self.r.stats()['events_sent'], 1)
+                        self.assertEqual(event, before)
 
     def test_o1_each_operation_kind_and_json_scalars(self):
         values = [None, True, False, 0, -7, 1.25, 'héllo', [], {}]
@@ -189,12 +227,17 @@ class OpRedaction(RelayHarness):
 
     def test_o2_nested_value_residue_live_and_sync(self):
         event = op_event()
-        event['op']['brief'] = [{'text': POISON}]
+        # A-R52LG: Plant the nested value in valid task.add microtask text.
+        event['op']['microtasks'] = [{'text': POISON}]
         self.assert_drop(event, residue)
 
     def test_o2_nested_key_residue_live_and_sync(self):
-        event = op_event()
-        event['op']['brief'] = {POISON: 'clean'}
+        # A-R52LG: A plan.open brief permits a planted slug as a nested key.
+        event = S.event(1, act='op', op={
+            'kind': 'plan.open', 'op_id': 'oracle_0001', 'title': 'clean',
+            'template_id': 'web-app', 'template_hash': 'a' * 64,
+            'brief': {POISON: 'clean'},
+        })
         self.assert_drop(event, residue)
 
     def test_o3_redactor_exception_sanitize(self):
@@ -220,12 +263,13 @@ class OpRedaction(RelayHarness):
         self.assert_drop(event, faulty('bad'))
 
     def test_o4_redaction_expands_past_frame_cap_live_and_sync(self):
-        event = op_event()
-        event['op']['brief'] = EXPAND * 80
+        # A-R52LG: Keep the expansion in journal-valid operation strings.
+        event = expanding_event()
         for replay in (False, True):
             self.assertLessEqual(len(json.dumps(frame(event, replay), ensure_ascii=False).encode()), 65536)
             expanded = copy.deepcopy(event)
-            expanded['op']['brief'] = 'M' * (1024 * 80)
+            for task in expanded['op']['microtasks']:
+                task['text'] = 'M' * (1024 * 8)
             self.assertGreater(len(json.dumps(frame(expanded, replay), ensure_ascii=False).encode()), 65536)
         self.assert_drop(event, expanding, 'dropped_oversize')
 
@@ -287,12 +331,14 @@ class OpRedaction(RelayHarness):
         self.assertIsNone(relay.sanitize_event(event))
 
     def test_w0r18_copy_failure_live_and_sync(self):
-        class Uncopyable:
-            def __deepcopy__(self, memo):
-                raise RuntimeError('planted copy failure')
+        # A-R52LG: Trigger the copy fault after validation of the journal row.
         event = op_event()
-        event['op']['brief'] = Uncopyable()
-        self.assert_drop(event, S.identity_redact)
+
+        def fail_copy(_value):
+            raise RuntimeError('planted copy failure')
+
+        with patch_event_copy(event, fail_copy):
+            self.assert_drop(event, S.identity_redact)
 
     def test_w0r18_cycles(self):
         for container in ({}, []):
@@ -313,11 +359,16 @@ class OpRedaction(RelayHarness):
                 self.assertIsNone(relay.sanitize_event(event))
 
     def test_w0r18_unencodable_string_never_reaches_send(self):
+        # A-R52LG: Introduce the surrogate during redaction, after the checked read.
         event = op_event()
-        event['op']['brief'] = '\ud800'
+        event['op']['title'] = POISON
+
+        def redact_surrogate(text, _disable=frozenset()):
+            return ('\ud800', 1, []) if text == POISON else S.identity_redact(text)
+
         # Serialization failures are drops; the spec does not assign a new counter.
         for mode in ('poll', 'sync'):
-            with self.subTest(mode=mode), S.patched_redact(S.identity_redact):
+            with self.subTest(mode=mode), S.patched_redact(redact_surrogate):
                 self.events[:] = [event]
                 self.send.clear()
                 self.r = relay.RoomRelay(self.rcfg, self.send, home=HOME, clock=S.Clock())
@@ -344,6 +395,9 @@ class OpRedaction(RelayHarness):
         self.events[1]['plan'] = {'title': 'clean', 'steps': [{'text': 'step', 'accept': 'ok'}]}
         self.events[2]['step'].update(outcome='done', took='1m')
         self.events[3]['evidence'] = [{'path': '/fixture/file', 'sha256': 'a' * 64}]
+        # A-R52LG: Checked answer and ack rows require a reference.
+        self.events[4]['re'] = self.events[3]['id']
+        self.events[6]['re'] = self.events[3]['id']
         for mode in ('poll', 'sync'):
             with self.subTest(mode=mode), S.patched_redact(S.identity_redact):
                 self.send.clear()
@@ -360,7 +414,8 @@ class OpRedaction(RelayHarness):
 
     def test_silent_hostile_public_calls(self):
         self.events[:] = [op_event()]
-        self.events[0]['op']['brief'] = POISON
+        # A-R52LG: Put the fault marker in a valid operation field.
+        self.events[0]['op']['title'] = POISON
         stdout, stderr = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr), \
                 mock.patch('logging.Logger._log') as log, S.patched_redact(faulty('raise')):
@@ -393,9 +448,16 @@ class OpRedaction(RelayHarness):
         self.assertIsNone(relay.sanitize_event(event))
 
     def test_w0r18_nonfinite_live_and_sync(self):
+        # A-R52LG: Inject a nonfinite value only after the checked reader accepts the row.
         event = op_event()
-        event['op']['brief'] = float('inf')
-        self.assert_drop(event, S.identity_redact)
+
+        def nonfinite_copy(value):
+            result = copy.deepcopy(value)
+            result['op']['estimate'] = float('inf')
+            return result
+
+        with patch_event_copy(event, nonfinite_copy):
+            self.assert_drop(event, S.identity_redact)
 
     def test_o1_identifiers_and_hashes_have_no_exemption(self):
         seen = []

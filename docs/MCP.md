@@ -34,9 +34,10 @@ Redaction happens after folding and before serialization or rendering; the
 owner's journal retains its raw bytes. Event hashes, ids, Lamport values,
 cursors, revisions and replay identities are preserved. Historical memory
 and local template text receive the same protection. A sanitizer failure
-refuses the output; the CLI exits nonzero, and exports write neither file.
+refuses the output, and the CLI exits nonzero before writing export files.
 
-34 tools are exposed [MEASURED: candidate `tools/list`, cross-checked against
+<!-- # A-C8 -->
+37 tools are exposed [MEASURED: candidate `tools/list`, cross-checked against
 `python3 -m bridge.room tools`, including registered extensions]. This is the
 sole documented tool total; rediscover it when the registry changes. One-line purposes:
 
@@ -89,8 +90,9 @@ Extensions:
 
 - `unit_decide`: append an immutable ADMIT, HOLD or REJECT unit decision.
   `agent` is the caller; optional `result_agent` and `result_run_id` jointly
-  reference a worker result. The legacy same-caller `run_id` form remains
-  accepted; do not mix reference forms. See [Results and unit decisions](RESULTS.md).
+  reference a terminal worker run. HOLD and REJECT may reference a run that
+  ended without a result, and ADMIT requires a recorded result. The legacy
+  same-caller `run_id` form remains accepted. See [Results and unit decisions](RESULTS.md).
 - `wait_agents`: wait for all matching lifecycle events after a caller-owned cursor;
   see [Waiting for agent results](WAIT_AGENTS.md).
 - `orchestrator_snapshot`: read compact current agents, attention, available work,
@@ -109,8 +111,22 @@ Extensions:
     run. These receipts leave execution activity unchanged.
   - Error codes: `bad_room`, `bad_agent`, `bad_args`, `bad_op`, `limit_exceeded`, `no_plan`, `not_found`, `claimed_by_other`.
 
-- `room_export`: export a folded projection as Markdown.
-  - Arguments: `{room, agent, what}` with `what: "plan" | "memory"`; all required, unknown keys rejected.
+- `artifact_read` reads a redacted page of a terminal worker's artifact in the room.
+  - Supply `{room, agent, path, sha256?, offset?, limit?}`. Copy `path` exactly
+    from the recorded receipt or evidence. Paths resolve under the project root,
+    which currently defaults to the bridge's working directory.
+  - The file must be regular and at most 4 MiB [TARGET]. The byte offset defaults
+    to zero. The byte limit defaults to 16,384 and accepts 1–65,536 [TARGET].
+  - The result contains `sha256`, `size`, `offset`, `next_offset` and `text`.
+    A null `next_offset` marks the end. The complete file must match all recorded
+    hashes for that path and any supplied hash before text is returned.
+<!-- # A-C8 -->
+- `unit_bind` binds a pipeline step to a registered worker run.
+- `unit_repair` clears the pipeline from author through import and retains attempt history.
+- `room_export`: Markdown export for `what: "plan" | "memory" | "integration"`.
+  - Supply `{room, agent, what, opened_lamport?}`. For integration export, set
+    `opened_lamport` to the integer returned when the chosen plan was opened. Omit
+    it to include all generations.
   - Result (wrapped in `{"untrusted": ...}`): `{format:"markdown", text, rev}`. Works after plan closure; does not write files.
 - `memory_history`: read accepted updates to one memory section, newest first.
   - Arguments: `{room, agent, section, limit?}`; `section` matches `^[a-z0-9][a-z0-9-]{0,47}$`, `limit` is `1..500` (default `100`); unknown keys rejected.
@@ -229,10 +245,10 @@ command line without starting an MCP session:
   success, `2` on CLI syntax, JSON, or unknown-tool errors (`bad_args`),
   and `3` on dispatched tool errors.
 
-`python3 -m bridge.room export --room R --out DIR` writes `PLAN.md` and
-`MEMORY.md` under `$CW_HOME/DIR` (relative paths only; traversal, symlinks
-and paths outside `$CW_HOME` are refused with `bad_args`, exit `2`; write
-failures return `export_failed`, exit `3`). See [HEADLESS.md](HEADLESS.md) for headless workflows and full CLI usage.
+`python3 -m bridge.room export --room R --out DIR` writes `PLAN.md`, `MEMORY.md`
+and unfiltered `INTEGRATION.md` beneath `$CW_HOME`. Traversal, symlinks and paths
+outside `$CW_HOME` return `bad_args` (exit `2`). Write failures return
+`export_failed` (exit `3`). See [HEADLESS.md](HEADLESS.md) for headless workflows and full CLI usage.
 
 ## Copy-paste: your first plan
 

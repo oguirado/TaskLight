@@ -5,6 +5,11 @@ import json
 import random
 from pathlib import Path
 
+from bridge.plan.fold import fold_plan
+from bridge.plan.limits import PIPELINE_TEMPLATE
+from bridge.plan.template import load_template
+from bridge.room.store import _is_valid_event
+
 ROOT = Path(__file__).resolve().parents[3]
 PUBLIC = ROOT / 'tests/property'
 VERSION = 'u116-history-v1'
@@ -197,20 +202,145 @@ def ownership_prerequisites(events):
                    for w in events[i+1:]) for i,c in claims) and any(e.get('op',{}).get('kind')=='task.add' for e in events)
 
 
+def _journal_op(event):
+    op = event.get('op')
+    return op if event.get('act') == 'op' and isinstance(op, dict) else {}
+
+
+def _repair_checkpoint(events, templates):
+    """Observe a retained operation at its logical position in the journal."""
+    target = events[-1]
+    op = _journal_op(target)
+    opening_id = None
+    task_origins = {}
+    deployments = {}
+    terminals = {}
+    receipts = {}
+    replayed = False
+
+    def observe(event, state, disposition):
+        nonlocal opening_id, replayed
+        if disposition is None:
+            return
+        agent = event['agent']
+        operation = event['op']
+        if operation.get('op_id') is not None:
+            receipts.setdefault((agent, operation['op_id']), event['id'])
+        if event is target:
+            replayed = disposition.get('replayed', False)
+        if disposition.get('replayed') or disposition.get('noop'):
+            return
+        kind = operation['kind']
+        if kind == 'plan.open':
+            opening_id = event['id']
+            task_origins.clear()
+        elif kind == 'task.add':
+            task_origins[state['tasks'][-1]['id']] = event['id']
+        elif kind == 'agent.lifecycle':
+            run = (agent, operation['run_id'])
+            if operation['state'] == 'deployed':
+                deployments[run] = event['id']
+            elif operation['state'] in ('finished', 'failed'):
+                terminals[run] = event['id']
+
+    state = fold_plan(events, templates=templates, _observe=observe)
+    rejection = next((row['code'] for row in state['rejected'] if row['id'] == target['id']), None)
+    agent, op_id = target.get('agent'), op.get('op_id')
+    receipt = receipts.get((agent, op_id)) if isinstance(agent, str) and isinstance(op_id, str) else None
+    disposition = (rejection, replayed, receipt)
+
+    def lineage(agent, run_id):
+        if isinstance(agent, str) and isinstance(run_id, str):
+            run = (agent, run_id)
+            return deployments.get(run), terminals.get(run)
+
+    if op['kind'] == 'agent.lifecycle':
+        return (disposition, lineage(agent, op.get('run_id')),
+                lineage(op.get('parent_agent'), op.get('parent_run_id')))
+
+    task_id = op.get('task_id')
+    if task_id is None and isinstance(op.get('micro_id'), str):
+        task_id = op['micro_id'].split('.', 1)[0]
+    task = next((row for row in state['tasks'] if row['id'] == task_id), {})
+    steps = [
+        (step['binding'], [
+            (attempt['lamport'], attempt['result_agent'], attempt['result_run_id'],
+             attempt['state'], attempt.get('terminal'), attempt.get('decision', {}).get('lamport'))
+            for attempt in step['attempts']
+        ])
+        for step in task.get('pipeline', {}).get('steps', ())
+    ]
+    plan = state['plan'] or {}
+    return (
+        disposition, (opening_id, plan.get('opened_lamport'), plan.get('state')),
+        tuple(task_origins.items()), tuple(task.get('deps', ())),
+        [(micro['id'], micro['state']) for micro in task.get('microtasks', ())],
+        steps, [(row['lamport'], row['verdict']) for row in task.get('decisions', ())],
+        lineage(op.get('result_agent', op.get('agent')), op.get('result_run_id', op.get('run_id'))),
+    )
+
+
+def _repair_replay_guard(events):
+    ordered = eligible(events)
+    if not any(op.get('kind') == 'plan.open' and op.get('template_id') == PIPELINE_TEMPLATE
+               for op in map(_journal_op, ordered)):
+        return lambda _: True
+
+    template = load_template(ROOT / 'templates/planning' / f'{PIPELINE_TEMPLATE}.json')
+    templates = {**TEMPLATES, PIPELINE_TEMPLATE: template}
+    original_ids = {event['id'] for event in ordered}
+    kinds = ('task.add', 'task.set', 'task.claim', 'task.release', 'micro.add', 'micro.set',
+             'unit.bind', 'unit.repair', 'unit.decision', 'agent.lifecycle')
+    expected = {
+        event['id']: _repair_checkpoint(ordered[:index + 1], templates)
+        for index, event in enumerate(ordered)
+        if _journal_op(event).get('kind') in kinds
+    }
+
+    def preserves_replay(trial):
+        ordered_trial = eligible(trial)
+        retained_ids = {event['id'] for event in ordered_trial}
+        for event in ordered_trial:
+            reference = event.get('re')
+            if isinstance(reference, str) and reference in original_ids - retained_ids:
+                return False
+        # Compare per operation so later retries and independent rejections can
+        # disappear without taking a retained witness's causal context with them.
+        for index in range(len(ordered_trial) - 1, -1, -1):
+            event = ordered_trial[index]
+            event_id = event['id']
+            if _journal_op(event).get('kind') not in kinds:
+                if event_id in expected:
+                    return False
+                continue
+            if event_id not in expected or _repair_checkpoint(ordered_trial[:index + 1], templates) != expected[event_id]:
+                return False
+        return True
+
+    return preserves_replay
+
+
 def shrink(events, fails, prerequisites=lambda _: True):
-    """Deterministic deletion, then optional-field and passive-text simplification."""
+    """Shrink a witnessed failure while preserving retained repair checkpoints."""
     result = copy.deepcopy(events)
     assert prerequisites(result) and fails(result), 'shrink needs a witnessed failure'
+    preserves_replay = _repair_replay_guard(result)
+
+    def admissible(trial):
+        return prerequisites(trial) and fails(trial) and preserves_replay(trial)
+
     changed = True
     while changed:
         changed = False
         for i in range(len(result)):
             trial = result[:i]+result[i+1:]
-            if prerequisites(trial) and fails(trial):
+            if admissible(trial):
                 result=trial; changed=True; break
     for i in range(len(result)):
         for container in ('op', None):
             source = result[i].get('op',{}) if container else result[i]
+            if not isinstance(source, dict):
+                continue
             for key in sorted(list(source)):
                 if key not in ('title','text','accept','outcome','reason','note','estimate'):
                     continue
@@ -221,7 +351,13 @@ def shrink(events, fails, prerequisites=lambda _: True):
                     trial=copy.deepcopy(result)
                     obj=trial[i]['op'] if container else trial[i]
                     obj[key]=simplified
-                    if trial != result and prerequisites(trial) and fails(trial):
+                    if trial == result:
+                        continue
+                    # A malformed replacement can yield the same rejection as
+                    # a well-formed stale reference but cannot replay from disk.
+                    if _is_valid_event(result[i]) and not _is_valid_event(trial[i]):
+                        continue
+                    if admissible(trial):
                         result=trial
                         break
     return result

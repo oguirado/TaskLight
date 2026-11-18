@@ -335,6 +335,7 @@ class RoomRelay:
             self._floor = {r["room"]: r["floor"] for r in rooms}
             self._agent = agent if isinstance(agent, str) else None
             self._cursors = {r["room"]: 0 for r in rooms}
+            self._pending_errors = {}
             self._stats = {
                 "events_sent": 0,
                 "dropped_residue": 0,
@@ -354,6 +355,7 @@ class RoomRelay:
                 self._floor = {}
                 self._agent = None
                 self._cursors = {}
+                self._pending_errors = {}
                 self._stats = {
                     "events_sent": 0,
                     "dropped_residue": 0,
@@ -380,8 +382,7 @@ class RoomRelay:
 
     def _try_send(self, frame):
         try:
-            self._send(frame)
-            return True
+            return self._send(frame) is not False
         except Exception:
             return False
 
@@ -394,20 +395,39 @@ class RoomRelay:
 
     def _read_sorted(self, room, since):
         try:
-            events, _malformed = store.read(room, since, home=self._home)
+            result = store.read_checked(room, since, home=self._home)
+            if not isinstance(result, tuple) or len(result) != 2:
+                return None, "room_sync_failed"
+            events, malformed = result
+            if (not isinstance(events, list) or not _is_int(malformed) or malformed != 0
+                    or any(not store._is_valid_event(event) or event["room"] != room
+                           or event["lamport"] <= since for event in events)):
+                return None, "room_sync_failed"
+            return sorted(events, key=lambda event: event["lamport"]), None
+        except store.RoomError as exc:
+            code = "room_read_failed" if exc.code == "room_read_failed" else "room_sync_failed"
+            return None, code
         except Exception:
-            return []
-        out = []
-        try:
-            if not isinstance(events, list):
-                return []
-            for e in events:
-                if isinstance(e, dict) and _is_int(e.get("lamport")):
-                    out.append(e)
-            out.sort(key=lambda e: e["lamport"])
-        except Exception:
-            return []
-        return out
+            return None, "room_sync_failed"
+
+    def _sync_error(self, room, code, rid=None):
+        frame = {"t": "room_sync_error", "v": 1, "room": room, "code": code}
+        if rid is not None:
+            frame["rid"] = rid
+        return frame
+
+    def _flush_sync_error(self, room):
+        frame = self._pending_errors.get(room)
+        if frame is None:
+            return True
+        if not self._try_send(frame):
+            return False
+        del self._pending_errors[room]
+        return True
+
+    def _report_sync_error(self, room, code, rid=None):
+        self._pending_errors[room] = self._sync_error(room, code, rid)
+        self._flush_sync_error(room)
 
     def _room_dir_exists(self, room):
         try:
@@ -424,39 +444,22 @@ class RoomRelay:
             return False
 
     def prime(self):
-        try:
-            for info in self._rooms:
-                room = info["room"]
-                try:
-                    events, _malformed = store.read(room, 0, home=self._home)
-                except Exception:
-                    self._cursors[room] = 0
-                    continue
-                mx = 0
-                try:
-                    if isinstance(events, list):
-                        for e in events:
-                            if isinstance(e, dict):
-                                lam = e.get("lamport")
-                                if _is_int(lam) and lam > mx:
-                                    mx = lam
-                except Exception:
-                    mx = mx if _is_int(mx) else 0
-                self._cursors[room] = mx
-        except Exception:
-            pass
-        return None
+        for info in self._rooms:
+            room = info["room"]
+            events, code = self._read_sorted(room, 0)
+            if code is not None:
+                # The native host announces room membership before its first poll.
+                self._pending_errors[room] = self._sync_error(room, code)
+            else:
+                self._cursors[room] = events[-1]["lamport"] if events else 0
 
     def _gap_frame(self, room, from_lamport, to_lamport, reason, rid=None):
-        try:
-            gap = {"t": "room_gap", "v": 1, "room": room,
-                   "from_lamport": from_lamport, "to_lamport": to_lamport,
-                   "reason": reason}
-            if rid is not None:
-                gap["rid"] = rid
-            return gap
-        except Exception:
-            return None
+        gap = {"t": "room_gap", "v": 1, "room": room,
+               "from_lamport": from_lamport, "to_lamport": to_lamport,
+               "reason": reason}
+        if rid is not None:
+            gap["rid"] = rid
+        return gap
 
     def _sanitize_safe(self, event):
         try:
@@ -464,86 +467,69 @@ class RoomRelay:
         except Exception:
             return None
 
+    def _deliver_room_frames(self, room, events, rid=None):
+        """Send a batch, preserving gaps and advancing live cursors on delivery."""
+        sent = 0
+        gap = None
+        for event in events:
+            lamport = event["lamport"]
+            clean = self._sanitize_safe(event)
+            reason = None
+            if clean is None:
+                reason = "sanitize_failed"
+                self._stats["dropped_residue"] += 1
+            else:
+                frame = {"t": "room_event", "v": 1, "room": room,
+                         "floor": self._floor[room], "event": clean}
+                if rid is not None:
+                    frame["rid"] = rid
+                if _frame_oversize(frame):
+                    reason = "oversize"
+                    self._stats["dropped_oversize"] += 1
+
+            if gap is not None:
+                if gap["reason"] == reason:
+                    gap["to_lamport"] = lamport
+                    continue
+                if not self._try_send(gap):
+                    return sent, False
+                if rid is None:
+                    self._cursors[room] = gap["to_lamport"]
+                gap = None
+
+            if reason is not None:
+                gap = self._gap_frame(room, lamport, lamport, reason, rid)
+                continue
+            if not self._try_send(frame):
+                return sent, False
+            self._stats["events_sent"] += 1
+            sent += 1
+            if rid is None:
+                self._cursors[room] = lamport
+
+        if gap is not None:
+            if not self._try_send(gap):
+                return sent, False
+            if rid is None:
+                self._cursors[room] = gap["to_lamport"]
+        return sent, True
+
     def poll(self):
         sent = 0
-        try:
-            for info in self._rooms:
-                room = info["room"]
-                floor = info["floor"]
-                cursor = self._cursors.get(room, 0)
-                events = self._read_sorted(room, cursor)
-                run_from = None
-                run_to = None
-                run_reason = None
-                failed = False
-                for e in events:
-                    if failed:
-                        break
-                    lam = e["lamport"]
-                    reason = None
-                    clean = self._sanitize_safe(e)
-                    frame = None
-                    if clean is None:
-                        reason = "sanitize_failed"
-                        try:
-                            self._stats["dropped_residue"] += 1
-                        except Exception:
-                            pass
-                    else:
-                        frame = {"t": "room_event", "v": 1, "room": room, "floor": floor, "event": clean}
-                        if _frame_oversize(frame):
-                            reason = "oversize"
-                            try:
-                                self._stats["dropped_oversize"] += 1
-                            except Exception:
-                                pass
-                            frame = None
-                    if reason is not None:
-                        if run_reason == reason and run_from is not None:
-                            run_to = lam
-                        else:
-                            if run_reason is not None:
-                                gap = self._gap_frame(room, run_from, run_to, run_reason)
-                                if gap is None or not self._try_send(gap):
-                                    failed = True
-                                    break
-                                cursor = run_to
-                                self._cursors[room] = cursor
-                            run_from = lam
-                            run_to = lam
-                            run_reason = reason
-                    else:
-                        if run_reason is not None:
-                            gap = self._gap_frame(room, run_from, run_to, run_reason)
-                            if gap is None or not self._try_send(gap):
-                                failed = True
-                                break
-                            cursor = run_to
-                            self._cursors[room] = cursor
-                            run_from = None
-                            run_to = None
-                            run_reason = None
-                        if not self._try_send(frame):
-                            failed = True
-                            break
-                        try:
-                            self._stats["events_sent"] += 1
-                        except Exception:
-                            pass
-                        sent += 1
-                        cursor = lam
-                        self._cursors[room] = cursor
-                if not failed and run_reason is not None:
-                    gap = self._gap_frame(room, run_from, run_to, run_reason)
-                    if gap is not None and self._try_send(gap):
-                        cursor = run_to
-                        self._cursors[room] = cursor
-                try:
-                    self._cursors[room] = cursor
-                except Exception:
-                    pass
-        except Exception:
-            pass
+        for info in self._rooms:
+            room = info["room"]
+            previous = self._pending_errors.get(room)
+            if not self._flush_sync_error(room):
+                continue
+            events, code = self._read_sorted(room, self._cursors[room])
+            if code is not None:
+                if previous is None or previous.get("rid") is not None or previous["code"] != code:
+                    self._report_sync_error(room, code)
+                continue
+            count, delivered = self._deliver_room_frames(room, events)
+            sent += count
+            if not delivered:
+                self._report_sync_error(room, "room_sync_failed")
         return sent
 
     def _handle_sync(self, frame):
@@ -564,80 +550,20 @@ class RoomRelay:
             if not _is_int(val) or val < 0:
                 return self._structural()
         for room, since_val in since.items():
-            if room not in self._floor:
+            if room not in self._floor or not self._flush_sync_error(room):
                 continue
-            floor = self._floor[room]
-            evs = self._read_sorted(room, since_val)
-            total = len(evs)
-            chunk = evs[: ROOM_LIMITS["REPLAY_MAX"]]
-            upto = chunk[-1]["lamport"] if chunk else since_val
-            more = total > ROOM_LIMITS["REPLAY_MAX"]
-            failed = False
-            run_from = None
-            run_to = None
-            run_reason = None
-            for e in chunk:
-                lam = e["lamport"]
-                reason = None
-                clean = self._sanitize_safe(e)
-                out_frame = None
-                if clean is None:
-                    reason = "sanitize_failed"
-                    try:
-                        self._stats["dropped_residue"] += 1
-                    except Exception:
-                        pass
-                else:
-                    out_frame = {
-                        "t": "room_event",
-                        "v": 1,
-                        "room": room,
-                        "floor": floor,
-                        "event": clean,
-                        "rid": rid,
-                    }
-                    if _frame_oversize(out_frame):
-                        reason = "oversize"
-                        try:
-                            self._stats["dropped_oversize"] += 1
-                        except Exception:
-                            pass
-                        out_frame = None
-                if reason is not None:
-                    if run_reason == reason and run_from is not None:
-                        run_to = lam
-                    else:
-                        if run_reason is not None:
-                            gap = self._gap_frame(room, run_from, run_to, run_reason, rid)
-                            if gap is None or not self._try_send(gap):
-                                failed = True
-                                break
-                        run_from = lam
-                        run_to = lam
-                        run_reason = reason
-                else:
-                    if run_reason is not None:
-                        gap = self._gap_frame(room, run_from, run_to, run_reason, rid)
-                        if gap is None or not self._try_send(gap):
-                            failed = True
-                            break
-                        run_from = None
-                        run_to = None
-                        run_reason = None
-                    if not self._try_send(out_frame):
-                        failed = True
-                        break
-                    try:
-                        self._stats["events_sent"] += 1
-                    except Exception:
-                        pass
-            if not failed and run_reason is not None:
-                gap = self._gap_frame(room, run_from, run_to, run_reason, rid)
-                if gap is None or not self._try_send(gap):
-                    failed = True
-            if failed:
-                return 0
-            self._try_send({"t": "room_synced", "v": 1, "rid": rid, "room": room, "upto": upto, "more": more})
+            events, code = self._read_sorted(room, since_val)
+            if code is not None:
+                self._report_sync_error(room, code, rid)
+                continue
+            chunk = events[: ROOM_LIMITS["REPLAY_MAX"]]
+            _, delivered = self._deliver_room_frames(room, chunk, rid)
+            if delivered:
+                upto = chunk[-1]["lamport"] if chunk else since_val
+                delivered = self._try_send({"t": "room_synced", "v": 1, "rid": rid,
+                                            "room": room, "upto": upto, "more": len(events) > len(chunk)})
+            if not delivered:
+                self._report_sync_error(room, "room_sync_failed", rid)
         return 0
 
     def _nack(self, rid, code):

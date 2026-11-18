@@ -1,4 +1,6 @@
 import { agentGroups, agentState, hasAgentRegistration } from "./agent_strip";
+import { pipelineDisplayTask } from "../app/swarm_vm";
+import { currentPipelineAttempt } from "../plan/types";
 import type { AgentInventoryRow, AgentInventoryTotals, SwarmAgentVM, SwarmViewModel } from "../app/swarm_vm";
 import type { PlanTask } from "../plan/types";
 
@@ -290,6 +292,7 @@ function renderLegacySwarmView(doc: Document, vm: SwarmViewModel, options: Swarm
 export type AgentBoardViewModel = SwarmViewModel & Readonly<{
   totals?: AgentInventoryTotals | undefined;
   sync_error?: string;
+  stale?: true;
   unassigned?: readonly PlanTask[];
 }>;
 type InventoryAgent = SwarmAgentVM & Partial<AgentInventoryRow>;
@@ -321,7 +324,7 @@ function renderTaskBubble(doc: Document, room: string, task: PlanTask): HTMLElem
   button.setAttribute("aria-label", `${task.title}, ${task.state}, ${done}/${total}${decision ? `, ${decision.verdict}` : ""}${source ? `, ${source}` : ""}`);
   button.setAttribute("aria-expanded", "false");
   button.setAttribute("aria-controls", `swarm-micros-${key}`);
-  const admitted = decision?.verdict === "ADMIT";
+  const admitted = !task.pipeline && decision?.verdict === "ADMIT";
   button.append(bubbleIndicator(doc, admitted ? "done" : task.state,
     admitted ? total || 1 : done, admitted ? total || 1 : total, true),
   element(doc, "span", "swarm-task-title", task.title));
@@ -337,13 +340,33 @@ function renderTaskBubble(doc: Document, room: string, task: PlanTask): HTMLElem
   const setOpen = (open: boolean): void => {
     children.replaceChildren();
     if (open) {
-      for (const micro of task.microtasks) {
+      for (const [index, micro] of task.microtasks.entries()) {
         const row = element(doc, "div", "swarm-microtask");
-        row.append(bubbleIndicator(doc, micro.state, micro.state === "done" ? 1 : 0, 1, false));
+        const step = task.pipeline?.steps[index];
+        const attempt = step && currentPipelineAttempt(step);
+        const fill = micro.state === "done" ? 1 : attempt?.state === "bound" ? 0.5 : 0;
+        const bubble = bubbleIndicator(doc, micro.state, fill, 1, false);
+        if (step) bubble.classList.add("swarm-bubble-pipeline");
+        row.append(bubble);
         const title = element(doc, "span", "swarm-microtask-title", micro.text);
         title.setAttribute("aria-hidden", "true");
         row.append(title, element(doc, "span", "swarm-sr-only",
           `${micro.text}, ${micro.state}, ${micro.state === "done" ? 1 : 0}/1`));
+        if (attempt) {
+          const result = attempt.terminal?.verdict;
+          const pendingDecision = attempt.terminal?.state === "finished" && attempt.state === "bound";
+          const status = pendingDecision ? ` · ${result ?? "Finished"} · Awaiting decision` : "";
+          row.append(element(doc, "span", "swarm-pipeline-run", `${attempt.result_agent} (${attempt.result_run_id})${status}`));
+        }
+        for (const previous of step?.attempts ?? []) {
+          if (previous.terminal?.state === "failed" || previous.state === "blocked") {
+            const label = [previous.terminal?.state === "failed" ? "Failed" : null, previous.decision?.verdict]
+              .filter(Boolean).join(" · ");
+            const reason = previous.decision?.reason;
+            row.append(element(doc, "span", "swarm-pipeline-attempt",
+              `${label} · ${previous.result_agent} (${previous.result_run_id})${reason ? ` · ${reason}` : ""}`));
+          }
+        }
         children.append(row);
       }
       if (total === 0) children.append(element(doc, "p", "swarm-note", "No microtasks"));
@@ -415,15 +438,27 @@ export function renderSwarmView(doc: Document, vm: SwarmViewModel): HTMLElement 
     error.setAttribute("role", "alert");
     root.append(error);
   }
+  if (snapshot.stale) root.append(element(doc, "p", "swarm-stale", "Last verified inventory (stale)"));
   const lanes = element(doc, "div", "swarm-lanes");
   lanes.setAttribute("role", "group");
   lanes.setAttribute("aria-label", "Agent lanes");
   if (snapshot.sync_error !== undefined) lanes.dataset.stale = "true";
   root.append(lanes);
-  const byAgent = new Map(vm.agents.map(agent => [agent.agent, agent as InventoryAgent]));
+  // Board snapshots can carry tasks in journal order with their ordinary claims.
+  // Use the pipeline's owner and accepted attempts for both live and stale snapshots.
+  const pipeline = new Map<string, PlanTask>();
+  for (const task of [...vm.agents.flatMap(agent => agent.tasks), ...(snapshot.unassigned ?? [])]) {
+    if (task.pipeline) pipeline.set(task.id, pipelineDisplayTask(task));
+  }
+  const agents = pipeline.size === 0 ? vm.agents : vm.agents.map(agent => ({
+    ...agent, tasks: [...agent.tasks.filter(task => !task.pipeline),
+      ...[...pipeline.values()].filter(task => task.assignee === agent.agent)]
+      .sort((a, b) => compareIds(a.id, b.id)),
+  }));
+  const byAgent = new Map(agents.map(agent => [agent.agent, agent as InventoryAgent]));
   const cards = new Map<string, HTMLElement>();
   const childLists = new Map<string, HTMLElement>();
-  const tasks = new Map(vm.agents.flatMap(agent => agent.tasks.map(task => [task.id, task] as const)));
+  const tasks = new Map(agents.flatMap(agent => agent.tasks.map(task => [task.id, task] as const)));
   let openDetail: HTMLElement | null = null;
   let detailTrigger: HTMLButtonElement | null = null;
   const closeDetail = (restore = true): void => {
@@ -438,7 +473,7 @@ export function renderSwarmView(doc: Document, vm: SwarmViewModel): HTMLElement 
     if (!root.isConnected) closeDetail(false);
     else if (event.key === "Escape" && openDetail) { event.preventDefault(); closeDetail(); }
   };
-  for (const agent of vm.agents as readonly InventoryAgent[]) {
+  for (const agent of agents as readonly InventoryAgent[]) {
     const card = renderAgent(doc, agent, vm.progress === null);
     card.classList.add("swarm-lane");
     card.id = `swarm-lane-${encodeURIComponent(JSON.stringify([vm.room, agent.agent]))}`;
@@ -502,7 +537,7 @@ export function renderSwarmView(doc: Document, vm: SwarmViewModel): HTMLElement 
     card.append(children);
     childLists.set(agent.agent, children);
   }
-  for (const agent of vm.agents as readonly InventoryAgent[]) {
+  for (const agent of agents as readonly InventoryAgent[]) {
     const card = cards.get(agent.agent)!;
     const parent = agent.parent?.agent;
     // A malformed external cycle must not delete lanes or produce a DOM cycle.
@@ -516,10 +551,11 @@ export function renderSwarmView(doc: Document, vm: SwarmViewModel): HTMLElement 
     lanes.append(element(doc, "h3", "swarm-empty-title", "No agents in this room"),
       element(doc, "p", "swarm-note", "Connect your harness and assign work"));
   }
-  if (snapshot.unassigned?.length) {
+  const unassignedTasks = snapshot.unassigned?.filter(task => !task.pipeline) ?? [];
+  if (unassignedTasks.length) {
     const unassigned = element(doc, "section", "swarm-unassigned");
     unassigned.append(element(doc, "h3", "swarm-section-title", "Unassigned work"));
-    for (const task of snapshot.unassigned) unassigned.append(renderTaskBubble(doc, vm.room, task));
+    for (const task of unassignedTasks) unassigned.append(renderTaskBubble(doc, vm.room, task));
     lanes.append(unassigned);
   }
   if (options.narrator) {

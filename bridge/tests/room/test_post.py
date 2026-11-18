@@ -241,7 +241,7 @@ class Perms(RoomCase):
 
 
 class Cap(RoomCase):
-    CAP = 8 * 1024 * 1024
+    CAP = 16 * 1024 * 1024  # A-C4m: 16 MiB cap
 
     def fill(self, target):
         """Valid events written directly until the file reaches >= target bytes."""
@@ -273,11 +273,11 @@ class Cap(RoomCase):
         self.assertGreater(ev["lamport"], 1)
 
     def test_posts_until_full_via_large_text(self):
-        # 4 KiB texts through the real API: must hit room_full before 8 MiB + one event.
+        # A-C4m: 16 MiB cap. Post 4 KiB texts through the real API until room_full.
         txt = "y" * 4096
         n = 0
         with self.assertRaises(RoomError) as c:
-            for _ in range(2200):
+            for _ in range(4400):  # A-C4m: 16 MiB cap
                 self.post(text=txt)
                 n += 1
         self.assertEqual(c.exception.code, "room_full")
@@ -286,7 +286,7 @@ class Cap(RoomCase):
         ceiling = self.CAP - store.SEMANTIC_RESERVE_BYTES
         size = events_path(self.home, "r1").stat().st_size
         self.assertLessEqual(size, ceiling)
-        self.assertGreater(n, 1800)
+        self.assertGreater(n, 3600)  # A-C4m: 16 MiB cap
         self.assertLess(ceiling - size, 8192)
 
 

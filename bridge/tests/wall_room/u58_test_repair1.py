@@ -14,7 +14,9 @@ HOME = str(S.REPO / ".unit" / "u58-in-memory-home")  # Never created or accessed
 
 
 def op_event(lamport=1, **fields):
-    payload = {"kind": "task.add", "title": "clean", "op_id": "repair_0001"}
+    # A-R52LG: Supply the required task.add fields for checked reads.
+    payload = {"kind": "task.add", "title": "clean", "op_id": "repair_0001",
+               "type": "unit", "phase": "build"}
     return S.event(lamport, act="op", op=payload, **fields)
 
 
@@ -56,7 +58,8 @@ class RepairHarness(unittest.TestCase):
             return [e for e in reversed(self.events)
                     if e["room"] == room and e["lamport"] > since], 0
 
-        patch = mock.patch.object(relay.store, "read", side_effect=read)
+        # A-R52LG: Prime, live poll and replay now consume the checked reader.
+        patch = mock.patch.object(relay.store, "read_checked", side_effect=read)
         patch.start()
         self.addCleanup(patch.stop)
         self.send = S.Frames()

@@ -54,7 +54,7 @@ def _arguments(args, required, optional):
         raise store.RoomError("bad_op", "op_id must be 8-64 chars of A-Z a-z 0-9 _ -")
     for key in ("task_id", "prefer_task"):
         if key in args and not TASK_ID_RE.fullmatch(args[key]):
-            raise store.RoomError("bad_op", "invalid " + key)
+            raise store.RoomError("bad_op", f"{key} must be T01-T40")
 
 
 def _request(tool, args):
@@ -243,13 +243,14 @@ def _completions(args):
         raise store.RoomError("bad_args", f"done must be an array of 1-{MICRO_MAX} entries")
     seen = set()
     for index, member in enumerate(done):
+        label = f"done[{index}]"
         required = {"id", "outcome", "evidence"}
-        check_arguments(member, required | {"took"}, required, label=f"done[{index}]", error=store.RoomError)
+        check_arguments(member, required | {"took"}, required, label=label, error=store.RoomError)
         for key in ("id", "outcome", "took"):
             if key in member and not isinstance(member[key], str):
-                raise store.RoomError("bad_args", key + " must be a string")
+                raise store.RoomError("bad_args", f"{label}.{key} must be a string")
         if not MICRO_ID_RE.fullmatch(member["id"]):
-            raise store.RoomError("bad_op", "invalid microtask id")
+            raise store.RoomError("bad_op", f"{label}.id must be T01-T40 followed by .M01-.M12")
         if member["id"] in seen:
             raise store.RoomError("bad_args", "done.id entries must be unique")
         seen.add(member["id"])
@@ -260,7 +261,8 @@ def _completions(args):
         evidence = member["evidence"]
         if (not isinstance(evidence, list) or len(evidence) > EVIDENCE_MAX
                 or not all(isinstance(path, str) for path in _nonblank_evidence(evidence))):
-            raise store.RoomError("bad_evidence", "evidence must be a nonempty bounded array of paths")
+            raise store.RoomError("bad_evidence",
+                                  f"{label}.evidence must be a nonempty bounded array of paths")
 
 
 def _report(args, events, identity, digest):

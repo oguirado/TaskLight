@@ -7,10 +7,11 @@ from pathlib import Path
 import resource
 import subprocess
 import time
+from unittest.mock import patch
 
 from bridge.plan.fold import fold_plan
 from bridge.room import app, store
-from .fixtures import ROOT, BASE_TS, ROOM, encoded, journal, sha, isolated, oracle, concurrency_fixture
+from .fixtures import FIXTURE_CAP_BYTES, ROOT, BASE_TS, ROOM, encoded, journal, sha, isolated, oracle, concurrency_fixture
 
 
 def rss_bytes():
@@ -100,7 +101,8 @@ def tail(fixture, variant="latest"):
 
 def cap_check(fixture, append=None):
     """An adapter swallowing room_full cannot pass this oracle."""
-    with isolated(fixture) as home:
+    # A-C4m: 16 MiB cap. The benchmark control stays at its historical boundary.
+    with isolated(fixture) as home, patch.object(store, "CAP", FIXTURE_CAP_BYTES):
         path = home / "rooms" / fixture["events"][0]["room"] / "events.jsonl"
         before = sha(path.read_bytes())
         code = None

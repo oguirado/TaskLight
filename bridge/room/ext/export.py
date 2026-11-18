@@ -14,7 +14,7 @@ from bridge.room import store
 from bridge.room.ext import register
 from bridge.wall.emit import sanitize_output
 
-_EXPORT_ALLOWED = {"room", "agent", "what"}
+_EXPORT_ALLOWED = {"room", "agent", "what", "opened_lamport"}
 _HISTORY_ALLOWED = {"room", "agent", "section", "limit"}
 _OUTPUTS = ("PLAN.md", "MEMORY.md")
 
@@ -51,41 +51,58 @@ def _legacy_result_event(event):
     return event
 
 
-def _read_events(room, *, legacy_results=False):
+def _read_snapshot(room, *, legacy_results=False):
     try:
         events, malformed = store.read(room)
-        if legacy_results and malformed:
-            # The normal reader excludes malformed records before the fold.
-            # Revalidate legacy summaries while retaining its torn-tail rule
-            # and all other event and operation validation.
-            with open(store._events_path(None, room), "rb") as stream:
-                data = stream.read()
-            events = []
-            for raw in data.split(b"\n")[:-1]:
-                try:
-                    event = _legacy_result_event(json.loads(raw.decode("utf-8")))
-                except (UnicodeError, ValueError, RecursionError):
-                    continue
-                if isinstance(event, dict) and store._is_valid_event(event):
-                    events.append(event)
+        if not (legacy_results and malformed):
+            return events, events
+        # Revalidate legacy summaries while retaining the other validation
+        # and torn-tail rules. Render all CLI outputs from the same bytes.
+        with open(store._events_path(None, room), "rb") as stream:
+            data = stream.read()
+        events, _ = store._parse_events_bytes(data)
+        compatible = []
+        for raw in data.split(b"\n")[:-1]:
+            try:
+                event = _legacy_result_event(json.loads(raw.decode("utf-8")))
+            except (UnicodeError, ValueError, RecursionError):
+                continue
+            if isinstance(event, dict) and store._is_valid_event(event):
+                compatible.append(event)
     except (FileNotFoundError, NotADirectoryError, IsADirectoryError):
-        return []
+        return [], []
     except OSError as exc:
         _fail(exc)
-    return events
+    return events, compatible
 
 
-def _integration(events):
+def _read_events(room, *, legacy_results=False):
+    return _read_snapshot(room, legacy_results=legacy_results)[1]
+
+
+def _integration(events, opened_lamport=None):
     compatible = [_legacy_result_event(event) for event in events]
     rows = []
+    deployments = {}
 
     def observe(event, state, disposition):
         if (event.get("act") != "op" or disposition is None
                 or any(disposition.get(key) for key in ("replayed", "noop", "ignored"))):
             return
         op = event["op"]
-        if (op["kind"] == "agent.lifecycle" and op["state"] in ("finished", "failed")
-                and "result" in op):
+        plan = state.get("plan")
+        opening = plan["opened_lamport"] if plan else None
+        if op["kind"] == "agent.lifecycle":
+            run = (event["agent"], op["run_id"])
+            if op["state"] == "deployed":
+                if opened_lamport is not None:
+                    deployments[run] = opening
+                return
+            if op["state"] not in ("finished", "failed") or "result" not in op:
+                return
+            if opened_lamport is not None and (opening != opened_lamport
+                                                or deployments.get(run) != opened_lamport):
+                return
             result = op["result"]
             rows.append({"kind": "Result", "lamport": event["lamport"],
                          "agent": event["agent"], "run_id": op["run_id"], "state": op["state"],
@@ -93,6 +110,8 @@ def _integration(events):
                          "summary": result.get("summary") if isinstance(result.get("summary"), str) else "",
                          "receipt": result.get("receipt", "")})
         elif op["kind"] == "unit.decision":
+            if opened_lamport is not None and opening != opened_lamport:
+                return
             task = next(task for task in state["tasks"] if task["id"] == op["task_id"])
             micro = next((m["text"] for m in task["microtasks"] if m["id"] == op.get("micro_id")), "")
             rows.append({"kind": "Decision", "lamport": event["lamport"],
@@ -131,9 +150,15 @@ def room_export(args: dict) -> dict:
     what = args["what"]
     if what not in ("plan", "memory", "integration"):
         _bad("what must be plan, memory or integration")
+    opened_lamport = args.get("opened_lamport")
+    if "opened_lamport" in args:
+        if type(opened_lamport) is not int:
+            _bad("opened_lamport must be an integer")
+        if what != "integration":
+            _bad("opened_lamport requires what=integration")
     events = _read_events(args["room"], legacy_results=what == "integration")
     if what == "integration":
-        return _integration(events)
+        return _integration(events, opened_lamport)
     projection = sanitize_output(fold_plan(events))
     if what == "plan":
         text = render_plan_md(projection)
@@ -356,17 +381,21 @@ def _stage(dir_fd, data):
     _fail(OSError(errno.EEXIST, "cannot stage"))
 
 
-def export_room(room: str, out: str) -> dict:
+def export_room(room: str, out: str, *, include_integration=False) -> dict:
     store._check_room(room)
     canonical = os.path.realpath(store._home(None))
     segments = _segments_for_out(out, canonical)
-    events = _read_events(room)
-    # Sanitize the complete snapshot before rendering or staging either file.
+    events, integration_events = _read_snapshot(room, legacy_results=include_integration)
+    # Sanitize the complete snapshot before rendering or staging outputs.
     projection = sanitize_output(fold_plan(events))
     texts = {
         "PLAN.md": render_plan_md(projection).encode("utf-8"),
         "MEMORY.md": render_memory_md(projection).encode("utf-8"),
     }
+    outputs = _OUTPUTS
+    if include_integration:
+        texts["INTEGRATION.md"] = _integration(integration_events)["text"].encode("utf-8")
+        outputs += ("INTEGRATION.md",)
     fds = []
     staged = {}
     close_error = None
@@ -393,14 +422,14 @@ def export_room(room: str, out: str) -> dict:
             fds.append(current)
         target_fd = current
         old = {}
-        for name in _OUTPUTS:
+        for name in outputs:
             _stat_output(name, target_fd)
             old[name] = _read_output(name, target_fd)
-        for name in _OUTPUTS:
+        for name in outputs:
             staged[name] = _stage(target_fd, texts[name])
         replaced = []
         try:
-            for name in _OUTPUTS:
+            for name in outputs:
                 try:
                     os.replace(staged[name], name, src_dir_fd=target_fd, dst_dir_fd=target_fd)
                 except OSError as exc:
@@ -448,7 +477,8 @@ register({
     "inputSchema": {
         "type": "object", "additionalProperties": False,
         "properties": {"room": {"type": "string"}, "agent": {"type": "string"},
-                       "what": {"type": "string", "enum": ["plan", "memory", "integration"]}},
+                       "what": {"type": "string", "enum": ["plan", "memory", "integration"]},
+                       "opened_lamport": {"type": "integer"}},
         "required": ["room", "agent", "what"],
     },
 }, room_export)

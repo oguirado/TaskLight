@@ -220,13 +220,19 @@ class SanitizeOracle(unittest.TestCase):
 
 
 class FrameOracle(unittest.TestCase):
+    def plan_open(self, op_id):
+        # A-C5b: supply a complete operation to the checked reader fixture.
+        return event(op_id=op_id, title="Oracle plan", template_id="web-app",
+                     template_hash=web_template()["hash"])
+
     def frames(self, source, replay):
         frames = S.Frames()
         config = relay.load_room_config(S.rcfg_dict(rooms=(("demo", "private"),)))
         instance = relay.RoomRelay(config, frames, clock=S.Clock())
         def read(room, since=0, *, home=None):
             return ([copy.deepcopy(source)] if since < source["lamport"] else []), 0
-        with mock.patch.object(store, "read", side_effect=read):
+        # A-C5b: fixture uses read_checked
+        with mock.patch.object(store, "read_checked", side_effect=read):
             if replay:
                 instance.handle({"t": "room_sync", "v": 1, "rid": "u66", "since": {"demo": 0}})
             else:
@@ -237,7 +243,7 @@ class FrameOracle(unittest.TestCase):
         return actual[0]
 
     def check_batch(self, replay):
-        source = event(op_id="agent-op-0001")
+        source = self.plan_open("agent-op-0001")
         source["batch"] = {"key_map": {S.FAKE_SECRET: "T01"},
                            "conformance": {"findings": [{"message": S.FAKE_SECRET}]}}
         before = copy.deepcopy(source)
@@ -261,7 +267,8 @@ class FrameOracle(unittest.TestCase):
         pairs = []
         for batch in (None, S.FAKE_SECRET, [], {"key_map": {}}):
             for replay in (False, True):
-                source = S.event(1, act="status", batch=batch)
+                # A-C5b: use a journal-valid non-op with the same legacy batch.
+                source = S.event(1, act="heartbeat", batch=batch)
                 frame = self.frames(source, replay)
                 expected = dict(source)
                 del expected["batch"]
@@ -271,7 +278,7 @@ class FrameOracle(unittest.TestCase):
 
     def test_a3_surrogate_is_valid_in_live_and_replay_frames(self):
         expected = "h-" + hashlib.sha256(HEX_ID.encode("utf-8")).hexdigest()[:32]
-        frames = [self.frames(event(op_id=HEX_ID), replay) for replay in (False, True)]
+        frames = [self.frames(self.plan_open(HEX_ID), replay) for replay in (False, True)]
         self.assertEqual([frame["event"]["op"]["op_id"] for frame in frames], [expected] * 2)
         self.assertNotIn(HEX_ID, repr(frames))
 

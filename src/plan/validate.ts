@@ -373,7 +373,7 @@ export function validateTemplate(raw: unknown):
 const OP_KINDS: ReadonlySet<string> = new Set([
   "plan.open", "plan.close", "plan.phase",
   "task.add", "task.set", "task.claim", "task.release",
-  "micro.add", "micro.set", "memory.set", "activity.beat", "agent.lifecycle", "unit.decision",
+  "micro.add", "micro.set", "memory.set", "activity.beat", "agent.lifecycle", "unit.decision", "unit.bind", "unit.repair",
 ]);
 
 function strLenCheck(v: unknown, lo: number, hi: number): PlanOpErrorCode | null {
@@ -422,6 +422,11 @@ function validAgentResult(value: unknown): boolean {
     && fullMatch(/^[0-9a-fA-F]{64}$/, item["sha256"]));
 }
 
+// A committed pipeline op can carry named references masked by the relay.
+export function isMaskedPipelineReference(value: unknown): boolean {
+  return fullMatch(/^[A-Za-z0-9._-]*(?:\[REDACTED:HIGH_ENTROPY\][A-Za-z0-9._-]*)+$/, value);
+}
+
 export function validateOpShapeCode(op: Record<string, unknown>): PlanOpErrorCode | null {
   try {
     if (!isPlainObject(op)) return "bad_op";
@@ -467,8 +472,24 @@ export function validateOpShapeCode(op: Record<string, unknown>): PlanOpErrorCod
       }
       return null;
     }
+    if (kind === "unit.bind" || kind === "unit.repair") {
+      const fields = kind === "unit.bind"
+        ? ["micro_id", "result_agent", "result_run_id", "registration_lamport"] : ["reason"];
+      const e = unknown(new Set(["kind", "op_id", "task_id", "expected_opened_lamport", ...fields]));
+      if (e) return e;
+      if (!fullMatch(OP_ID_RE, op["op_id"]) || !fullMatch(TASK_ID_RE, op["task_id"])
+        || baseRevCheck(op["expected_opened_lamport"], 1)) return "bad_op";
+      if (kind === "unit.repair") return strLenCheck(op["reason"], 1, PLAN_LIMITS.DECISION_REASON_MAX);
+      const anchored = hasOwn(op, "registration_lamport");
+      if (anchored && baseRevCheck(op["registration_lamport"], 1)) return "bad_op";
+      const validAgent = fullMatch(AGENT_RE, op["result_agent"]) || anchored && isMaskedPipelineReference(op["result_agent"]);
+      const validRun = fullMatch(/^[A-Za-z0-9_-]{1,64}$/, op["result_run_id"])
+        || anchored && isMaskedPipelineReference(op["result_run_id"]);
+      return fullMatch(MICRO_ID_RE, op["micro_id"]) && validAgent && validRun ? null : "bad_op";
+    }
     if (kind === "unit.decision") {
-      const e = unknown(new Set(["kind", "op_id", "task_id", "micro_id", "verdict", "reason", "evidence", "agent", "run_id", "result_agent", "result_run_id"]));
+      const e = unknown(new Set(["kind", "op_id", "task_id", "micro_id", "verdict", "reason", "evidence",
+        "agent", "run_id", "result_agent", "result_run_id", "binding_lamport"]));
       if (e) return e;
       if (!fullMatch(OP_ID_RE, op["op_id"]) || !fullMatch(TASK_ID_RE, op["task_id"])) return "bad_op";
       if (hasOwn(op, "micro_id") && !fullMatch(MICRO_ID_RE, op["micro_id"])) return "bad_op";
@@ -476,10 +497,15 @@ export function validateOpShapeCode(op: Record<string, unknown>): PlanOpErrorCod
       const reason = strLenCheck(op["reason"], 1, PLAN_LIMITS.DECISION_REASON_MAX); if (reason) return reason;
       if ((hasOwn(op, "agent") || hasOwn(op, "run_id"))
         && (hasOwn(op, "result_agent") || hasOwn(op, "result_run_id"))) return "bad_op";
+      const anchored = hasOwn(op, "binding_lamport");
+      if (anchored && (baseRevCheck(op["binding_lamport"], 1)
+        || !hasOwn(op, "micro_id") || !hasOwn(op, "result_agent") || !hasOwn(op, "result_run_id"))) return "bad_op";
       for (const [agentKey, runKey] of [["agent", "run_id"], ["result_agent", "result_run_id"]] as const) {
         if (hasOwn(op, agentKey) !== hasOwn(op, runKey)) return "bad_op";
-        if (hasOwn(op, agentKey) && (!fullMatch(AGENT_RE, op[agentKey])
-          || !fullMatch(/^[A-Za-z0-9_-]{1,64}$/, op[runKey]))) return "bad_op";
+        if (!hasOwn(op, agentKey)) continue;
+        const mayBeMasked = anchored && agentKey === "result_agent";
+        if (!fullMatch(AGENT_RE, op[agentKey]) && !(mayBeMasked && isMaskedPipelineReference(op[agentKey]))) return "bad_op";
+        if (!fullMatch(/^[A-Za-z0-9_-]{1,64}$/, op[runKey]) && !(mayBeMasked && isMaskedPipelineReference(op[runKey]))) return "bad_op";
       }
       if (hasOwn(op, "evidence")) {
         const evidence = op["evidence"];

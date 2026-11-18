@@ -4,7 +4,7 @@ import hashlib, json, os, pathlib, stat, subprocess, sys, unittest
 from .support import (RUNNER, REPO, McpCase, RoomCase, canon, clean_env, events_path, mk_event,
                       room_dir, run_cli, seed)
 
-CAP = 8 * 1024 * 1024
+CAP = 16 * 1024 * 1024  # A-C4m: 16 MiB cap
 
 
 def _store():

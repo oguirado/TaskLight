@@ -2,7 +2,8 @@
 import unittest
 
 from . import support as S
-from .u58_test_op_redact import RelayHarness, op_event, POISON, EXPAND, residue, expanding
+# A-R52LG: Share the checked-reader-compatible expansion fixture.
+from .u58_test_op_redact import RelayHarness, op_event, POISON, residue, expanding, expanding_event
 
 
 class Paging(RelayHarness):
@@ -62,9 +63,10 @@ class Paging(RelayHarness):
     def test_o9_mixed_room_residue_and_oversize_at_boundary(self):
         self.events[:] = [op_event(i) if i % 2 else S.event(i, act='heartbeat')
                          for i in range(1, 601)]
+        # A-R52LG: Checked reads accept the boundary rows with microtask text.
         self.events[499] = op_event(500)
-        self.events[499]['op']['brief'] = {'nested': POISON}
-        self.events[500]['op']['brief'] = EXPAND * 80
+        self.events[499]['op']['microtasks'] = [{'text': POISON}]
+        self.events[500] = expanding_event(501)
         def redactor(text, _disable=frozenset()):
             if POISON in text or 'U58_RESIDUE' in text:
                 return residue(text)
@@ -82,8 +84,9 @@ class Paging(RelayHarness):
 
     def test_o10_first_page_all_dropped_still_advances(self):
         self.events[:] = [op_event(i) for i in range(1, 551)]
+        # A-R52LG: Place the residue marker in a valid operation field.
         for event in self.events[:500]:
-            event['op']['brief'] = [POISON]
+            event['op']['microtasks'] = [{'text': POISON}]
         with S.patched_redact(residue):
             first, s1 = self.page(0)
             second, s2 = self.page(s1['upto'])
@@ -108,7 +111,10 @@ class Paging(RelayHarness):
         with S.patched_redact(S.identity_redact):
             self.assertEqual(self.r._handle_sync(
                 {'t': 'room_sync', 'v': 1, 'rid': 'u58', 'since': {'demo': 0}}), 0)
-            self.assertEqual(len(calls), 10)
+            # A-C5b-O11: SPEC_C5b M2 sends one room_sync_error after a relay-side failure.
+            self.assertEqual(len(calls), 11)
+            self.assertEqual({k: calls[-1].get(k) for k in ('t', 'room', 'code')},
+                             {'t': 'room_sync_error', 'room': 'demo', 'code': 'room_sync_failed'})
             self.assertEqual(len(self.send.of('room_event')), 9)
             self.assertEqual(self.send.of('room_synced'), [])
             self.assertEqual(self.r.stats()['events_sent'], 9)

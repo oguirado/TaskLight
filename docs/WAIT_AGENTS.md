@@ -6,7 +6,14 @@ created. The caller owns the Lamport `cursor` and persists it across restarts.
 
 ## Launch and wait
 
-Launch each lane with a unique run identity and the orchestrator as its parent:
+Capture the room's head Lamport cursor **before launching any children** so a
+fast exit cannot fall at or before the starting cursor. If you have no
+pre-launch cursor, start with `since_lamport: 0` and an `agents` filter for
+the children, then match results by their expected `run_id`.
+
+Launch each lane with a unique `run_id` and the orchestrator as its parent.
+For each retry, use a new `run_id` and update the expected run before launch.
+Use [a wave manifest](WAVES.md) to launch several lanes together.
 
 ```sh
 tasklight run --room demo --agent lane-a --run-id lane-a-run \
@@ -14,17 +21,17 @@ tasklight run --room demo --agent lane-a --run-id lane-a-run \
   -- <agent-command> <agent-arguments>
 ```
 
-The child writes its result JSON before exiting. The supervisor reads the file
-after exit and attaches a valid result to `finished` or `failed`. Result files
+Have the child publish its result JSON by atomically replacing the result
+file. The supervisor reads it immediately after exit and retries for up to
+2 seconds [TARGET] if the file is missing or invalid. The first valid result
+is attached to `finished` or `failed`. Result files
 may contain at most 65,536 bytes, including JSON whitespace; the reader checks
 one extra byte to detect overflow before decoding UTF-8 or parsing JSON.
-Only regular files are accepted; FIFOs and other non-regular files are
-rejected without waiting for a writer. A missing, invalid, non-regular, or
-oversized file produces one stderr diagnostic; it does
-not prevent the terminal event or change the child's exit code. Without
-`--result-file`, behavior is
-unchanged. Child output, command arguments, and environment stay outside the
-journal.
+Only regular files are accepted. FIFOs are rejected without waiting for a
+writer. If the grace period expires without a valid result, the supervisor
+reports one diagnostic on stderr and emits the terminal event with the
+observed outcome. Child output, command arguments, and environment stay
+outside the journal.
 
 Use the same tool through MCP or the CLI:
 
@@ -34,16 +41,15 @@ tasklight call wait_agents --json '{"room":"demo","parent":"leader","since_lampo
 
 The CLI accepts the cursor as `since_lamport` in JSON, rather than a `--since`
 flag. Both transports return the same payload, inside the existing `untrusted`
-envelope. This Python example uses the shared application dispatcher; capture
-an initial cursor before launching the children, then loop until every expected
-run has ended:
+envelope. This Python example uses the shared application dispatcher to launch
+the children and wait until every expected run has ended.
 
 ```python
 import subprocess
 from bridge.room.app import dispatch
 
 room, parent, parent_run = "demo", "leader", "leader-run"
-cursor = dispatch("orchestrator_snapshot", {"room": room})["untrusted"]["cursor"]
+cursor = dispatch("orchestrator_snapshot", {"room": room})["untrusted"]["head_lamport"]
 remaining = {"lane-a": "lane-a-run", "lane-b": "lane-b-run"}
 for agent, run_id in remaining.items():
     subprocess.Popen([
@@ -77,6 +83,9 @@ empty `agents` or `states` arrays are rejected immediately with `bad_args` on
 both MCP and CLI. Omit the filter to use its default. `states` defaults to
 `["finished", "failed"]`; explicit states may also include `deployed` and `alive`.
 `since_lamport` defaults to zero and is an exclusive nonnegative safe integer.
+A cursor ahead of the room head returns `bad_args` immediately with detail
+`since_lamport is ahead of the room head (<head>)`. A cursor equal to the
+head waits for a later matching event.
 `timeout_s` defaults to 60 seconds, with an inclusive range of 1 through 600.
 
 A match returns `{events: [{agent, run_id, state, parent, lamport, result?}],
@@ -84,8 +93,12 @@ cursor}`. Every matching event after the supplied cursor is returned in Lamport
 order, including earlier runs. There is no first-event or batch-size truncation.
 The parent link is `{agent, run_id}` or null and includes metadata inherited
 from deployment. The cursor covers the journal snapshot inspected by that call,
-including nonmatching events. Journal read errors fail rather than appearing as
-a healthy empty room.
+including nonmatching events. A room that has never been created can time out
+with no events and cursor zero. For an existing room, a missing journal, a
+journal path that is not a regular file, an unreadable journal, or a malformed
+or foreign committed record returns `room_read_failed` with the fixed detail
+`Room data could not be read.`
+The waiter checks committed records before applying the cursor or filters.
 
 ## Journal replay cost
 

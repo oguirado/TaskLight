@@ -7,7 +7,7 @@ from bridge.tests.room.u121.support import BEAT, RESERVE, RoomCase, memory
 
 class ReserveTests(RoomCase):
     def test_m4_constants(self):
-        self.assertEqual(store.CAP, 8 * 1024 * 1024)
+        self.assertEqual(store.CAP, 16 * 1024 * 1024)  # A-C4m: 16 MiB cap
         self.assertEqual(getattr(store, "SEMANTIC_RESERVE_BYTES", None), RESERVE)
 
     def candidate(self, kind, text="é progress"):

@@ -1,0 +1,17 @@
+# C4m acceptance oracles
+
+Numbers identify the acceptance rows in their order in the unit spec.
+
+| Case | Tests | Rejecting contrast |
+|---|---|---|
+| 1. Legacy room at the old ceiling (M2, M3) | `test_legacy_room_heartbeat_and_terminal_result_survive_restart` | An append under the old ceiling fails. Replacing history, event identity or the lock fails the prefix, restart or clock assertions. |
+| 2. Exact fit, overflow, UTF-8, separator and contention (M1, M2) | `test_semantic_batch_exact_and_overflow_include_utf8_and_torn_separator`, `test_heartbeat_exact_and_overflow_preserve_the_semantic_reserve`, `test_activity_only_batch_exact_and_overflow_reserve_the_whole_transaction`, `test_mixed_batch_exact_and_overflow_reserve_the_whole_transaction`, `test_lifecycle_alive_exact_and_overflow_cannot_spend_the_reserve`, `test_guarded_task_claim_exact_and_overflow_share_the_room_limit`, `test_two_real_writers_race_for_the_final_transaction`, `test_writers_hold_room_lock_through_fsync_and_keep_io_error_envelope` | Counting characters, omitting the separator, admitting any part of a refused batch, spending the reserve on noise, allowing both contenders to win, or acknowledging before sync fails. |
+| 3. Restart retries at capacity (M3, M4) | `test_at_capacity_retries_return_original_receipts_and_conflicts_stay_bad_op` | Checking capacity before replay, reopening deleted evidence, rehashing changed evidence, recomputing a historical reply from current state, changing receipt metadata, or accepting conflicting content fails. |
+| 4. Consumers and replay (M4) | `test_wait_inventory_linked_decision_export_and_plan_share_cross_boundary_history`, `test_checked_read_and_required_template_errors_survive_larger_journals`, and the [browser replay tests](../../../../tests/unit/c4m/ORACLE.md) | Consuming the old wait cursor, mixing worker runs, losing decision links, masking checked-read failures, dropping the pre-boundary history, or certifying incomplete replay fails. |
+| 5. Independent limits and regressions (M1, surface) | `test_family_spool_receipt_read_bound_remains_32_mib`, `test_family_retained_identity_read_bound_remains_32_mib`, `test_message_evidence_limit_is_still_eight_mib`, `test_benchmark_fixture_hashes_and_refusal_control_are_frozen`, `test_headless_documents_the_new_journal_ceiling`. Existing regression suites are under `bridge/tests/room`, `bridge/tests/plan`, `bridge/tests/wall`, `bridge/tests/family`, `bridge/tests/bench` and `tests/unit`. | Raising independent bounds, changing the frozen benchmark fixtures, allowing the benchmark refusal control to accept, or publishing the old journal ceiling fails. |
+
+Exact-fit cases measure the existing writer's UTF-8 payload on a small copy of the same journal state, then add the required separator and position the file at the stated limit. Overflow and conflicting-identity checks compare the bytes and the observed head. The race accepts either winner.
+
+The family fixtures place the JSON terminator beyond the existing lookahead so the test measures the read bound without prescribing how incomplete input is detected. The restart fixture uses a deleted legacy evidence file and a changed typed evidence file to exercise the respective admitted retry paths.
+
+C4 segmentation, rotation, checkpoints, migration and stronger recovery guarantees are out of scope. The C5 read changes, C6 waiter changes and C7 workflow changes appear only as compatibility contracts. Throughput, rollout timing and behavior of mixed-version writer fleets are outside the oracle.

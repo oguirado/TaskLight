@@ -1,10 +1,12 @@
 import type {
   PlanningTemplate, PlanProjection, PlanTask, TaskStatus, PlanConformance,
-  PlanApplyResult, PlanFoldResult, PlanOpEvent, PlanOpErrorCode, PlanMicrotask,
-  AgentLifecycle, AgentLifecycleRecord, UnitDecision,
+  PlanApplyResult, PlanFoldResult, PlanOpEvent, PlanOpErrorCode, PlanOpRejectionCode, PlanMicrotask,
+  AgentLifecycle, AgentLifecycleRecord, AgentResult, UnitDecision, PipelineAttempt, PipelineStep,
+  UnitBindOp,
 } from "./types";
 import { PLAN_LIMITS, AGENT_RE } from "./limits";
-import { opEventErrorCode, isPlainObjectExport, isJsonSafe, collectionHasDangerous, safeField, hasDangerousOwnKey } from "./validate";
+import { currentPipelineAttempt, PIPELINE_HASH, PIPELINE_REPAIR_FROM, PIPELINE_STEPS, PIPELINE_TEMPLATE } from "./types";
+import { opEventErrorCode, isPlainObjectExport, isJsonSafe, collectionHasDangerous, safeField, hasDangerousOwnKey, isMaskedPipelineReference } from "./validate";
 
 const SILENT_AFTER_MS = PLAN_LIMITS.SILENT_AFTER_MS;
 const TS_MAX_ABS = 8.64e15;
@@ -14,6 +16,7 @@ const ACTIVITY_RETIRED = "activity.retired";
 const ACTIVITY_RETIRED_MAX = 256;
 const ACTIVITY_SEALED = "*"; // Cannot be a valid run_id.
 type RetiredRuns = Record<string, string[]>;
+const EXACT_REPLAY = new Set(["agent.lifecycle", "unit.decision", "unit.bind", "unit.repair"]);
 
 function isSafeInt(v: unknown): v is number {
   return typeof v === "number" && Number.isSafeInteger(v);
@@ -439,6 +442,70 @@ function projectionRollback(proj: PlanProjection, replayKey: string | undefined)
   };
 }
 
+function pipelineTemplateMatches(template: PlanningTemplate | undefined, hash: string): boolean {
+  if (template === undefined) return hash === PIPELINE_HASH;
+  const [type] = template.task_types;
+  return template.hash === hash && template.task_types.length === 1
+    && type?.id === "unit" && sameJson(type.micro_hints, PIPELINE_STEPS);
+}
+
+function precedingAccepted(steps: readonly PipelineStep[], index: number): boolean {
+  return steps.slice(0, index).every(step => currentPipelineAttempt(step)?.state === "accepted");
+}
+
+function withAttempt(step: PipelineStep, attempt: PipelineAttempt): PipelineStep {
+  return { ...step, attempts: [...step.attempts.slice(0, -1), attempt] };
+}
+
+function replaceTask(projection: PlanProjection, task: PlanTask): void {
+  projection.tasks = projection.tasks.map(current => current.id === task.id ? task : current);
+}
+
+function pipelineStepUpdate(
+  projection: PlanProjection, task: PlanTask, index: number, step: PipelineStep,
+  state?: PlanMicrotask["state"], revision?: number, reset = false,
+): PlanTask {
+  const pipeline = task.pipeline!;
+  const steps = pipeline.steps.map((current, i) => i === index ? step : current);
+  const updated = { ...task, pipeline: { ...pipeline, steps } };
+  if (state !== undefined && revision !== undefined) {
+    updated.rev = revision;
+    updated.microtasks = task.microtasks.map((micro, i) => {
+      if (index !== i) return micro;
+      const next = { ...micro, state, rev: revision };
+      retireLive(projection, next);
+      if (reset) {
+        next.outcome = null;
+        next.took = null;
+        next.evidence = [];
+      }
+      return next;
+    });
+  }
+  return updated;
+}
+
+function notePipelineTerminal(
+  projection: PlanProjection, agent: string, run: string, state: "finished" | "failed",
+  verdict: AgentResult["verdict"] | null, lamport: number,
+): void {
+  for (const task of projection.tasks) {
+    const steps = task.pipeline?.steps ?? [];
+    for (const [index, step] of steps.entries()) {
+      const previous = step.attempts.find(attempt => attempt.result_agent === agent && attempt.result_run_id === run);
+      if (!previous) continue;
+      const attempt = { ...previous, terminal: { lamport, state, verdict } };
+      if (state === "failed") attempt.state = "failed";
+      const updated = { ...step, attempts: step.attempts.map(row => row === previous ? attempt : row) };
+      const blocked = state === "failed" && attempt.lamport === step.binding;
+      replaceTask(projection, pipelineStepUpdate(projection, task, index, updated,
+        blocked ? "blocked" : undefined, lamport));
+      if (blocked) recompute(projection);
+      return;
+    }
+  }
+}
+
 function applyOpInternal(
   proj: PlanProjection,
   ev: unknown,
@@ -500,8 +567,7 @@ function applyOpInternal(
   const replayKey = opId === undefined ? undefined : JSON.stringify([agent, opId]);
   if (replayKey !== undefined && Object.prototype.hasOwnProperty.call(base.replayed_ops, replayKey)) {
     const cached = base.replayed_ops[replayKey] as Record<string, unknown>;
-    if (kind === "agent.lifecycle" || kind === "unit.decision"
-      || ["agent.lifecycle", "unit.decision"].includes(safeField(cached, "kind").value as string)) {
+    if (EXACT_REPLAY.has(kind) || EXACT_REPLAY.has(safeField(cached, "kind").value as string)) {
       const stored = safeField(cached, "op").value;
       if (!stored || !sameJson(stored, op)) {
         return { ok: false, code: "bad_op", detail: "op_id conflict", projection: base };
@@ -511,7 +577,7 @@ function applyOpInternal(
   }
 
   let rollback: (() => void) | undefined;
-  const fail = (c: PlanOpErrorCode, detail: string = c): PlanApplyResult => {
+  const fail = (c: PlanOpRejectionCode, detail: string = c): PlanApplyResult => {
     rollback?.();
     return { ok: false, code: c, detail, projection: base };
   };
@@ -526,7 +592,7 @@ function applyOpInternal(
       let parent = op["parent_agent"] as string | undefined;
       const visited = new Set([agent]);
       while (parent !== undefined) {
-        if (visited.has(parent)) return fail("bad_op", "lifecycle parent cycle");
+        if (visited.has(parent)) return fail("bad_args", "lifecycle parent cycle");
         visited.add(parent);
         parent = Object.prototype.hasOwnProperty.call(records, parent) ? records[parent]?.parent_agent : undefined;
       }
@@ -575,6 +641,10 @@ function applyOpInternal(
         value: { ...base.agent_lifecycle, [agent]: next },
         enumerable: true, configurable: true, writable: true,
       });
+      if (lifecycle === "finished" || lifecycle === "failed") {
+        notePipelineTerminal(base, agent, runId, lifecycle,
+          (op["result"] as AgentResult | undefined)?.verdict ?? null, lamport);
+      }
       if (replayKey !== undefined) {
         (base.replayed_ops as Record<string, unknown>)[replayKey] = { kind, op_id: opId, lamport, op: cloneDeep(op) };
       }
@@ -607,6 +677,12 @@ function applyOpInternal(
       } else {
         // No template: phase if present else ""
         tplPhaseDefault = "";
+      }
+      if (op["template_id"] === PIPELINE_TEMPLATE) {
+        if (!pipelineTemplateMatches(template, op["template_hash"] as string)) {
+          return fail("bad_op", "unit pipeline template identity is unavailable or invalid");
+        }
+        if (template === undefined) tplPhaseDefault = "plan";
       }
       const newPlan: Record<string, unknown> = {
         id: "p1",
@@ -704,6 +780,66 @@ function applyOpInternal(
       if (opId !== undefined) (base.replayed_ops as Record<string, unknown>)[JSON.stringify([agent, opId])] = { kind, op_id: opId };
       return { ok: true, projection: base, replayed: false };
     }
+    if (kind === "unit.bind" || kind === "unit.repair") {
+      if (op["expected_opened_lamport"] !== plan["opened_lamport"]) return fail("stale_rev");
+      const task = base.tasks.find(task => task.id === op["task_id"]);
+      const pipeline = task?.pipeline;
+      if (!task || !pipeline) return fail("bad_op", "task_id must identify a pipeline unit");
+      if (pipeline.orchestrator !== agent) return fail("claimed_by_other", "only the unit orchestrator may direct the pipeline");
+      if (task.explicit_state === "cancelled") return fail("not_conformant", "pipeline unit is cancelled");
+      let updated = task;
+      const receipt: Record<string, unknown> = { kind, op_id: opId, lamport, op: cloneDeep(op) };
+      if (kind === "unit.repair") {
+        if (!pipeline.steps[PIPELINE_REPAIR_FROM]?.attempts.length) {
+          return fail("not_conformant", "unit_repair requires an author binding");
+        }
+        for (let index = PIPELINE_REPAIR_FROM; index < pipeline.steps.length; index++) {
+          const step = pipeline.steps[index]!;
+          updated = pipelineStepUpdate(base, updated, index, { ...step, binding: null }, "pending", lamport, true);
+        }
+      } else {
+        const bind = op as unknown as UnitBindOp;
+        const index = pipeline.steps.findIndex(step => step.micro_id === bind.micro_id);
+        const step = pipeline.steps[index];
+        if (!step) return fail("bad_op", "micro_id must identify a pipeline step of task_id");
+        if (!precedingAccepted(pipeline.steps, index)) {
+          return fail("not_conformant", "every preceding pipeline step must be accepted");
+        }
+        const current = currentPipelineAttempt(step);
+        if (current && current.state !== "failed" && current.state !== "blocked") {
+          return fail("not_conformant", "current binding must fail or receive HOLD or REJECT");
+        }
+        let worker = bind.result_agent;
+        if (isMaskedPipelineReference(worker)) {
+          const matches = Object.entries(records).filter(([, run]) => run.lamport === bind.registration_lamport);
+          if (matches.length !== 1) return fail("not_conformant", "binding registration is unavailable");
+          worker = matches[0]![0];
+        }
+        const run = Object.prototype.hasOwnProperty.call(records, worker) ? records[worker] : undefined;
+        const runId = isMaskedPipelineReference(bind.result_run_id) ? run?.run_id : bind.result_run_id;
+        if (!run || runId === undefined || run.run_id !== runId
+          || (run.lifecycle !== "deployed" && run.lifecycle !== "alive")
+          || typeof run.lamport !== "number" || run.lamport >= lamport
+          || bind.registration_lamport !== undefined && run.lamport !== bind.registration_lamport) {
+          return fail("not_conformant", "binding requires a registered nonterminal run in this room");
+        }
+        for (const value of Object.values(base.replayed_ops)) {
+          const previous = value as Partial<PipelineAttempt> & { kind?: string } | null;
+          if (previous?.kind === "unit.bind" && previous.result_agent === worker && previous.result_run_id === runId) {
+            return fail("not_conformant", "run was already bound");
+          }
+        }
+        receipt["result_agent"] = worker;
+        receipt["result_run_id"] = runId;
+        const attempt: PipelineAttempt = { lamport, result_agent: worker, result_run_id: runId, state: "bound" };
+        updated = pipelineStepUpdate(base, task, index,
+          { ...step, binding: lamport, attempts: [...step.attempts, attempt] }, "active", lamport, true);
+      }
+      replaceTask(base, updated);
+      recompute(base);
+      if (replayKey !== undefined) (base.replayed_ops as Record<string, unknown>)[replayKey] = receipt;
+      return { ok: true, projection: base, replayed: false };
+    }
     if (kind === "unit.decision") {
       const task = base.tasks.find(task => task.id === op["task_id"]);
       if (!task) return fail("bad_op", "unknown decision task");
@@ -711,21 +847,64 @@ function applyOpInternal(
         && !task.microtasks.some(micro => micro.id === op["micro_id"])) return fail("bad_op", "unknown decision microtask");
       const resultAgent = op["result_agent"] ?? op["agent"];
       const resultRunId = op["result_run_id"] ?? op["run_id"];
-      if (resultAgent !== undefined) {
-        const found = Object.entries(base.replayed_ops).some(([key, value]) => {
-          const receipt = value as Record<string, unknown>;
-          if (receipt["kind"] !== "agent.lifecycle" || receipt["noop"]) return false;
-          const source = receipt["op"] as Record<string, unknown> | undefined;
-          return source !== undefined && source["run_id"] === resultRunId
-            && (source["state"] === "finished" || source["state"] === "failed")
-            && Object.prototype.hasOwnProperty.call(source, "result") && JSON.parse(key)[0] === resultAgent;
-        });
-        if (!found) return fail("bad_op", "unknown result reference");
-      }
       const decision = { ...cloneDeep(op), lamport } as unknown as UnitDecision;
-      // Replace nested containers so prior projections and rollback stay intact.
-      const updated = { ...task, decisions: [...(task.decisions ?? []), decision].slice(-PLAN_LIMITS.DECISION_HISTORY_MAX), last_decision: decision };
-      base.tasks = base.tasks.map(task => task.id === updated.id ? updated : task);
+      let decidedTask = task;
+      if (decision.binding_lamport !== undefined && !task.pipeline) return fail("bad_op", "binding_lamport requires a pipeline step");
+      if (task.pipeline && decision.micro_id !== undefined) {
+        const { orchestrator, steps } = task.pipeline;
+        if (orchestrator !== agent) return fail("claimed_by_other", "only the unit orchestrator may direct the pipeline");
+        if (task.explicit_state === "cancelled") return fail("not_conformant", "pipeline unit is cancelled");
+        const index = steps.findIndex(step => step.micro_id === decision.micro_id);
+        const step = steps[index];
+        if (!step) return fail("bad_op", "micro_id must identify a pipeline step of task_id");
+        const attempt = currentPipelineAttempt(step);
+        const anchored = decision.binding_lamport !== undefined;
+        if (!attempt || anchored && attempt.lamport !== decision.binding_lamport
+          || attempt.result_agent !== decision.result_agent && !(anchored && isMaskedPipelineReference(decision.result_agent))
+          || attempt.result_run_id !== decision.result_run_id && !(anchored && isMaskedPipelineReference(decision.result_run_id))) {
+          return fail("bad_op", "result reference must match the step's current binding");
+        }
+        decision.result_agent = attempt.result_agent;
+        decision.result_run_id = attempt.result_run_id;
+        if (attempt.decision) return fail("not_conformant", "current binding already has a decision");
+        const terminal = attempt.terminal;
+        if (!terminal || terminal.lamport <= attempt.lamport || terminal.lamport >= lamport) {
+          return fail("bad_op", "current binding requires a terminal run result");
+        }
+        const admitted = decision.verdict === "ADMIT";
+        if (admitted) {
+          if (!precedingAccepted(steps, index)) return fail("not_conformant", "every preceding pipeline step must be accepted");
+          if (terminal.verdict === null) return fail("bad_op", "ADMIT needs a recorded result");
+          if (terminal.state !== "finished" || (terminal.verdict !== "ADMIT" && terminal.verdict !== "OK")) {
+            return fail("not_conformant", "ADMIT requires a finished run with verdict ADMIT or OK");
+          }
+        }
+        decidedTask = pipelineStepUpdate(base, task, index, withAttempt(step,
+          { ...attempt, state: admitted ? "accepted" : "blocked", decision }), admitted ? "done" : "blocked", lamport);
+      } else if (resultAgent !== undefined) {
+        // Accepted terminal ops stay in replay history after redeployment.
+        let terminal: Record<string, unknown> | undefined;
+        for (const [key, value] of Object.entries(base.replayed_ops)) {
+          if (!value || typeof value !== "object") continue;
+          const receipt = value as Record<string, unknown>;
+          if (receipt["kind"] !== "agent.lifecycle" || receipt["noop"]) continue;
+          const source = receipt["op"] as Record<string, unknown> | undefined;
+          if (source !== undefined && source["run_id"] === resultRunId
+            && (source["state"] === "finished" || source["state"] === "failed")
+            && JSON.parse(key)[0] === resultAgent) {
+            terminal = source;
+            break;
+          }
+        }
+        if (terminal === undefined) return fail("bad_op", "unknown result reference");
+        if (!Object.prototype.hasOwnProperty.call(terminal, "result")) {
+          if (op["result_agent"] === undefined) return fail("bad_op", "unknown result reference");
+          if (op["verdict"] === "ADMIT") return fail("bad_op", "ADMIT needs a recorded result");
+        }
+      }
+      replaceTask(base, { ...decidedTask,
+        decisions: [...(task.decisions ?? []), decision].slice(-PLAN_LIMITS.DECISION_HISTORY_MAX), last_decision: decision });
+      if (decidedTask !== task) recompute(base);
       if (replayKey !== undefined) (base.replayed_ops as Record<string, unknown>)[replayKey] = { kind, op_id: opId, op: cloneDeep(op) };
       return { ok: true, projection: base, replayed: false };
     }
@@ -748,7 +927,15 @@ function applyOpInternal(
       for (const t of tasks) if (typeof t["id"] === "string") trial.set(t["id"] as string, Array.isArray(t["deps"]) ? [...(t["deps"] as string[])] : []);
       trial.set(newId, [...deps]);
       if (hasCycle(trial)) return fail("dep_cycle");
-      const microsIn = Array.isArray(op["microtasks"]) ? (op["microtasks"] as Array<Record<string, unknown>>) : [];
+      const pipeline = plan["template_id"] === PIPELINE_TEMPLATE;
+      let microsIn = Array.isArray(op["microtasks"]) ? (op["microtasks"] as Array<Record<string, unknown>>) : [];
+      if (pipeline) {
+        if (op["type"] !== "unit" || op["assignee"] != null && op["assignee"] !== agent
+          || Object.prototype.hasOwnProperty.call(op, "microtasks") && !sameJson(microsIn.map(micro => micro["text"]), PIPELINE_STEPS)) {
+          return fail("bad_op", "pipeline task.add requires type unit, the caller as owner and the ordered recipe");
+        }
+        if (op["microtasks"] === undefined) microsIn = PIPELINE_STEPS.map(text => ({ text }));
+      }
       const micros: Array<Record<string, unknown>> = [];
       microsIn.forEach((m, idx) => {
         micros.push({
@@ -771,6 +958,11 @@ function applyOpInternal(
         rev: lamport, explicit_state: null, blocked_reason: null, state: "pending", ready: false,
         microtasks: micros,
       };
+      if (pipeline) {
+        task["assignee"] = agent;
+        task["pipeline"] = { orchestrator: agent,
+          steps: micros.map(micro => ({ micro_id: micro["id"], binding: null, attempts: [] })) };
+      }
       tasks.push(task);
       base.tasks = tasks as unknown as PlanProjection["tasks"];
       recompute(base);
@@ -1053,7 +1245,7 @@ export function foldPlan(events: unknown, template?: PlanningTemplate | PlanTemp
     let replayedN = 0;
     let rejectedN = 0;
     let invalid = 0;
-    const errors: Array<{ id?: string; lamport?: number; code: import("./types").PlanOpErrorCode }> = [];
+    const errors: Array<{ id?: string; lamport?: number; code: PlanOpRejectionCode }> = [];
 
     // Collect entries safely; do not mutate input
     type Entry = { raw: Record<string, unknown>; id: string; lamport: number };

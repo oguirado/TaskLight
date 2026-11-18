@@ -35,7 +35,9 @@ class SinceGapTests(support.SnapshotCase):
         delta, _ = self.snapshot(since=since)
         self.assertEqual(delta["freshness"], "stale")
         self.assertFalse(delta["complete"])
-        self.assertEqual(delta["cursor"], 5)
+        # A-C3c: A gap without completions preserves the caller's watermark.
+        self.assertEqual(delta["head_lamport"], 5)
+        self.assertEqual(delta["cursor"], since)
         self.assertEqual(delta["agents"], full["agents"])
         self.assertEqual(delta["agents"]["rows"][0]["state"], "unknown")
         stale = next(row for row in full["attention"] if row["id"] == "stale:w1")

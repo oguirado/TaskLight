@@ -4,25 +4,41 @@ import json
 import os
 import secrets
 
-from bridge.plan.ops import check_arguments
 from bridge.plan.errors import PlanError
-from bridge.plan.ops import validate_op_shape
+from bridge.plan.ops import check_arguments, validate_op_shape
 from bridge.room import store
 from bridge.wall.emit import sanitize_output
 from . import register
 
 # Extension kinds join the store's static admission inventory at load time.
-store.OP_KINDS = store.OP_KINDS | {"unit.decision"}
+_LOCKED_WRITES = frozenset({"unit.decision", "unit.bind", "unit.repair"})
+store.OP_KINDS = store.OP_KINDS | _LOCKED_WRITES
 
 
 _legacy_post = getattr(store.post, "_before_decisions", store.post)
+
+
+def _with_pipeline_reference(state, op):
+    """Attach replay coordinates that survive masking of run identifiers."""
+    if op["kind"] == "unit.bind":
+        run = state["agent_lifecycle"].get(op["result_agent"])
+        if run is not None:
+            return dict(op, registration_lamport=op.get("registration_lamport", run["lamport"]))
+    elif op["kind"] == "unit.decision" and "micro_id" in op:
+        for task in state["tasks"]:
+            if task["id"] == op["task_id"] and "pipeline" in task:
+                for step in task["pipeline"]["steps"]:
+                    if step["micro_id"] == op["micro_id"] and step["binding"] is not None:
+                        return dict(op, binding_lamport=op.get("binding_lamport", step["binding"]))
+    return op
 
 
 def _post(room, agent, act, text, *, op=None, home=None, clock=None, templates=None,
           expected_opened_lamport=store._UNFENCED, **kwargs):
     # Standard decision envelopes share the store's admission/replay primitives.
     # Rich legacy envelopes and all other operation kinds retain their writer.
-    if (act != "op" or not isinstance(op, dict) or op.get("kind") != "unit.decision" or kwargs):
+    kind = op.get("kind") if isinstance(op, dict) else None
+    if act != "op" or not isinstance(kind, str) or kind not in _LOCKED_WRITES or kwargs:
         return _legacy_post(room, agent, act, text, op=op, home=home, clock=clock,
                             templates=templates, expected_opened_lamport=expected_opened_lamport, **kwargs)
     store._validate_expected_opened_lamport(expected_opened_lamport)
@@ -57,7 +73,16 @@ def _post(room, agent, act, text, *, op=None, home=None, clock=None, templates=N
             except (FileNotFoundError, NotADirectoryError, IsADirectoryError):
                 data = b""
             events, _ = store._parse_events_bytes(data)
-            store._check_plan_generation(events, expected_opened_lamport, home=home, templates=templates)
+            tpl_kw = store._tpl_kw(home, templates, store._plan_template_ids(events))
+            state = None
+            if expected_opened_lamport is not store._UNFENCED:
+                try:
+                    state = store.fold_plan(events, **tpl_kw)
+                except Exception as exc:
+                    store._raise_op(exc)
+                plan = state["plan"]
+                if plan is None or plan["opened_lamport"] != expected_opened_lamport:
+                    raise store.RoomError("stale_rev", "plan generation does not match expected_opened_lamport")
             matched = store._op_identity_index(events, agent, room).get(op["op_id"])
             if matched is not None:
                 return store._single_replay(matched, digest)
@@ -74,9 +99,10 @@ def _post(room, agent, act, text, *, op=None, home=None, clock=None, templates=N
             event = {"id": identity, "lamport": store._max_lamport_from_bytes(data) + 1,
                      "ts": ts, "room": room, "agent": agent, "act": act, "text": text,
                      "op": op, "request_sha256": digest}
-            tpl_kw = store._tpl_kw(home, templates, store._plan_template_ids(events))
             try:
-                state = store.fold_plan(events, **tpl_kw)
+                if state is None:
+                    state = store.fold_plan(events, **tpl_kw)
+                event["op"] = _with_pipeline_reference(state, op)
                 store.apply_op_event(state, event, last_by_agent=store._op_max_activity(events), **tpl_kw)
             except store.RoomError:
                 raise
@@ -139,7 +165,7 @@ def unit_decide(args: dict) -> dict:
 
 register({
     "name": "unit_decide",
-    "description": "Record an ADMIT, HOLD or REJECT decision for a unit in the active plan.",
+    "description": "Record a unit decision. A pipeline step requires the result pair from its current binding.",
     "inputSchema": {
         "type": "object", "additionalProperties": False,
         "required": ["room", "agent", "op_id", "task_id", "verdict", "reason"],

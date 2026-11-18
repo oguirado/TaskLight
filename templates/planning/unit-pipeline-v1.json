@@ -1,0 +1,53 @@
+{
+  "v": 1,
+  "id": "unit-pipeline-v1",
+  "name": "Unit Pipeline",
+  "summary": "Guide a unit through diagnosis, specification, oracle, authoring, verification, review, and import.",
+  "lens_id": "dev",
+  "brief_fields": [
+    {
+      "id": "goal",
+      "label": "Goal",
+      "required": true
+    }
+  ],
+  "phases": [
+    {
+      "id": "plan",
+      "label": "Unit pipeline",
+      "exit": "Every unit has passed its pipeline or been cancelled."
+    }
+  ],
+  "task_types": [
+    {
+      "id": "unit",
+      "label": "Unit",
+      "accept_required": false,
+      "evidence_required": false,
+      "micro_hints": [
+        "diagnosis",
+        "spec",
+        "oracle",
+        "author",
+        "verify",
+        "review",
+        "import"
+      ]
+    }
+  ],
+  "granularity": {
+    "tasks_max": 40,
+    "micro_min": 7,
+    "micro_max": 7,
+    "rule": "Accept each step in order using its bound run and a unit decision."
+  },
+  "memory_sections": [
+    {
+      "id": "goal",
+      "label": "Goal",
+      "required": false,
+      "max_chars": 500,
+      "hint": "Record the objective and definition of done."
+    }
+  ]
+}

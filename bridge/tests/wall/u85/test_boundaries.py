@@ -20,7 +20,8 @@ class RelayBoundaryOracle(unittest.TestCase):
                 raise ValueError(sentinel)
             return real(ev)
 
-        with patch.object(module.store, "read", side_effect=rig.read), patch.object(
+        # A-C5b: fixture uses read_checked
+        with patch.object(module.store, "read_checked", side_effect=rig.read), patch.object(
                 module, "sanitize_event", side_effect=sanitize):
             if mode == "live":
                 rig.relay.poll()
@@ -48,7 +49,8 @@ class RelayBoundaryOracle(unittest.TestCase):
                            send_failure=lambda f: f["t"] == "room_event"
                            and f["event"]["lamport"] == 9)
         rig.run(mode, since=6)
-        self.assertEqual([f["t"] for f in rig.sent], ["room_event", "room_gap"])
+        # A-C5b: a failed delivery signals a room fault after the delivered prefix.
+        self.assertEqual([f["t"] for f in rig.sent], ["room_event", "room_gap", "room_sync_error"])
         self.assertTrue(any(f["t"] == "room_event" and f["event"]["lamport"] == 9
                             for f in rig.attempted))
         self.assertFalse(any(f["t"] == "room_synced" and f["upto"] >= 9
@@ -77,7 +79,8 @@ class RelayBoundaryOracle(unittest.TestCase):
         def sanitize(ev):
             return None if ev["lamport"] in (8, 9) else real(ev)
 
-        with patch.object(module.store, "read", side_effect=rig.read), patch.object(
+        # A-C5b: fixture uses read_checked
+        with patch.object(module.store, "read_checked", side_effect=rig.read), patch.object(
                 module, "sanitize_event", side_effect=sanitize):
             if mode == "live":
                 rig.relay.poll()
@@ -123,7 +126,7 @@ class RelayBoundaryOracle(unittest.TestCase):
         events = triplet(reason)
         excluded = fixture()["events"][-1]
         if reason == "oversize":
-            excluded["text"] = events[1]["text"]
+            excluded["re"] = events[1]["re"]  # A-C5b: oversize after checked read
         else:
             excluded["text"] = "excluded event text"
         excluded["op"]["outcome"] = "excluded operation outcome"
@@ -156,7 +159,7 @@ class RelayBoundaryOracle(unittest.TestCase):
 
     def assert_reason_boundary(self, mode):
         events = [event(n) for n in (7, 8, 9, 10)]
-        events[2]["text"] = "ordinary words " * 6000
+        events[2]["re"] = "ordinary words " * 6000  # A-C5b: oversize after checked read
         frames = RelayFixture(events, reason="sanitize_failed").run(mode, since=6)
         expected = [dict(t="room_gap", v=1, room="demo", from_lamport=n,
                          to_lamport=n, reason=reason) for n, reason in

@@ -25,7 +25,7 @@ def event(lamport, **extra):
 def triplet(reason=None):
     events = [event(n) for n in (7, 8, 9)]
     if reason == "oversize":
-        events[1]["text"] = "ordinary words " * 6000
+        events[1]["re"] = "ordinary words " * 6000  # A-C5b: oversize after checked read
     return events
 
 
@@ -61,7 +61,8 @@ class RelayFixture:
                 return None
             return real_sanitize(ev)
 
-        with patch.object(relay_module.store, "read", side_effect=self.read), \
+        # A-C5b: fixture uses read_checked
+        with patch.object(relay_module.store, "read_checked", side_effect=self.read), \
                 patch.object(relay_module, "sanitize_event", side_effect=sanitize):
             if mode == "live":
                 self.relay.poll()

@@ -2,52 +2,36 @@
 
 ## Pitch
 
-TaskLight gives developers running multiple AI agents a shared, live view of who is doing what, what is blocked, and where attention is needed. Agents maintain plans, coarse microtasks and project memory through MCP; the operator follows their work on a browser wall. Firebase AI Logic powers read-only swarm narration, preferring on-device Gemini Nano and allowing cloud fallback only under the room's privacy policy. The value is less context switching between agent conversations and a clearer handoff when work spans several assistants.
+TaskLight gives developers running multiple AI agents a shared, live view of who owns each task, what is blocked and where attention is needed. Agents maintain plans, microtasks and project memory through MCP. The browser wall shows reported activity and marks liveness as unknown when observations are missing. Firebase AI Logic summarizes the visible work, with Gemini Nano preferred on device. Terminals and human conversations stay in the external harness. [Project overview](README.md)
 
-## The problem
+## Coordinate and review agent work
 
-As agents work in parallel, operators lose track of ownership, dependencies, progress and missing updates. Conversations and terminals contain fragments of the story. TaskLight brings reported work into a shared view and explicitly distinguishes observed activity from unknown liveness, so silence does not imply that an agent is working.
+With native hooks configured, Claude Code and Codex automatically register sub-agents under their parent session and record observed starts and stops. For any CLI lane, `tasklight run` supervises the command as a direct child process and records its lifecycle. [Native hooks](docs/HARNESS_HOOKS.md) · [CLI supervision](docs/HEADLESS.md#supervise-cli-agents)
 
-## What TaskLight does
+The `wait_agents` tool wakes the orchestrator when a matching lane finishes or fails and returns any result the lane supplied. Workers can record a verdict and optional summary, receipt and evidence in the room. The orchestrator records immutable ADMIT, HOLD or REJECT decisions there. The Swarm bubble board shows verdicts and available summaries for finished and failed lanes, and task bubbles show the latest decision. Use `room_export` to generate a Markdown integration log of all recorded results and decisions. [Waiting for results](docs/WAIT_AGENTS.md) · [Results and decisions](docs/RESULTS.md)
 
-The wall shows agent identity, harness, current task and microtask, lifecycle, liveness, dependency owners and plan progress. Agents coordinate through planning templates, task claims, revision checks and retry deduplication. Shared memory retains accepted revisions and can be exported alongside the plan as Markdown. Task details and archived plans preserve context across work sessions.
+The waiter and orchestrator snapshot report errors when room storage cannot be read. Tool validation errors can name the argument and rule. For example, `wait_agents` reports that `agents` must be a nonempty array of agent slugs. [Waiter arguments](docs/WAIT_AGENTS.md#tool-contract) · [Orchestrator snapshots](docs/ORCHESTRATOR.md) · [MCP errors](docs/MCP.md#errors)
 
-External harnesses deploy and direct agents; TaskLight displays and coordinates their reported work. Terminals and human conversations remain in the harness. Narration does not verify implementation quality or grant acceptance.
+The wall also shows each agent's harness, current task and microtask, dependencies and plan progress. Revision checks and retry deduplication support concurrent updates. The plan and shared memory can be exported as Markdown. [Planning and MCP tools](docs/MCP.md)
 
 ## How Firebase AI Logic is used
 
-The runtime imports `firebase/ai`, creates a model with `getGenerativeModel`, and calls `generateContent` for swarm narration. The hybrid mode is `PREFER_ON_DEVICE`: Gemini Nano runs on device when available, with `gemini-4-hydrogen` as the configured cloud fallback only when privacy policy and cloud availability permit it.
+The runtime imports `firebase/ai`, creates a model with `getGenerativeModel` and calls `generateContent` for swarm narration. In `PREFER_ON_DEVICE` mode, Gemini Nano runs on device when available. The configured cloud fallback, `gemini-4-hydrogen`, requires both permission under the room's privacy policy and cloud availability. Private rooms use `ONLY_ON_DEVICE`. [Model guide](docs/MODELS.md)
 
-Private rooms select `ONLY_ON_DEVICE`, without cloud narration. If generation is unavailable, blocked, fails, or returns an ungrounded response, a deterministic **Rules summary** remains available. The narrator validates structured output against current agent facts. Its live source display identifies **ON_DEVICE · Gemini Nano**, **IN_CLOUD · gemini-4-hydrogen · fallback**, or **Rules summary**, rather than presenting a configured preference as an actual inference result.
+If generation is unavailable, blocked, fails or returns an ungrounded response, TaskLight uses a deterministic **Rules summary**. The live display labels the actual source as **ON_DEVICE · Gemini Nano**, **IN_CLOUD · gemini-4-hydrogen · fallback**, or **Rules summary**. Read-only narration uses selected coordination facts and checks its structured output against them.
 
-Narration never mutates the room, claims tasks, completes work or decides acceptance. Its input contains selected coordination facts rather than task titles, evidence or full history.
+**Firebase Hosting is pending.** The public Firebase configuration and reCAPTCHA site key still contain placeholders. Live Firebase inference requires project setup and model availability. A hosted judge URL is not yet available. [Project status](README.md#status)
 
-**Hosting is pending until the Firebase project is configured.** The public Firebase configuration and reCAPTCHA site key still contain placeholders; the hosted application is not yet deployed. Live Firebase inference therefore requires setup and model availability.
+## Architecture and privacy
 
-## Architecture
+The local room journal stores plan, memory, progress and lifecycle events. Agents access it through MCP and the CLI. The native messaging host relays room events with redaction through the Chrome extension to the browser wall. MCP output and Markdown exports also redact free text. The owner journal retains its original contents, and a sanitizer failure blocks output. Agent identifiers are caller-asserted within the local same-user trust boundary. [MCP output rules](docs/MCP.md#tools)
 
-- **Local room journal:** append-only plan, memory and progress events provide shared state.
-- **MCP server and CLI:** agents read and update the room, with serialized writes, revision checks and idempotent retries.
-- **Native messaging host:** reads room events and relays them to the browser with redaction.
-- **Chrome extension:** connects the native host to the wall page.
-- **Browser wall and narrator:** render shared work and policy-gated Firebase AI Logic summaries; Firebase Hosting is the deployment target.
-
-## Privacy and security
-
-The Firebase production boot path initializes App Check with reCAPTCHA Enterprise and token auto-refresh. Placeholder configuration or an App Check initialization failure blocks startup; production rejects debug tokens. Deployment still needs project-side configuration.
-
-The browser relay redacts sensitive strings before delivery. This is a display boundary, not a guarantee that local journals, MCP reads or exports contain no sensitive data. Private-room narration stays on device or uses Rules. External harness traffic follows the harness's own data policies. Local room access is a same-user trust boundary: agent identifiers are caller-asserted, not authenticated identities.
+The production Firebase path initializes App Check with reCAPTCHA Enterprise and token auto-refresh. Startup requires real configuration and successful App Check initialization. Production rejects debug tokens.
 
 ## How judges try it
 
-For the local demo without a Firebase project, follow [the demo guide](tools/demo/README_DEMO.md). Install dependencies with `npm ci`, then run `node tools/demo/run_demo.mjs --keep` from the repository root. A Chrome-family browser and Python are required. The demo exercises the native-host/extension/wall connection, plan rendering, MCP planning and shared memory; Rules output does not demonstrate live Firebase inference.
+The local demo needs a Chrome-family browser and Python. Install dependencies with `npm ci`, then run `node tools/demo/run_demo.mjs --keep` from the repository root. The demo exercises the native host, extension, wall, MCP planning and shared memory, using Rules output. Once hosting is configured, use the desktop setup guide to connect the extension, native host and MCP client, then open Swarm to see the live narration source. [Local demo](tools/demo/README_DEMO.md) · [Desktop setup](docs/DESKTOP_SETUP.md)
 
-Once deployed, open the published wall and follow [desktop setup](docs/DESKTOP_SETUP.md) to connect the extension, native host and MCP client. Inspect the Swarm view and refresh narration to check its actual inference source. A hosted judge URL is not yet available.
+## Hackathon work and licence
 
-## Hackathon work and pre-existing material
-
-[PREEXISTING.md](PREEXISTING.md) declares that this project was created during the contest period and that the room protocol is a clean-room design. The submitted project includes the room protocol, planning and memory tools, browser wall, extension bridge and hybrid narration. Open-source dependencies are declared in `package.json`; no third-party proprietary code is included, according to that statement.
-
-## Licence
-
-TaskLight is licensed under **AGPL-3.0-only**, an OSI-approved open-source licence. See [LICENSE](LICENSE).
+TaskLight was created during the contest period. The room protocol is a clean-room design. The project excludes third-party proprietary code and declares its open-source dependencies in `package.json`. TaskLight is licensed under AGPL-3.0-only. [Pre-existing work statement](PREEXISTING.md) · [Licence](LICENSE)

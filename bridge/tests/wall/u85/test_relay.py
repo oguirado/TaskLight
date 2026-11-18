@@ -103,7 +103,8 @@ class RelayOracle(unittest.TestCase):
                        dict(copy.deepcopy(events[2]), lamport=11, id="e-000000000000000b")])
         rig = RelayFixture(events)
         real = module.sanitize_event
-        with patch.object(module.store, "read", side_effect=rig.read), patch.object(
+        # A-C5b: fixture uses read_checked
+        with patch.object(module.store, "read_checked", side_effect=rig.read), patch.object(
                 module, "sanitize_event", side_effect=lambda e: None if e["lamport"] in (8, 10) else real(e)):
             rig.relay.poll()
         gaps = [f for f in rig.sent if f["t"] == "room_gap"]

@@ -137,7 +137,7 @@ class Durability(SendCase):
             self.assert_unique_replay(events + [duplicate], A2, self.first)
 
     def test_a7_capacity_rejects_new_message_but_not_existing_replay(self):
-        cap = 8 * 1024 * 1024
+        cap = 16 * 1024 * 1024  # A-C4m: 16 MiB cap
         self.assertEqual(store.CAP, cap)
         path = events_path(self.home, "demo")
         data = bytearray(path.read_bytes())

@@ -1,6 +1,5 @@
 """Read-only agent inventory, independent of the presence of a plan."""
 import math
-import os
 import re
 
 from bridge.plan.ops import check_arguments
@@ -197,16 +196,19 @@ def agents_list(args):
     now = args.get("now", store.time.time() * 1000)
     if not _number(now):
         raise store.RoomError("bad_args", "now must be finite nonnegative epoch milliseconds")
-    try:
-        os.stat(store._room_dir(None, args["room"]))
-    except FileNotFoundError:
+    if not store._room_directory_exists(None, args["room"]):
         # Preserve the empty inventory of a room that has never been created.
         return derive_inventory(args["room"], [], now)
-    except OSError:
-        raise store.RoomError("room_read_failed", "Room data could not be read.") from None
     events, malformed = store.read_checked(args["room"])
+    needed = store._plan_template_ids(events)
+    try:
+        template_kw = store._tpl_kw(needed=needed)
+    except Exception:
+        raise store.RoomError("template_unavailable", "A required template is unavailable.") from None
+    if needed and not template_kw:
+        raise store.RoomError("template_unavailable", "A required template is unavailable.")
     return derive_inventory(args["room"], events, now, connected=not malformed,
-                            **store._tpl_kw(needed=store._plan_template_ids(events)))
+                            **template_kw)
 
 
 register({

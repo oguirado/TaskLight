@@ -347,6 +347,18 @@ function planReplay(room: string, history: RoomHistory, raw: readonly RoomEvent[
   return events;
 }
 
+// The private fold for memory history needs every op and the activity that
+// could affect a takeover. Later non-ops cannot change op rejection receipts.
+function canonicalMemoryReplay(events: RoomEvent[]): RoomEvent[] {
+  let lastTakeoverLamport = 0;
+  for (const event of events) {
+    if (event.act === "op" && event.op?.kind === "task.claim" && event.op["takeover"] === true) {
+      lastTakeoverLamport = Math.max(lastTakeoverLamport, event.lamport);
+    }
+  }
+  return events.filter((event) => event.act === "op" || event.lamport <= lastTakeoverLamport);
+}
+
 function legacyReplay(room: string, history: RoomHistory, events: RoomEvent[]): void {
   for (const entry of history.recent) if (entry.event.act !== "op") events.push(entry.event);
   for (const change of history.legacy) {
@@ -568,7 +580,9 @@ export function createAgentStore(opts?: AgentStoreOptions): AgentStore {
           return copyPlanResult(cached.value);
         }
         const replay = planReplay(room, history, cached.sorted);
-        const canonical = cached.canonical ?? (cached.canonical = Plan.foldPlan(replay));
+        const canonical = cached.canonical ?? (cached.canonical = Plan.foldPlan(
+          resolver === undefined ? replay : canonicalMemoryReplay(replay),
+        ));
         const memoryHistory = cached.memoryHistory ??
           (cached.memoryHistory = retainedMemoryHistory(replay, canonical.projection));
         const result = resolver !== undefined

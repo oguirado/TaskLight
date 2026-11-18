@@ -23,6 +23,9 @@ from bridge.room.family_envelope import (
 )
 
 
+_RECORD_READ_MAX_BYTES = 32 * 1024 * 1024
+
+
 # Fixed routes in delivery-enablement order. The only selectable subtools are
 # the closed planning set already checked by the envelope validator.
 _SLICE_TWO_TOOLS = {
@@ -350,7 +353,7 @@ class Mailbox:
         self.check_tree()
         name = identity + ".result.json"
         try:
-            raw, _ = _read_regular(self.spool, name, store.CAP * 4)
+            raw, _ = _read_regular(self.spool, name, _RECORD_READ_MAX_BYTES)
             try:
                 previous = decode(raw)
             except InvalidEnvelope:
@@ -380,7 +383,7 @@ class Mailbox:
     def retained(self, envelope):
         name = envelope["id"] + ".json"
         try:
-            raw, _ = _read_regular(self.dedup, name, store.CAP * 4)
+            raw, _ = _read_regular(self.dedup, name, _RECORD_READ_MAX_BYTES)
         except FileNotFoundError:
             return None
         try:

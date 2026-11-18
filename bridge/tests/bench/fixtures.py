@@ -8,7 +8,6 @@ from pathlib import Path
 import tempfile
 from contextlib import contextmanager
 
-from bridge.room.store import CAP
 from bridge.plan.limits import TASKS_MAX, MICRO_MAX
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -16,6 +15,7 @@ DATA = ROOT / "tests" / "bench" / "oracle.json"
 SEED = 115
 BASE_TS = 1_700_000_000_000
 ROOM = "synthetic-bench"
+FIXTURE_CAP_BYTES = 8 * 1024 * 1024  # A-C4m: 16 MiB cap
 
 
 def encoded(value):
@@ -31,7 +31,7 @@ def journal(events):
 
 
 def admit(data):
-    if len(data) > CAP:
+    if len(data) > FIXTURE_CAP_BYTES:
         raise ValueError("fixture exceeds CAP before measurement")
     return data
 
@@ -70,12 +70,12 @@ def mixed(seed=SEED, size=10_000, payload="synthetic"):
     expected["ingestion"] = {"accepted": len(ids), "duplicate": size-len(ids), "invalid": 0}
     return {"events": events, "template": source["template"], "expected": expected,
             "manifest": {"seed": seed, "fixture_sha256": sha(data), "journal_bytes": len(data),
-                         "event_count": size, "unique_events": len(ids), "cap_bytes": CAP,
+                         "event_count": size, "unique_events": len(ids), "cap_bytes": FIXTURE_CAP_BYTES,
                          "expected": expected}}
 
 
 def near_cap(seed=SEED):
-    target = CAP - 256
+    target = FIXTURE_CAP_BYTES - 256
     room = "synthetic-tail"
     events, pieces, used, n = [], [], 0, 1
     while True:
@@ -99,7 +99,7 @@ def near_cap(seed=SEED):
     assert len(data) == target
     return {"events": events, "template": oracle()["template"],
             "manifest": {"seed": seed, "fixture_sha256": sha(data), "journal_bytes": len(data),
-                         "event_count": len(events), "cap_bytes": CAP}}
+                         "event_count": len(events), "cap_bytes": FIXTURE_CAP_BYTES}}
 
 
 def stream_chunks(seed=SEED, count=100_000, chunk_size=512, kind="history"):

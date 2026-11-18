@@ -1,3 +1,4 @@
+import { currentPipelineAttempt } from "../plan/types";
 import type { AgentLifecycleRecord, AgentResult, PlanMicrotask, PlanProjection, PlanTask } from "../plan/types";
 import type { RoomEvent } from "../agents/types";
 import { deriveActivity } from "./activity";
@@ -44,6 +45,26 @@ export type SwarmViewModel = Readonly<{
   refresh_at_ms: number | null;
 }>;
 
+export function pipelineDisplayTask(task: PlanTask): PlanTask {
+  const pipeline = task.pipeline;
+  if (!pipeline) return task;
+  const microtasks = pipeline.steps.map((step, index): PlanMicrotask => {
+    const micro = task.microtasks[index]!;
+    const attempt = currentPipelineAttempt(step);
+    const state = attempt?.state === "accepted" ? "done" : attempt?.state === "bound" ? "active"
+      : attempt ? "blocked" : "pending";
+    return { ...micro, state };
+  });
+  const decisions = pipeline.steps.map(step => currentPipelineAttempt(step)?.decision);
+  const last = decisions.reduce((newest, decision) =>
+    decision && (!newest || decision.lamport > newest.lamport) ? decision : newest, undefined);
+  const state = task.explicit_state === "cancelled" ? "cancelled"
+    : microtasks.every(micro => micro.state === "done") ? "done"
+    : microtasks.some(micro => micro.state === "blocked") ? "blocked"
+    : microtasks.some(micro => micro.state !== "pending") ? "active" : "pending";
+  return { ...task, assignee: pipeline.orchestrator, microtasks, state, last_decision: last ?? null };
+}
+
 export function deriveSwarmViewModel(input: {
   room: string;
   projection: PlanProjection | null;
@@ -60,14 +81,15 @@ export function deriveSwarmViewModel(input: {
     // A committed record replaces every compatibility field, including omissions.
     registrations.set(slug, registration);
   }
-  for (const task of input.projection?.tasks ?? []) {
+  const displayTasks = (input.projection?.tasks ?? []).map(pipelineDisplayTask);
+  for (const task of displayTasks) {
     tasksById.set(task.id, task);
     if (task.assignee == null) continue;
     const owned = tasksByAgent.get(task.assignee) ?? [];
     owned.push(task);
     tasksByAgent.set(task.assignee, owned);
   }
-  const inventory = deriveInventory(input, registrations);
+  const inventory = deriveInventory(input, registrations, displayTasks);
   const members = inventory.agents;
   const questions = unansweredQuestions(input.room, input.events);
   let refreshAt: number | null = inventory.refresh_at_ms;
@@ -210,7 +232,7 @@ function unansweredQuestions(room: string, events: readonly RoomEvent[]): Readon
 /** A-C2a: lifecycle records and folded task assignees establish membership.
  * Replay evidence retains past assignees without registering authors or beats. */
 function deriveInventory(input: Parameters<typeof deriveSwarmViewModel>[0],
-  records: ReadonlyMap<string, LifecycleRegistration>,
+  records: ReadonlyMap<string, LifecycleRegistration>, tasks: readonly PlanTask[],
 ): { agents: AgentInventoryRow[]; totals: AgentInventoryTotals; refresh_at_ms: number | null; complete: boolean } {
   const first = new Map<string, number>();
   const last = new Map<string, { lamport: number; ts: number }>();
@@ -271,7 +293,6 @@ function deriveInventory(input: Parameters<typeof deriveSwarmViewModel>[0],
     last.set(agent, { lamport, ts });
   }
   for (const [agent, record] of records) member(agent, record.lamport ?? Number.MAX_SAFE_INTEGER, true);
-  const tasks = input.projection?.tasks ?? [];
   const byId = new Map(tasks.map(task => [task.id, task]));
   for (const task of tasks) member(task.assignee, Number.MAX_SAFE_INTEGER, true);
   const fresh = (ts: number | undefined | null): boolean => typeof ts === "number"

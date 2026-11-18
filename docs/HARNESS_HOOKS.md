@@ -252,8 +252,10 @@ same Python environment must be able to import TaskLight there.
 events are ignored, including child `PreCompact` events. Generated handlers
 are asynchronous with timeout 10 seconds, except `SessionEnd` and `Interrupt`,
 which are synchronous with timeout 3 seconds and omit `async`. No matcher is
-needed. A `SessionEnd` reason of `other` records an observed session end; it
-does not establish successful task completion.
+needed. Codex's `SessionEnd` reports an observed session end with reason
+`other` and cannot report failure. For Codex lanes launched through
+`tasklight run` or `tasklight wave`, the lane wrapper records failure from
+the child process's exit status. Native hooks only add lifecycle visibility.
 
 Sessions use harness `codex`, agent `cx-` plus the first ten SHA-256 hex
 characters of `session_id`, and run `cx-` plus the first sixteen. Child agents
@@ -282,3 +284,35 @@ missing configuration and storage failures return silently with exit status
 zero and empty stdout/stderr. Only `--print-settings` prints output. Exit status
 alone does not prove persistence: check the agent inventory independently.
 Missing hooks and unobserved crashes do not establish completion.
+
+
+## Diagnose native hook setup
+
+Run the doctor from the project with the same environment as the harness.
+
+```sh
+python3 -m bridge.room.ext.doctor
+python3 -m bridge.room.ext.doctor --harness codex --cwd .
+```
+
+The default harness is `claude-code` and the default directory is the current
+working directory. The command emits one JSON object and exits zero when the
+checks pass or one when a check finds a problem. Each problem contains a fixed
+`code` and a one-line `hint`.
+
+- `room` gives the selected slug and its source using the native room lookup
+  order. Existence is checked under `CW_HOME` and readability uses the checked
+  journal reader. The doctor leaves the room untouched.
+- `journal` reports file size and available bytes under the room cap.
+  `heartbeat_free_bytes` reflects the lower ceiling for alive events.
+- `hook` gives the expected command and the events where it appears in the
+  user and project settings. For Claude Code, the doctor inspects
+  `.claude/settings.json` and `~/.claude/settings.json` (or
+  `$CLAUDE_CONFIG_DIR/settings.json`). For Codex, it inspects `.codex/hooks.json`
+  and `~/.codex/hooks.json` (or `$CODEX_HOME/hooks.json`). It checks project
+  files starting at `--cwd` and walking up its parents. Hook settings must be
+  regular files. The report omits other settings content and leaves harness
+  trust and activation to the harness.
+- `last_lifecycle` shows the latest committed event for the selected harness
+  by Lamport order. A readable journal with no matching event reports `null`.
+  Start a harness session and rerun the doctor to confirm recording.

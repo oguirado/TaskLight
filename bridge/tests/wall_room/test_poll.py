@@ -82,9 +82,11 @@ class PrimePoll(S.Base):
         S.write_raw(self.home, "demo", [], raw_lines=[b"{not json\n", b"\xff\xfe\n", b"[1,2]\n",
                                                           b'{"id":"x"}\n'])
         self.assertEqual(r.poll(), 0)
-        e = self.post("demo", "after garbage")
-        self.assertEqual(r.poll(), 1)
-        self.assertEqual(self.send.frames[-1]["event"]["id"], e["id"])
+        self.post("demo", "after garbage")
+        # A-C5b: malformed complete records fault the room, including its valid suffix.
+        self.assertEqual(r.poll(), 0)
+        self.assertEqual(self.send.frames[-1],
+                         {"t": "room_sync_error", "v": 1, "room": "demo", "code": "room_read_failed"})
 
     def test_events_file_is_a_directory_never_raises(self):
         r = self.relay(create=False)

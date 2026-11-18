@@ -115,7 +115,7 @@ class OpStore(OpCase):
         pattern = getattr(store, "OP_ID_RE", None)
         self.assertIsNotNone(pattern)
         self.assertEqual(pattern.pattern, r"[A-Za-z0-9_-]{8,64}")
-        self.assertEqual(store.CAP, 8 * 1024 * 1024)
+        self.assertEqual(store.CAP, 16 * 1024 * 1024)  # A-C4m: 16 MiB cap
         self.assertEqual(store.SILENT_AFTER_S, 600)
 
     def test_all_ten_kinds_persist_canonical_and_fsync(self):

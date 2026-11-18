@@ -8,7 +8,7 @@ without external services or live sessions.
 
 Deterministic and idempotent: a fixed clock, fixed op identifiers and a
 fixed evidence payload make the scenario reproducible across fresh homes.
-Store-generated event identities and absolute evidence paths vary by run;
+Store-generated event identities and evidence locations vary by run;
 compare normalized events for cross-home determinism. Re-running against
 a populated room is a no-op.
 """
@@ -33,8 +33,10 @@ DEFAULT_ROOM = "demo-webapp"
 TEMPLATE_ID = "web-app"
 
 EVIDENCE_BODY = (
-    "demo evidence: build notes for the vertical slice\n"
-    "status: recorded locally in the room\n"
+    "The demo scope covers planning, task claims and progress reports.\n"
+    "The local room journal stores the plan and progress.\n"
+    "Local checks ran. Remote checks were skipped.\n"
+    "Invalid input and conflicting revisions have distinct error codes.\n"
 ).encode("utf-8")
 
 
@@ -88,12 +90,12 @@ def _assert_contained(path: Path, home_resolved: Path) -> None:
             raise OSError("path escapes home directory")
 
 
-def _write_evidence(home_path: Path, room: str) -> str:
-    artifacts = home_path / "rooms" / room / "artifacts"
-    target = artifacts / "evidence.txt"
-    with open(target, "wb") as fh:
-        fh.write(EVIDENCE_BODY)
-    return hashlib.sha256(EVIDENCE_BODY).hexdigest()
+def _write_evidence(target: Path) -> dict:
+    target.write_bytes(EVIDENCE_BODY)
+    return {
+        "path": Path(os.path.relpath(target, REPO_ROOT)).as_posix(),
+        "sha256": hashlib.sha256(EVIDENCE_BODY).hexdigest(),
+    }
 
 
 def _summary(home_path: Path, room: str, tpl: dict, events_written: int) -> dict:
@@ -229,12 +231,12 @@ def run_demo(home: Path, room: str = DEFAULT_ROOM) -> dict:
     for component in (home_path / "rooms", room_dir, artifacts):
         if os.path.lexists(str(component)):
             _assert_contained(component, home_path)
-    _assert_contained(artifacts / "evidence.txt", home_path)
+    evidence_file = artifacts / "evidence.txt"
+    _assert_contained(evidence_file, home_path)
 
     room_dir.mkdir(parents=True, exist_ok=True)
     artifacts.mkdir(parents=True, exist_ok=True)
-    evidence_sha = _write_evidence(home_path, room)
-    evidence_path = str(artifacts / "evidence.txt")
+    evidence = _write_evidence(evidence_file)
 
     store.post_ops(room, "planner", _plan_batch(tpl), home=home_path, clock=_clock)
 
@@ -268,7 +270,7 @@ def run_demo(home: Path, room: str = DEFAULT_ROOM) -> dict:
                 "state": "done",
                 "outcome": "Draft notes cover workflows",
                 "took": "1h",
-                "evidence": [{"path": evidence_path, "sha256": evidence_sha}],
+                "evidence": [evidence],
             },
             {"kind": "micro.set", "op_id": "demo-0022", "micro_id": "T01.M02", "state": "active"},
         ],
@@ -287,6 +289,7 @@ def run_demo(home: Path, room: str = DEFAULT_ROOM) -> dict:
                 "state": "done",
                 "outcome": "Checks run locally, remote checks skipped",
                 "took": "2h",
+                "evidence": [evidence],
             },
             {
                 "kind": "micro.set",
@@ -295,6 +298,7 @@ def run_demo(home: Path, room: str = DEFAULT_ROOM) -> dict:
                 "state": "done",
                 "outcome": "Error shapes agreed with tests",
                 "took": "1h",
+                "evidence": [evidence],
             },
         ],
         home=home_path,

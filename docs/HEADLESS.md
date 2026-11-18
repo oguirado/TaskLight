@@ -353,7 +353,7 @@ Exit codes for `tools` and `call` are stable:
 - **Hard limits**:
   - 40 tasks per active plan.
   - 12 microtasks per task.
-  - 8 MiB maximum size per room log (`events.jsonl`). Keep `activity_beat` at 30-second intervals to preserve room capacity.
+  - 16 MiB maximum size per room log (`events.jsonl`). Keep `activity_beat` at 30-second intervals to preserve room capacity.
   - 12 memory sections per room, up to 2,000 characters per section.
 
 ## 7. Privacy and the legacy liaison slot

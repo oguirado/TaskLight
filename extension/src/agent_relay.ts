@@ -49,6 +49,7 @@ export function createAgentRelay(d: { native: AgentRelayNative; clock: Clock }):
   const subscribed = new Set<ChromePortLike>();
   const ports = new Set<ChromePortLike>();
   let cachedHello: Record<string, unknown> | null = null;
+  const initialRoomErrors = new Map<string, Record<string, unknown>>();
 
   const nextRid = (): string => {
     relaySeq += 1;
@@ -104,6 +105,7 @@ export function createAgentRelay(d: { native: AgentRelayNative; clock: Clock }):
     }
     if (!ok) {
       cachedHello = null;
+      initialRoomErrors.clear();
       nack(port, pageRid, "host_unavailable");
       return;
     }
@@ -142,10 +144,13 @@ export function createAgentRelay(d: { native: AgentRelayNative; clock: Clock }):
     if (firstSubscribe && cachedHello !== null) {
       try {
         if (native.connected()) {
-          deliver(port, JSON.parse(JSON.stringify(cachedHello)) as Record<string, unknown>);
+          if (deliver(port, JSON.parse(JSON.stringify(cachedHello)) as Record<string, unknown>)) {
+            for (const frame of initialRoomErrors.values()) deliver(port, frame);
+          }
         } else {
           cachedHello = null;
         }
+        initialRoomErrors.clear();
       } catch {
         /* cache delivery must never break the sync path */
       }
@@ -204,14 +209,14 @@ export function createAgentRelay(d: { native: AgentRelayNative; clock: Clock }):
     deliver(p.port, { ...frame, rid: p.pageRid });
   };
 
-  const routeSynced = (relayRid: string, frame: Record<string, unknown>): void => {
+  const routeSyncEnd = (relayRid: string, frame: Record<string, unknown>): void => {
     const p = pending.get(relayRid);
     if (p === undefined || p.kind !== "sync") {
       rejected += 1;
       return;
     }
     const room = frame["room"] as string;
-    if (p.rooms.size > 0) {
+    if (p.rooms.size > 0 || frame["t"] === "room_sync_error") {
       if (!p.rooms.has(room)) {
         rejected += 1;
         return;
@@ -224,6 +229,26 @@ export function createAgentRelay(d: { native: AgentRelayNative; clock: Clock }):
 
   const onNativeFrame = (frame: Record<string, unknown>): void => {
     const t = frame["t"];
+    if (t === "room_sync_error") {
+      const room = frame["room"];
+      const code = frame["code"];
+      const rid = frame["rid"];
+      if (frame["v"] !== 1 || !isRoom(room) || typeof code !== "string"
+        || ("rid" in frame && !isRid(rid))) {
+        rejected += 1;
+        return;
+      }
+      const fault = { t, v: 1, room, code: code === "room_read_failed" ? code : "room_sync_failed" };
+      if (isRid(rid)) {
+        routeSyncEnd(rid, fault);
+      } else if (subscribed.size > 0) {
+        fanOut(fault);
+      } else if (cachedHello !== null && (cachedHello["rooms"] as Record<string, unknown>[]).some(entry => entry["room"] === room)) {
+        // Native startup can announce a fault before the page subscribes.
+        initialRoomErrors.set(room, fault);
+      }
+      return;
+    }
     if (t === "room_event") {
       if (frame["v"] !== 1 || !isRoom(frame["room"]) || !isFloor(frame["floor"]) || !isRecord(frame["event"])) {
         rejected += 1;
@@ -299,6 +324,7 @@ export function createAgentRelay(d: { native: AgentRelayNative; clock: Clock }):
         rejected += 1;
         return;
       }
+      initialRoomErrors.clear();
       fanOut(frame);
       return;
     }
@@ -308,7 +334,7 @@ export function createAgentRelay(d: { native: AgentRelayNative; clock: Clock }):
         rejected += 1;
         return;
       }
-      routeSynced(frame["rid"] as string, frame);
+      routeSyncEnd(frame["rid"] as string, frame);
       return;
     }
     if (t === "room_ack") {

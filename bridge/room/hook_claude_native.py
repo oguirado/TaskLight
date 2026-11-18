@@ -209,13 +209,20 @@ def main():
                     # the run's admitted identity without a separate registry.
                     with deadline.wait():
                         records, _ = store.read(room)
-                        registered = [record["agent"] for record in records
-                                      if record.get("act") == "op"
-                                      and isinstance(record.get("op"), dict)
-                                      and record["op"].get("kind") == "agent.lifecycle"
-                                      and record["op"].get("run_id") == value["run_id"]]
-                    if registered and value["agent"] not in registered:
-                        value["agent"] = registered[0]
+                        earliest = min(
+                            (record for record in records
+                             if isinstance(record, dict) and record.get("act") == "op"
+                             and isinstance(record.get("agent"), str)
+                             and store.AGENT_RE.fullmatch(record["agent"])
+                             and store._is_int(record.get("lamport"))
+                             and record["lamport"] > 0
+                             and isinstance(record.get("op"), dict)
+                             and record["op"].get("kind") == "agent.lifecycle"
+                             and record["op"].get("run_id") == value["run_id"]),
+                            key=lambda record: record["lamport"], default=None,
+                        )
+                    if earliest is not None:
+                        value["agent"] = earliest["agent"]
                 except Exception:
                     # Lookup is best effort; keep the computed identity.
                     pass

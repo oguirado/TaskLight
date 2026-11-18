@@ -64,6 +64,9 @@ def main(argv=None):
         # enter the JSON response/error handling used by the room commands.
         from bridge.room.ext.supervise import main as supervise
         return supervise(argv[1:])
+    if argv and argv[0] == "wave":
+        from bridge.room.ext.wave import main as wave
+        return wave(argv[1:])
     try:
         pin = app.session_pin_from_env()
     except RoomError as e:
@@ -164,7 +167,7 @@ def main(argv=None):
             _emit(s)
             return 0
         elif verb == "export":
-            # O-U94c: CLI parity for U94 export (writes PLAN.md and MEMORY.md under $CW_HOME only).
+            # O-U94c: CLI parity for U94 export (writes PLAN.md, MEMORY.md and INTEGRATION.md under $CW_HOME).
             ap = _JsonParser(prog="export")
             ap.add_argument("--room", required=True)
             ap.add_argument("--out", required=True)
@@ -172,7 +175,7 @@ def main(argv=None):
             app.guard_session(vars(args), pin=pin)
             from bridge.room.ext import export as _export
             try:
-                result = _export.export_room(args.room, args.out)
+                result = _export.export_room(args.room, args.out, include_integration=True)
             except RoomError as e:
                 if e.code in ("bad_args", "bad_room"):
                     return _refuse(e.code)
