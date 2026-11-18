@@ -1,7 +1,6 @@
 """Stateless lifecycle waits over the journal's caller-owned Lamport cursor."""
 import hashlib
 import io
-import math
 import os
 import stat
 import time
@@ -49,7 +48,8 @@ def _matches(room, events, since, agents, parent, states):
 def _template_stamp():
     # Track both tiers in the loader's resolution order. Directory identities
     # catch additions and replacements, and file ctimes catch in-place edits.
-    project = os.path.dirname(os.path.dirname(os.path.abspath(store.__file__)))
+    here = os.path.dirname(os.path.abspath(store.__file__))
+    project = os.path.dirname(os.path.dirname(here))
     directories = (os.path.join(project, "templates", "planning"),
                    os.path.join(store._home(None), "templates"))
     entries = []
@@ -192,10 +192,12 @@ def wait_agents(args):
         raise store.RoomError("bad_args", "states must be a nonempty array containing only deployed, alive, finished or failed")
     states = set(states)
     since = args.get("since_lamport", 0)
+    if type(since) is float and since.is_integer():
+        since = int(since)
     if type(since) is not int or not 0 <= since <= SAFE_MAX:
         raise store.RoomError("bad_args", "since_lamport must be an integer in 0-9007199254740991")
     timeout = args.get("timeout_s", 60)
-    if type(timeout) not in (int, float) or not math.isfinite(timeout) or not 1 <= timeout <= 600:
+    if type(timeout) not in (int, float) or not 1 <= timeout <= 600:
         raise store.RoomError("bad_args", "timeout_s must be a finite number in 1-600 seconds")
 
     deadline = time.monotonic() + timeout
@@ -259,6 +261,8 @@ def wait_agents(args):
             output = {"events": [], "cursor": cursor, "timed_out": True}
             break
         time.sleep(min(0.1, remaining))
+    # Non-operation events can advance the journal beyond the cursor range.
+    output["cursor"] = min(cursor, SAFE_MAX)
     try:
         return sanitize_output(output)
     except Exception:

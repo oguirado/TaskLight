@@ -197,11 +197,10 @@ def _validate_evidence(evidence, room_dir):
     return out
 
 
-def _message_evidence(evidence, home):
-    """Check typed evidence structure and paths without hashing file bytes."""
+def _message_evidence(evidence):
+    """Snapshot typed evidence descriptors without consulting the filesystem."""
     if not isinstance(evidence, list) or len(evidence) > 8:
         raise RoomError("bad_evidence", "evidence must be an array of at most 8 objects")
-    root = os.path.realpath(_home(home))
     out = []
     for item in evidence:
         if not isinstance(item, dict) or set(item) != {"path", "sha256"}:
@@ -212,8 +211,20 @@ def _message_evidence(evidence, home):
             raise RoomError("bad_evidence", "invalid evidence path or digest")
         try:
             path.encode("utf-8")
-            if not os.path.isabs(path):
-                raise RoomError("bad_evidence", "path must be absolute")
+        except UnicodeError as exc:
+            raise RoomError("bad_evidence", "invalid evidence path") from exc
+        if not os.path.isabs(path) or "\0" in path:
+            raise RoomError("bad_evidence", "path must be a valid absolute path")
+        out.append({"path": path, "sha256": digest})
+    return out
+
+
+def _resolve_message_evidence(evidence, home):
+    root = os.path.realpath(_home(home))
+    out = []
+    for item in evidence:
+        path = item["path"]
+        try:
             resolved = os.path.realpath(path)
             if os.path.islink(path) or resolved != os.path.abspath(path):
                 raise RoomError("bad_evidence", "symlink evidence is not allowed")
@@ -226,13 +237,13 @@ def _message_evidence(evidence, home):
                 raise RoomError("bad_evidence", "evidence must be a bounded regular file")
         except (OSError, ValueError, UnicodeError) as exc:
             raise RoomError("bad_evidence", "invalid evidence file") from exc
-        out.append({"path": resolved, "sha256": digest})
+        out.append({"path": resolved, "sha256": item["sha256"]})
     return out
 
 
 def _verify_message_evidence(evidence, home):
     """Hash new messages only, after replay lookup under the writer lock."""
-    for item in _message_evidence(evidence, home):
+    for item in _resolve_message_evidence(evidence, home):
         try:
             flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
             with os.fdopen(os.open(item["path"], flags), "rb") as stream:
@@ -373,8 +384,12 @@ def _is_valid_event(o):
             return False
         if validate_op_shape is None:
             return False
+        capped_op = op
+        if op.get("kind") == "agent.lifecycle" and "result" in op:
+            # Terminal result fields have their own bounds in validate_op_shape.
+            capped_op = {key: value for key, value in op.items() if key != "result"}
         try:
-            data = json.dumps(op, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+            data = json.dumps(capped_op, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
             raw = data.encode("utf-8")
         except (ValueError, TypeError, UnicodeError, RecursionError):
             return False
@@ -478,7 +493,14 @@ def _journal_stamp(home, room):
         st = os.stat(_events_path(root, room))
     except (FileNotFoundError, NotADirectoryError):
         return root, room, None
-    return root, room, None if stat.S_ISDIR(st.st_mode) else _view_metadata(st)
+    if not stat.S_ISREG(st.st_mode):
+        raise RoomError("room_read_failed", "Room data could not be read.")
+    return root, room, _view_metadata(st)
+
+
+def _open_nonblocking(path, flags):
+    # The journal can be replaced by a FIFO between stat and open.
+    return os.open(path, flags | getattr(os, "O_NONBLOCK", 0))
 
 
 def _remember_tail(key, proof):
@@ -539,8 +561,11 @@ def _read_event_view(home, room, after=None):
         else:
             proof = None
         try:
-            with open(_events_path(stamp[0], room), "rb") as f:
-                if _view_metadata(os.fstat(f.fileno())) != meta:
+            with open(_events_path(stamp[0], room), "rb", opener=_open_nonblocking) as f:
+                opened = os.fstat(f.fileno())
+                if not stat.S_ISREG(opened.st_mode):
+                    raise RoomError("room_read_failed", "Room data could not be read.")
+                if _view_metadata(opened) != meta:
                     continue
                 if proof is not None:
                     f.seek(max(0, offset - 64))
@@ -748,6 +773,18 @@ def _admit_completion_evidence(before, after, op, *, templates=None, home=None):
     This is deliberately separate from the reducer: historical completions and
     their receipts keep their original meaning, including invalid evidence.
     """
+    if op["kind"] == "micro.set" and op["state"] != "done":
+        micro_id = op["micro_id"]
+        task_id = micro_id.split(".", 1)[0]
+        for task in before["tasks"]:
+            if task["id"] != task_id:
+                continue
+            for step in task.get("pipeline", {}).get("steps", ()):
+                if step["micro_id"] == micro_id:
+                    attempt = _pipeline_current(step)
+                    if attempt is not None and attempt["state"] == "accepted":
+                        raise RoomError("bad_op", f"Cannot reopen accepted pipeline step {micro_id}.")
+
     candidates = completion_candidates(before, after, op)
     if not candidates:
         return
@@ -1083,7 +1120,12 @@ def post(room, agent, act, text, *, re=None, to=None, evidence=(), plan=None, st
         request_oid = op_id
     rdir = _room_dir(home, room)
     if _typed_message:
-        ev_list = _message_evidence(evidence, home)
+        evidence = _message_evidence(evidence)
+        if request_oid is None:
+            ev_list = _resolve_message_evidence(evidence, home)
+        else:
+            # Valid writes store the normalized path, which must match realpath.
+            ev_list = [dict(item, path=os.path.abspath(item["path"])) for item in evidence]
         request_evidence = ev_list
     else:
         evidence = _request_evidence(evidence)
@@ -1156,7 +1198,7 @@ def post(room, agent, act, text, *, re=None, to=None, evidence=(), plan=None, st
                                           plan=plan, step=step)
             if _typed_message:
                 _check_message_reference(parsed, room, agent, act, re)
-                _verify_message_evidence(ev_list, home)
+                _verify_message_evidence(evidence, home)
             else:
                 if request_oid is not None:
                     ev_list = _validate_evidence(evidence, rdir) if evidence else []
@@ -1770,15 +1812,11 @@ def read_checked(room, since=0, *, home=None):
         raise RoomError("bad_args", "since must be a non-negative integer")
     reason = "Room data could not be read."
 
-    def open_readonly(path, flags):
-        # A nonblocking open also makes a concurrently substituted FIFO safe.
-        return os.open(path, flags | getattr(os, "O_NONBLOCK", 0))
-
     path = _events_path(home, room)
     try:
         if not stat.S_ISREG(os.stat(path).st_mode):
             raise RoomError("room_read_failed", reason)
-        with open(path, "rb", opener=open_readonly) as stream:
+        with open(path, "rb", opener=_open_nonblocking) as stream:
             if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
                 raise RoomError("room_read_failed", reason)
             data = stream.read()

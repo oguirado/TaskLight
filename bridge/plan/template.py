@@ -2,6 +2,8 @@ import copy
 import hashlib
 import json
 import math
+import os
+import stat
 
 from .errors import PlanError
 from .limits import (
@@ -302,9 +304,18 @@ def validate_template(raw: object) -> dict:
     return normalized
 
 
+def _open_template_nonblocking(path, flags):
+    # A FIFO can replace the file between the path check and the open.
+    return os.open(path, flags | getattr(os, "O_NONBLOCK", 0))
+
+
 def load_template(path: str) -> dict:
     try:
-        with open(path, encoding="utf-8") as fh:
+        if not stat.S_ISREG(os.stat(path).st_mode):
+            raise _bad("template must be a regular file")
+        with open(path, encoding="utf-8", opener=_open_template_nonblocking) as fh:
+            if not stat.S_ISREG(os.fstat(fh.fileno()).st_mode):
+                raise _bad("template must be a regular file")
             text = fh.read()
     except (OSError, UnicodeError) as e:
         raise _bad(str(e)) from e
