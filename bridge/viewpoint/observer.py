@@ -2,10 +2,11 @@
 import json
 import os
 import re
+import tempfile
 
 MAX_SIZE = 256 * 1024
 MAX_STEPS = 12
-DEFAULT_ROOT = "/dev/shm/vqa-cu/vp-mwrun/metaviewer/runs"
+DEFAULT_ROOT = os.path.join(tempfile.gettempdir(), "tasklight", "viewpoint", "runs")
 
 try:
     from bridge.wall.emit import redact as _emit_redact

@@ -7,11 +7,12 @@ import os
 import signal
 import subprocess
 import sys
+import time
 
 from bridge.plan.errors import PlanError
 from bridge.room import app, store
 from bridge.room.__main__ import _JsonParser, _emit, _refuse
-from .supervise import _validate_metadata
+from . import supervise
 
 
 _HEADER_FIELDS = {"room", "parent", "parent_run", "lanes"}
@@ -31,7 +32,7 @@ def _lane_command(lane, room, parent, parent_run):
     if "harness" in lane:
         metadata["harness"] = lane["harness"]
     try:
-        _validate_metadata(metadata)
+        supervise._validate_metadata(metadata)
     except (PlanError, store.RoomError, ValueError):
         raise ValueError("invalid lifecycle identity or harness") from None
     argv = lane["argv"]
@@ -91,7 +92,7 @@ def _read_manifest(path):
         raise ValueError("manifest requires room, parent, parent_run and lanes")
     room, parent, parent_run = manifest["room"], manifest["parent"], manifest["parent_run"]
     try:
-        _validate_metadata({"room": room, "agent": parent, "run_id": parent_run})
+        supervise._validate_metadata({"room": room, "agent": parent, "run_id": parent_run})
     except (PlanError, store.RoomError, ValueError):
         raise ValueError("invalid room or parent identity") from None
     lanes = manifest["lanes"]
@@ -143,25 +144,40 @@ def _terminal_history(room, identities):
     return terminals
 
 
-def _wait_for_wrappers(wrappers, signals):
+def _wait_for_wrappers(wrappers, signals, jobs=None):
     exits, notified = {}, set()
     forwarded = False
+    stop_deadline = None
     for identity, wrapper in wrappers.items():
         while True:
             if signals and not forwarded:
                 for target, running in wrappers.items():
                     if target in exits or running.poll() is not None:
                         continue
-                    try:
-                        running.send_signal(signals[0])
-                    except ProcessLookupError:
-                        continue
+                    if jobs is not None:
+                        try:
+                            running.send_signal(signal.CTRL_BREAK_EVENT)
+                        except OSError:
+                            # A detached wave can have no shared console.
+                            jobs[target].terminate()
+                    else:
+                        try:
+                            running.send_signal(signals[0])
+                        except ProcessLookupError:
+                            continue
                     notified.add(target)
                 forwarded = True
+                if jobs is not None and notified:
+                    stop_deadline = time.monotonic() + supervise.SHUTDOWN_GRACE + supervise.RESULT_GRACE
+            if stop_deadline is not None and time.monotonic() >= stop_deadline:
+                for target in notified - exits.keys():
+                    if wrappers[target].poll() is None:
+                        jobs[target].terminate()
+                stop_deadline = None
             try:
-                # The handler only records the signal. A timed wait lets us
-                # forward it outside Popen's wait lock, including while it waits.
-                exits[identity] = wrapper.wait(timeout=None if forwarded else _WAIT_INTERVAL)
+                # The handler only records the signal. Forward outside Popen's wait lock.
+                timeout = _WAIT_INTERVAL if not forwarded or stop_deadline is not None else None
+                exits[identity] = wrapper.wait(timeout=timeout)
                 break
             except subprocess.TimeoutExpired:
                 continue
@@ -169,7 +185,7 @@ def _wait_for_wrappers(wrappers, signals):
 
 
 def _wrapper_reason(number):
-    return f"wrapper:{signal.Signals(number).name}"
+    return f"wrapper:{supervise._signal_name(number)}"
 
 
 def _run_wave(room, commands, signals):
@@ -186,24 +202,33 @@ def _run_wave(room, commands, signals):
         stdout = stderr = subprocess.DEVNULL
 
     wrappers, outcomes = {}, {}
-    try:
-        for identity, (command, stdin) in commands.items():
-            if identity in previous:
-                outcomes[identity] = ("skipped", "already_terminal", None)
-            elif signals:
-                outcomes[identity] = ("failed", _wrapper_reason(signals[0]), None)
-            else:
-                try:
-                    # Only the wave should receive signals to its foreground group.
-                    wrappers[identity] = subprocess.Popen(
-                        command, shell=False, stdin=stdin, stdout=stdout, stderr=stderr,
-                        start_new_session=True,
-                    )
-                except OSError as exc:
-                    code = 127 if isinstance(exc, FileNotFoundError) else 126
-                    outcomes[identity] = ("failed", f"exit:{code}", code)
-    finally:
-        exits, notified = _wait_for_wrappers(wrappers, signals)
+    wrapper_jobs = {} if supervise._WINDOWS else None
+    with ExitStack() as jobs:
+        try:
+            for identity, (command, stdin) in commands.items():
+                if identity in previous:
+                    outcomes[identity] = ("skipped", "already_terminal", None)
+                elif signals:
+                    outcomes[identity] = ("failed", _wrapper_reason(signals[0]), None)
+                else:
+                    streams = {"stdin": stdin, "stdout": stdout, "stderr": stderr}
+                    try:
+                        # Only the wave should receive signals to its foreground group.
+                        if wrapper_jobs is not None:
+                            wrapper, job = supervise._launch_windows(command, jobs, **streams)
+                            wrappers[identity], wrapper_jobs[identity] = wrapper, job
+                        else:
+                            wrappers[identity] = subprocess.Popen(
+                                command, shell=False, start_new_session=True, **streams,
+                            )
+                    except OSError as exc:
+                        code = 127 if isinstance(exc, FileNotFoundError) else 126
+                        outcomes[identity] = ("failed", f"exit:{code}", code)
+        except BaseException:
+            if wrapper_jobs is None:
+                _wait_for_wrappers(wrappers, signals)
+            raise
+        exits, notified = _wait_for_wrappers(wrappers, signals, wrapper_jobs)
 
     if exits:
         history_error = False
@@ -246,7 +271,7 @@ def main(argv=None):
             signals.append(number)
 
     with ExitStack() as handlers:
-        for number in (signal.SIGINT, signal.SIGTERM):
+        for number in supervise._handled_signals():
             previous = signal.signal(number, remember_signal)
             handlers.callback(signal.signal, number, previous)
         try:

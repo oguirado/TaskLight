@@ -60,3 +60,7 @@ NON-BLOCKING (known debt, no test): `find` lstat/open race (not deterministicall
 ACCEPTED (BLOCKING): (1) `state` must not follow repo metadata outside roots: `.git` file with absolute/relative `gitdir:` outside (rc != 0, no outside head/branch); `core.worktree` and config `include` pointing outside must not change the answer (rc!=0 or dirty 0); (2) no clean/smudge filter (config and `info/attributes`), hook, or fsmonitor execution (planted marker file must not appear); (3) root-ancestor replacement races: ancestor of the allowed root swapped for a symlink after `Roots.resolve` (page, tail, state) and repo dir / root ancestor swapped between validation and git launch (patched `subprocess.run`, outside repo's HEAD/branch must never appear) (B5 "symlinks never followed, nothing read"); (4) `Roots(("/",)).resolve` accepts descendants.
 Stances: the `core.worktree`/include/global-config checks accept either rejection or in-root answer; the git launch race test is coupled to `subprocess.run` (B4 mandates subprocess in `state.py`). Currently green by design: include/global-config/hook/fsmonitor scenarios already neutralised by existing flags.
 NON-BLOCKING (no test): stale "STUB" text in `bridge/ctx/__init__.py`.
+
+## XPLAT_PROC
+
+`test_state_platforms.py` injects Windows and macOS and rejects a default procfs read. An unavailable procfs root returns `capability: procfs_unavailable`, while a missing PID under an available root retains the existing empty facts. Git config isolation must use the platform null device.

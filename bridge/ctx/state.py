@@ -3,6 +3,7 @@ import hashlib
 import os
 import stat
 import subprocess
+import sys
 
 from .envelope import respond
 from .limits import GIT_TIMEOUT_S
@@ -17,6 +18,8 @@ class _GitFail(Exception):
 
 
 def _fd_path(fd: int):
+    if not sys.platform.startswith("linux"):
+        return None
     path = "/proc/self/fd/%d" % fd
     try:
         os.stat(path)
@@ -29,8 +32,8 @@ def _git_env():
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     env["GIT_OPTIONAL_LOCKS"] = "0"
     env["GIT_CONFIG_NOSYSTEM"] = "1"
-    env["GIT_CONFIG_GLOBAL"] = "/dev/null"
-    env["GIT_CONFIG_SYSTEM"] = "/dev/null"
+    env["GIT_CONFIG_GLOBAL"] = os.devnull
+    env["GIT_CONFIG_SYSTEM"] = os.devnull
     env["GIT_ATTR_NOSYSTEM"] = "1"
     env["GIT_ATTR_NOGLOBAL"] = "1"
     env["GIT_TRACE"] = "0"
@@ -341,7 +344,7 @@ def _git_facts(target: str, roots):
         def _run_git(args: list) -> str:
             _check_pinned()
             argv = ["git", "--no-pager", "--no-optional-locks",
-                    "-c", "core.fsmonitor=", "-c", "core.hooksPath=/dev/null",
+                    "-c", "core.fsmonitor=", "-c", "core.hooksPath=" + os.devnull,
                     "-c", "core.untrackedCache=false",
                     "-C", repo_p, "--git-dir", gitdir_p, "--work-tree",
                     repo_p] + args
@@ -403,6 +406,13 @@ def state(target: str, roots, proc_root: str = "/proc", now_s: int | None = None
             if not pid_text.isdigit():
                 return respond("state", 2, {"facts": {}})
             pid = int(pid_text)
+            if proc_root == "/proc":
+                proc_available = (sys.platform.startswith("linux")
+                                  and os.path.isfile(os.path.join(proc_root, "stat")))
+            else:
+                proc_available = os.path.isdir(proc_root)
+            if not proc_available:
+                return respond("state", 7, {"facts": {}, "capability": "procfs_unavailable"})
             base = os.path.join(proc_root, str(pid))
             try:
                 with open(os.path.join(base, "stat"), "r") as fh:

@@ -56,3 +56,7 @@ latest plan shares a content word (>= 3 letters, minus UI stopwords) with the ru
 Unknown-capsule runs consider any such agent; known-capsule runs only that capsule's agent id. Typed text is compared in
 memory and never posted. New tests: `test_u43_merge.py`. `--viewpoint --no-observer` (run_tasklight) removes the
 observer entirely for cooperative-only takes.
+
+## XPLAT_PROC
+
+`test_portable_root.py` checks that the default run root resolves below the platform temporary directory and ends in `runs`. A default rooted in shared memory fails the test.

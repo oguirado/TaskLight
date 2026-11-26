@@ -511,12 +511,12 @@ class ProcObserver:
         plat = platform if platform is not None else sys.platform
         self._platform = plat
         self._seen = set()
-        if plat.startswith("linux"):
-            self.disabled_reason = None
-        else:
-            self.disabled_reason = (
-                "proc observer disabled: /proc is unavailable on platform "
-                + str(plat))
+
+    @property
+    def disabled_reason(self):
+        if self._platform.startswith("linux") and os.path.isfile("/proc/stat"):
+            return None
+        return "proc observer disabled: /proc is unavailable on platform " + str(self._platform)
 
     def _facts(self, pid):
         base = "/proc/%d" % pid

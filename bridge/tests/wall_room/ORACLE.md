@@ -129,3 +129,7 @@ Tests below are methods of `Paging`.
 New-test method outcomes: 24 red, 14 green [MEASURED]. The 43 failure entries [MEASURED] include individual failing subtests; they are not distinct test methods. Zero errors and zero skips [MEASURED]. All reds are assertions exposing omitted operation redaction/validation; there are no U58 stubs to raise a stub exception. Paging without drops, legacy invariance, copy-failure containment and send-failure containment already pass.
 
 `bridge/wall/room_relay.py` SHA-256 before and after test creation: `8733a4f4dbc329171f9390ec9fecd9693e3ad325774cdfa9b6f2973aa33a2efd` [MEASURED]. No production file was edited. This isolated workspace has no Git metadata; `git status` cannot provide a change receipt. Only the explicitly authorized test modules were created and this pre-existing `ORACLE.md` was appended.
+
+## XPLAT_PROC
+
+`test_proc_platforms.py` injects Windows and macOS and requires an explicit disabled status without probing procfs. If procfs disappears after a Linux PID has been observed, polling must report the unavailable capability and emit no process-exit event.

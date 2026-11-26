@@ -1,10 +1,12 @@
 """Observe a CLI child's lifecycle without capturing its streams or command."""
 
 import argparse
+from contextlib import ExitStack
 import json
 import math
 import os
 import secrets
+import select
 import signal
 import stat
 import subprocess
@@ -21,6 +23,159 @@ RESULT_FILE_MAX_BYTES = 65536
 SHUTDOWN_GRACE = 2.0
 RESULT_GRACE = 2.0
 POLL_INTERVAL = 0.125
+_WINDOWS = sys.platform == "win32"
+_CREATE_SUSPENDED = 0x00000004
+
+
+def _windows_function(kernel, name, result, *args):
+    function = getattr(kernel, name)
+    function.restype = result
+    function.argtypes = args
+    return function
+
+
+class _WindowsJob:
+    """Keep the command tree bound to a private, non-inheritable job handle."""
+
+    def __enter__(self):
+        import ctypes
+        from ctypes import wintypes as w
+
+        class BasicLimits(ctypes.Structure):
+            _fields_ = [
+                ("process_time", ctypes.c_longlong), ("job_time", ctypes.c_longlong),
+                ("flags", w.DWORD), ("min_working_set", ctypes.c_size_t),
+                ("max_working_set", ctypes.c_size_t), ("active_processes", w.DWORD),
+                ("affinity", ctypes.c_size_t), ("priority_class", w.DWORD),
+                ("scheduling_class", w.DWORD),
+            ]
+
+        class IOCounters(ctypes.Structure):
+            _fields_ = [(name, ctypes.c_ulonglong) for name in (
+                "reads", "writes", "other_ops", "read_bytes", "written_bytes", "other_bytes",
+            )]
+
+        class ExtendedLimits(ctypes.Structure):
+            _fields_ = [
+                ("basic", BasicLimits), ("io", IOCounters),
+                ("process_memory", ctypes.c_size_t), ("job_memory", ctypes.c_size_t),
+                ("peak_process_memory", ctypes.c_size_t), ("peak_job_memory", ctypes.c_size_t),
+            ]
+
+        self._kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        function = _windows_function
+        create = function(self._kernel, "CreateJobObjectW", w.HANDLE, w.LPVOID, w.LPCWSTR)
+        set_info = function(self._kernel, "SetInformationJobObject", w.BOOL,
+                            w.HANDLE, ctypes.c_int, w.LPVOID, w.DWORD)
+        self._close = function(self._kernel, "CloseHandle", w.BOOL, w.HANDLE)
+        self._assign = function(self._kernel, "AssignProcessToJobObject", w.BOOL,
+                                w.HANDLE, w.HANDLE)
+        self._terminate = function(self._kernel, "TerminateJobObject", w.BOOL, w.HANDLE, w.UINT)
+        self._handle = create(None, None)
+        if not self._handle:
+            raise ctypes.WinError(ctypes.get_last_error())
+        try:
+            limits = ExtendedLimits()
+            limits.basic.flags = 0x00002000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+            extended_limit_information = 9
+            if not set_info(self._handle, extended_limit_information,
+                            ctypes.byref(limits), ctypes.sizeof(limits)):
+                raise ctypes.WinError(ctypes.get_last_error())
+        except BaseException:
+            self._close(self._handle)
+            raise
+        return self
+
+    def __exit__(self, *_exc):
+        self._close(self._handle)
+
+    def attach(self, child):
+        import ctypes
+
+        if not self._assign(self._handle, child._handle):
+            raise ctypes.WinError(ctypes.get_last_error())
+        self._resume(child.pid)
+
+    def _resume(self, pid):
+        import ctypes
+        from ctypes import wintypes as w
+
+        class ThreadEntry(ctypes.Structure):
+            _fields_ = [
+                ("size", w.DWORD), ("usage", w.DWORD), ("thread_id", w.DWORD),
+                ("owner_pid", w.DWORD), ("base_priority", w.LONG),
+                ("delta_priority", w.LONG), ("flags", w.DWORD),
+            ]
+
+        function = _windows_function
+        snapshot = function(self._kernel, "CreateToolhelp32Snapshot", w.HANDLE, w.DWORD, w.DWORD)
+        pointer = ctypes.POINTER(ThreadEntry)
+        first = function(self._kernel, "Thread32First", w.BOOL, w.HANDLE, pointer)
+        advance = function(self._kernel, "Thread32Next", w.BOOL, w.HANDLE, pointer)
+        open_thread = function(self._kernel, "OpenThread", w.HANDLE, w.DWORD, w.BOOL, w.DWORD)
+        resume = function(self._kernel, "ResumeThread", w.DWORD, w.HANDLE)
+
+        # Popen closes the initial thread handle. Open that thread by ID
+        # while the command is still suspended and has no other threads.
+        threads = snapshot(0x00000004, 0)  # TH32CS_SNAPTHREAD
+        if threads == ctypes.c_void_p(-1).value:
+            raise ctypes.WinError(ctypes.get_last_error())
+        try:
+            entry = ThreadEntry()
+            entry.size = ctypes.sizeof(entry)
+            found = first(threads, ctypes.byref(entry))
+            while found and entry.owner_pid != pid:
+                entry.size = ctypes.sizeof(entry)
+                found = advance(threads, ctypes.byref(entry))
+            if not found:
+                raise ctypes.WinError(ctypes.get_last_error())
+            thread = open_thread(0x0002, False, entry.thread_id)  # THREAD_SUSPEND_RESUME
+            if not thread:
+                raise ctypes.WinError(ctypes.get_last_error())
+            try:
+                suspended = resume(thread)
+                if suspended == 0xFFFFFFFF:
+                    raise ctypes.WinError(ctypes.get_last_error())
+                if suspended != 1:
+                    raise OSError("unexpected initial thread suspension count")
+            finally:
+                self._close(thread)
+        finally:
+            self._close(threads)
+
+    def terminate(self):
+        import ctypes
+
+        if not self._terminate(self._handle, 1):
+            raise ctypes.WinError(ctypes.get_last_error())
+
+
+def _launch_windows(command, jobs, **streams):
+    with ExitStack() as startup:
+        job = startup.enter_context(_WindowsJob())
+        child = subprocess.Popen(
+            command, shell=False, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | _CREATE_SUSPENDED,
+            **streams,
+        )
+        try:
+            job.attach(child)
+        except BaseException:
+            child.kill()
+            child.wait()
+            raise
+        jobs.enter_context(startup.pop_all())
+    return child, job
+
+
+def _handled_signals():
+    signals = (signal.SIGINT, signal.SIGTERM)
+    return (*signals, signal.SIGBREAK) if _WINDOWS else signals
+
+
+def _signal_name(number):
+    if _WINDOWS and number == signal.SIGBREAK:
+        return "SIGBREAK"
+    return signal.Signals(number).name
 
 
 def _validate_metadata(metadata):
@@ -108,7 +263,7 @@ class _Lifecycle:
 def _open_regular_result(path, flags):
     # Inspect the opened descriptor, preventing path replacement races. Opening
     # a FIFO without a writer must return promptly before rejecting its type.
-    descriptor = os.open(path, flags | os.O_NONBLOCK)
+    descriptor = os.open(path, flags | getattr(os, "O_NONBLOCK", 0))
     try:
         if not stat.S_ISREG(os.fstat(descriptor).st_mode):
             raise ValueError("result file must be regular")
@@ -217,13 +372,61 @@ def _cancellation(signals, wall, observed_at):
     if signals:
         received_at, number = signals[0]
         if received_at <= observed_at and (wall is None or received_at <= wall):
-            return number, "wrapper:" + signal.Signals(number).name
+            return number, "wrapper:" + _signal_name(number)
     if wall is not None and observed_at >= wall:
         return signal.SIGTERM, "wall_timeout"
     return None, None
 
 
-def _wait_for_child(child, options, spawned_at, lifecycle, signals, result):
+def _group_exit_probe(child, resources):
+    if callable(getattr(os, "waitid", None)) and hasattr(os, "WNOWAIT"):
+        def exited():
+            return os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is not None
+        return exited
+
+    queue = select.kqueue()
+    resources.callback(queue.close)
+    try:
+        queue.control([select.kevent(child.pid, filter=select.KQ_FILTER_PROC,
+                                    flags=select.KQ_EV_ADD, fflags=select.KQ_NOTE_EXIT)], 0, 0)
+    except ProcessLookupError:
+        # An already exited child cannot be registered, but is still waitable.
+        return lambda: True
+
+    seen_exit = False
+
+    def exited():
+        nonlocal seen_exit
+        if not seen_exit:
+            seen_exit = bool(queue.control(None, 1, 0))
+        return seen_exit
+
+    return exited
+
+
+def _wait_for_windows_child(child, job, options, spawned_at, lifecycle, signals):
+    next_beat = spawned_at + options.beat
+    wall = spawned_at + options.wall_s if options.wall_s is not None else None
+    code = None
+    while True:
+        now = time.monotonic()
+        _, reason = _cancellation(signals, wall, now)
+        if reason is not None:
+            job.terminate()
+            return child.wait(), reason
+        if code is not None:
+            return code, None
+        if now >= next_beat:
+            lifecycle.emit("alive")
+            next_beat = max(next_beat + options.beat, now + options.beat)
+        deadline = next_beat if wall is None else min(next_beat, wall)
+        try:
+            code = child.wait(timeout=min(POLL_INTERVAL, max(0, deadline - now)))
+        except subprocess.TimeoutExpired:
+            continue
+
+
+def _wait_for_child(child, options, spawned_at, lifecycle, signals, result, group_exited):
     next_beat = spawned_at + options.beat
     wall = spawned_at + options.wall_s if options.wall_s is not None else None
     group = not options.no_group
@@ -236,12 +439,11 @@ def _wait_for_child(child, options, spawned_at, lifecycle, signals, result):
             try:
                 # poll()/wait() would release the leader's PID before we can
                 # safely signal descendants still using it as their group ID.
-                exited = os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+                exited = group_exited()
             except ChildProcessError:
                 # There is no kernel child to pin, so never signal its group.
                 group = False
                 continue
-            exited = exited is not None
         else:
             code = child.poll()
             exited = code is not None
@@ -308,21 +510,24 @@ def main(argv=None):
     metadata, options, command = _arguments(list(sys.argv[1:] if argv is None else argv))
     lifecycle = _Lifecycle(metadata)
     signals = []
-    previous_handlers = {}
 
     def remember_signal(number, _frame):
         if not signals:
             signals.append((time.monotonic(), number))
 
-    try:
+    with ExitStack() as handlers, ExitStack() as resources:
         # Install before deployment/launch so startup signals are not lost.
-        for number in (signal.SIGINT, signal.SIGTERM):
-            previous_handlers[number] = signal.signal(number, remember_signal)
+        for number in _handled_signals():
+            previous = signal.signal(number, remember_signal)
+            handlers.callback(signal.signal, number, previous)
         lifecycle.emit("deployed")
         try:
             # Inherit the actual descriptors: preserve binary streams, stdin,
             # terminal behavior, and every argument after the separator.
-            child = subprocess.Popen(command, shell=False, start_new_session=not options.no_group)
+            if _WINDOWS:
+                child, job = _launch_windows(command, resources)
+            else:
+                child = subprocess.Popen(command, shell=False, start_new_session=not options.no_group)
         except OSError as exc:
             code = 127 if isinstance(exc, FileNotFoundError) else 126
             lifecycle.emit("failed", "exit:" + str(code))
@@ -331,7 +536,14 @@ def main(argv=None):
         spawned_at = time.monotonic()
         lifecycle.emit("alive")
         result = _Result(options.result_file)
-        code, reason = _wait_for_child(child, options, spawned_at, lifecycle, signals, result)
+        if _WINDOWS:
+            code, reason = _wait_for_windows_child(child, job, options, spawned_at, lifecycle, signals)
+            if code or reason:
+                resources.close()
+        else:
+            group_exited = None if options.no_group else _group_exit_probe(child, resources)
+            code, reason = _wait_for_child(child, options, spawned_at, lifecycle, signals,
+                                           result, group_exited)
         value = result.finish()
         if code < 0:
             try:
@@ -344,7 +556,3 @@ def main(argv=None):
         lifecycle.emit("failed" if reason or code else "finished",
                        reason or "exit:" + str(code), result=value)
         return code
-    finally:
-        # No background heartbeat survives the wait or terminal lifecycle event.
-        for number, handler in previous_handlers.items():
-            signal.signal(number, handler)
