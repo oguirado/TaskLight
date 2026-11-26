@@ -3,15 +3,17 @@
 //   node tools/demo/run_demo.mjs [--dir <path>]  (default: $TASKLIGHT_DEMO_DIR or <os tmpdir>/tasklight-demo) [--headless] [--keep] [--no-mcp]
 //
 // room events.jsonl -> bridge.wall native host -> extension SW -> hosted wall page (vite dev)
-// and back: wall chat -> SW -> native host -> room `question` event.
+// The browser sends a question through Messages (legacy). MCP drives shared planning.
 // Everything lives under --dir (throwaway profile, CW_HOME, key pair, logs, shots).
 // Only processes started here are stopped (their own process groups); --keep leaves them up.
 import { spawn, execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { createServer } from "node:net";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, openSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import os from "node:os";
 import path from "node:path";
+import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { chromeCandidates, summaryExitCode } from "./demo_lib.mjs";
 
@@ -21,13 +23,14 @@ const opt = (name, dflt) => {
   const i = args.indexOf(name);
   return i >= 0 && i + 1 < args.length ? args[i + 1] : dflt;
 };
-const DIR = opt("--dir", process.env.TASKLIGHT_DEMO_DIR ?? path.join(os.tmpdir(), "tasklight-demo"));
+const DIR = path.resolve(opt("--dir", process.env.TASKLIGHT_DEMO_DIR ?? join(os.tmpdir(), "tasklight-demo")));
 const HEADLESS = args.includes("--headless") || !process.env.DISPLAY;
 const KEEP = args.includes("--keep");
 const NO_MCP = args.includes("--no-mcp");
-const DRIFT_LABEL = "Rules";
 const ROOM = "demo";
 const AGENT = "claude-code";
+const WALL_USER = "wall-user";
+const DRIFT_LABEL = "Rules";
 
 function findChrome() {
   const candidates = chromeCandidates(process.platform, process.env);
@@ -42,7 +45,7 @@ if (!CHROME) throw new Error("Chrome/Chromium browser not found: set CHROME or i
 const P = {
   profile: join(DIR, "profile"), cwhome: join(DIR, "cwhome"), keys: join(DIR, "keys"),
   logs: join(DIR, "logs"), shots: join(DIR, "shots"), ext: join(DIR, "ext"),
-  config: join(DIR, "wall.config.json"), plans: join(DIR, "plans"),
+  config: join(DIR, "wall.config.json"), plans: join(DIR, "plans"), cache: join(DIR, "vite-cache"),
 };
 if (P.profile.includes("/.config/")) throw new Error("refusing profile under ~/.config");
 for (const d of Object.values(P)) if (!d.endsWith(".json")) mkdirSync(d, { recursive: true });
@@ -107,10 +110,12 @@ async function waitForVite(url) {
   throw new Error(`Vite did not serve the TaskLight index within 15000 ms. Last lines of logs/vite.log:\n${tail}`);
 }
 
-function py(argv, env = {}) {
-  return execFileSync("python3", argv, {
-    cwd: REPO, encoding: "utf8", env: { ...process.env, CW_HOME: P.cwhome, ...env },
-  });
+// A parent harness's room or agent pin must not redirect the demo.
+const roomEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("CW_")));
+Object.assign(roomEnv, { CW_HOME: P.cwhome, PYTHONDONTWRITEBYTECODE: "1" });
+
+function py(argv) {
+  return execFileSync("python3", argv, { cwd: REPO, encoding: "utf8", env: roomEnv });
 }
 function roomPost(act, text, extra = []) {
   const out = py(["-m", "bridge.room", "post", "--room", ROOM, "--agent", AGENT, "--act", act, "--text", text, ...extra]);
@@ -118,6 +123,83 @@ function roomPost(act, text, extra = []) {
   const j = JSON.parse(out);
   if (!j.ok) throw new Error("room post failed: " + out);
   return j.event;
+}
+
+function toolAnswer(name, answer, isError = false) {
+  const payload = answer?.untrusted ?? answer;
+  const detail = JSON.stringify(payload)?.slice(0, 250);
+  if (isError || answer?.ok === false || payload?.ok === false) {
+    const code = payload?.code ?? answer?.code ?? "missing_refusal_code";
+    log(`${name} -> refused (${code}): ${detail}`);
+    throw new Error(`${name} refused: ${code}`);
+  }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error(`${name} returned an invalid payload`);
+  }
+  log(`${name} -> ${detail}`);
+  return payload;
+}
+
+async function withMcp(run) {
+  const child = spawn("python3", ["-m", "bridge.room.mcp"], {
+    cwd: REPO, env: { ...roomEnv, PYTHONPATH: REPO },
+    stdio: ["pipe", "pipe", "ignore"],
+  });
+  const lines = createInterface({ input: child.stdout });
+  let nextId = 0;
+  let pending;
+  const fail = (error) => pending?.reject(error);
+  child.on("error", fail);
+  child.stdin.on("error", fail);
+  lines.on("close", () => fail(new Error("MCP closed before replying")));
+  lines.on("line", (line) => {
+    let reply;
+    try {
+      reply = JSON.parse(line);
+    } catch (error) {
+      fail(error);
+      return;
+    }
+    if (!pending || reply.id !== pending.id) return;
+    if (reply.error) pending.reject(new Error(JSON.stringify(reply.error)));
+    else pending.resolve(reply.result);
+  });
+
+  const send = (message) => child.stdin.write(JSON.stringify({ jsonrpc: "2.0", ...message }) + "\n");
+  const request = async (method, params, label = method) => {
+    const id = ++nextId;
+    let timer;
+    try {
+      return await new Promise((resolve, reject) => {
+        pending = { id, resolve, reject };
+        timer = setTimeout(() => reject(new Error(`MCP timeout: ${label}`)), 10000);
+        send({ id, method, params });
+      });
+    } catch (error) {
+      log(`${label} -> ${error.message}`);
+      throw error;
+    } finally {
+      clearTimeout(timer);
+      pending = undefined;
+    }
+  };
+  try {
+    const initialized = await request("initialize", {
+      protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "run-demo", version: "1" },
+    });
+    log(`MCP initialize -> ${initialized.serverInfo?.name} ${initialized.protocolVersion}`);
+    send({ method: "notifications/initialized" });
+    await run(async (name, fields) => {
+      const reply = await request("tools/call", {
+        name, arguments: { room: ROOM, agent: AGENT, ...fields },
+      }, name);
+      return toolAnswer(name, JSON.parse(reply.content[0].text), reply.isError);
+    });
+  } finally {
+    lines.close();
+    child.stdin.end();
+    child.kill("SIGTERM");
+  }
 }
 
 // ---------- minimal CDP client (node >= 22 global WebSocket) ----------
@@ -184,7 +266,7 @@ open('ext_id.txt','w').write(''.join(chr(97+int(c,16)) for c in h))`], { cwd: P.
   log(py(["tools/demo/setup_native.py", "--profile", P.profile, "--ext-id", extId, "--cw-home", P.cwhome,
     "--config-out", P.config, "--room", ROOM, "--tier", "private", "--log", join(P.logs, "native_host.stderr.log")]).trim());
 
-  // 3. fresh room + plan v1 (before the host starts, so the room directory exists)
+  // 3. Fresh room before the host starts. Post the plans after the wall links.
   rmSync(join(P.cwhome, "rooms", ROOM), { recursive: true, force: true });
   const planV1 = { title: "Add CSV export to reports", steps: [
     { text: "Read the report module", accept: "entry points listed" },
@@ -198,16 +280,23 @@ open('ext_id.txt','w').write(''.join(chr(97+int(c,16)) for c in h))`], { cwd: P.
   ] };
   writeFileSync(join(P.plans, "plan_v1.json"), JSON.stringify(planV1));
   writeFileSync(join(P.plans, "plan_v2.json"), JSON.stringify(driftPlanV2));
-  // Only `open` is posted before the page exists: the room directory must exist for the host
-  // (room_post refuses rooms without a directory). Plan v1 is posted live, after the page links:
-  // a fresh page sends room_sync with since={} (store.since() knows no rooms yet), so history
-  // posted before the page opened is never replayed (see README_DEMO.md, "Known gaps").
+  // The native host needs the room directory before the page exists.
   roomPost("open", "Starting CSV export task");
 
   // 4. wall page (vite dev, 127.0.0.1; browsed as http://localhost:<port> to match externally_connectable)
   const vitePort = await freePort();
-  startProc("vite", process.execPath, [join(REPO, "node_modules/vite/bin/vite.js"), "--config", "tools/demo/vite.demo.config.ts",
-    "--host", "127.0.0.1", "--port", String(vitePort), "--strictPort"], {
+  startProc("vite", process.execPath, ["--input-type=module", "-e", `
+    import { createServer } from "vite";
+    const [port, cacheDir] = process.argv.slice(1);
+    const server = await createServer({
+      configFile: "tools/demo/vite.demo.config.ts",
+      configLoader: "runner",
+      cacheDir,
+      server: { host: "127.0.0.1", port: Number(port), strictPort: true },
+    });
+    await server.listen();
+    server.printUrls();
+  `, String(vitePort), P.cache], {
     cwd: REPO, env: { ...process.env, VITE_EXTENSION_ORIGINS: `chrome-extension://${extId}` },
   });
   const wallUrl = `http://localhost:${vitePort}/`;
@@ -219,7 +308,7 @@ open('ext_id.txt','w').write(''.join(chr(97+int(c,16)) for c in h))`], { cwd: P.
     "--enable-unsafe-extension-debugging", "--no-first-run", "--no-default-browser-check", "--disable-sync",
     "--password-store=basic", "--window-size=1280,900", "about:blank"];
   if (HEADLESS) chromeArgs.unshift("--headless=new");
-  startProc("chrome", CHROME, chromeArgs, { env: { ...process.env, CW_HOME: P.cwhome } });
+  startProc("chrome", CHROME, chromeArgs, { env: roomEnv });
   let wsUrl;
   for (let i = 0; i < 80 && !wsUrl; i++) {
     try { wsUrl = (await (await fetch(`http://127.0.0.1:${cdpPort}/json/version`)).json()).webSocketDebuggerUrl; } catch { await sleep(250); }
@@ -269,157 +358,175 @@ open('ext_id.txt','w').write(''.join(chr(97+int(c,16)) for c in h))`], { cwd: P.
     writeFileSync(join(P.shots, name), Buffer.from(data, "base64"));
     log(`screenshot ${join(P.shots, name)}`);
   };
-  const bodyHas = (s) => `document.body && document.body.innerText.includes(${JSON.stringify(s)})`;
+  const visibleText = (selector, text) =>
+    `Array.from(document.querySelectorAll(${JSON.stringify(selector)})).some(
+       (el) => el.checkVisibility() && el.textContent.trim() === ${JSON.stringify(text)})`;
+  const requireView = async (expr, label) => {
+    if (!await waitFor(expr, label)) throw new Error(`Missing UI evidence: ${label}`);
+  };
+  const click = async (selector) => {
+    const find = `document.querySelector(${JSON.stringify(selector)})`;
+    await requireView(`!!(${find}) && !(${find}).disabled`, `control ${selector}`);
+    await evalJs(`${find}.click()`);
+  };
 
-  const results = {};
+  const summary = { extId, wallUrl, plan: false, drift: false, question: null, planV2: false, memory: false };
+  const readRoom = () => py(["-m", "bridge.room", "read", "--room", ROOM, "--json"]);
+  const legacyTitle = `.app[data-view="wall"] .board .task-title`;
+  const legacyStep = `.app[data-view="wall"] .board .step-label`;
+  const banner = '.chat-drawer[data-open="true"] .chat-banner[data-kind="drift"][data-verdict="drift"]';
   if (!await waitFor(`document.title === "TaskLight" && !!document.querySelector('#wall')`, "wall page rendered")) {
     throw new Error("TaskLight wall page did not render");
   }
-  await sleep(1500); // let the T1 port link and the first room_hello / room_sync pass
+  await requireView(visibleText(".workspace-guidance > p", "Bridge connected"), "room bridge connected");
+  await click('button[data-nav="wall"]');
   roomPost("plan", "Plan v1 for CSV export", ["--plan-file", join(P.plans, "plan_v1.json")]);
-  results.plan = await waitFor(bodyHas(planV1.steps[0].text), "plan v1 task rendered");
-  await sleep(500);
-  await shot("1_plan.png");
-
-  // 7. step 0 active, then plan v2 that edits the active step -> drift
-  roomPost("step", "Started reading the report module", ["--step-json", JSON.stringify({ index: 0, state: "active" })]);
-  await sleep(1200);
-  roomPost("plan", "Plan v2 for CSV export", ["--plan-file", join(P.plans, "plan_v2.json")]);
-  results.drift = await waitFor(bodyHas(DRIFT_LABEL), `drift banner '${DRIFT_LABEL}'`);
-  await sleep(500);
-  await shot("2_drift.png");
-
-  // 8. chat: open the task Chat drawer first, then type + send through CDP Input events
-  const chatOpen = await evalJs(`(() => { const b = document.querySelector('button.task-chat'); if (!b) return null; b.scrollIntoView({block:'center'}); const r = b.getBoundingClientRect(); return {x: r.x + r.width/2, y: r.y + r.height/2}; })()`);
-  if (chatOpen) {
-    for (const type of ["mousePressed", "mouseReleased"]) await cdp.send("Input.dispatchMouseEvent", { type, x: chatOpen.x, y: chatOpen.y, button: "left", clickCount: 1 }, S);
-  } else log("task Chat button not found");
-  await sleep(500);
-  const box = await evalJs(`(() => { const t = document.querySelector('textarea.chat-input'); if (!t) return null; t.scrollIntoView({block:'center'}); const r = t.getBoundingClientRect(); return {x: r.x + r.width/2, y: r.y + r.height/2}; })()`);
-  const msg = "Why are you rewriting the module in Rust? Please keep Python.";
-  if (box) {
-    for (const type of ["mousePressed", "mouseReleased"]) await cdp.send("Input.dispatchMouseEvent", { type, x: box.x, y: box.y, button: "left", clickCount: 1 }, S);
-    await cdp.send("Input.insertText", { text: msg }, S);
-    await sleep(300);
-    log(`textarea before send: ${JSON.stringify(await evalJs("document.querySelector('textarea.chat-input').value"))}`);
-    const send = await evalJs(`(() => { const b = document.querySelector('button.chat-send'); if (!b) return null; const r = b.getBoundingClientRect(); return {x: r.x + r.width/2, y: r.y + r.height/2, disabled: b.disabled}; })()`);
-    log(`send button ${JSON.stringify(send)}`);
-    if (send) for (const type of ["mousePressed", "mouseReleased"]) await cdp.send("Input.dispatchMouseEvent", { type, x: send.x, y: send.y, button: "left", clickCount: 1 }, S);
-  } else log("chat textarea not found");
-  let q = null;
-  for (let i = 0; i < 40 && !q; i++) {
-    await sleep(250);
-    const evs = JSON.parse(py(["-m", "bridge.room", "read", "--room", ROOM, "--json"])).events;
-    q = evs.find((e) => e.act === "question" && e.text === msg) ?? null;
-  }
-  results.question = q;
-  log(`room question: ${q ? JSON.stringify(q) : "NOT FOUND"}`);
-  await waitFor(bodyHas(msg), "question echoed in chat log", 5000);
-  await shot("3_chat.png");
-  writeFileSync(join(P.logs, "room_events.json"), py(["-m", "bridge.room", "read", "--room", ROOM, "--json"]));
-
-  // 9. MCP v2 planning (skip with --no-mcp): plan_create, task_claim, microtask_set, memory_set
-  let planV2 = false;
-  let memory = false;
+  await requireView(
+    `${visibleText(legacyTitle, planV1.title)} && ${visibleText(legacyStep, planV1.steps[0].text)}`,
+    "legacy plan title and first step in Wall",
+  );
   if (NO_MCP) {
-    log("MCP step skipped (--no-mcp)");
-    planV2 = true;
-    memory = true;
-  } else {
-    const mcp = spawn("python3", ["-m", "bridge.room.mcp"], {
-      cwd: REPO,
-      env: { ...process.env, PYTHONPATH: REPO, CW_HOME: P.cwhome },
-      stdio: ["pipe", "pipe", "ignore"],
-    });
-    let nextId = 1;
-    let buf = "";
-    const pending = new Map();
-    mcp.stdout.on("data", (d) => {
-      buf += d.toString();
-      let idx;
-      while ((idx = buf.indexOf("\n")) >= 0) {
-        const line = buf.slice(0, idx).trim();
-        buf = buf.slice(idx + 1);
-        if (!line) continue;
-        try {
-          const resp = JSON.parse(line);
-          if (resp.id && pending.has(resp.id)) {
-            const { res, rej } = pending.get(resp.id);
-            pending.delete(resp.id);
-            if (resp.error) rej(new Error(JSON.stringify(resp.error)));
-            else res(resp.result);
-          }
-        } catch { /* ignore partial */ }
-      }
-    });
-    const mcpCall = (name, arguments_) => new Promise((res, rej) => {
-      const id = nextId++;
-      pending.set(id, { res, rej });
-      mcp.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: arguments_ } }) + "\n");
-      setTimeout(() => { if (pending.has(id)) { pending.delete(id); rej(new Error("MCP timeout " + name)); } }, 10000);
-    });
-    try {
-      const initId = nextId++;
-      await new Promise((res, rej) => {
-        pending.set(initId, { res, rej });
-        mcp.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: initId, method: "initialize", params: { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "run-demo", version: "0" } } }) + "\n");
-      });
-      const planTitle = "Add CSV export via MCP";
-      const created = await mcpCall("plan_create", {
-        room: ROOM, agent: AGENT, template_id: "web-app", title: planTitle,
-        brief: { goal: planTitle, users: "report readers", stack: "python + vite" },
-        tasks: [
-          { key: "t1", title: "Read report module", type: "feature", phase: "discovery", accept: "entry points listed" },
-          { key: "t2", title: "Add CSV writer", type: "feature", phase: "build", accept: "unit test passes" },
-          { key: "t3", title: "Wire export button", type: "ui", phase: "verify", accept: "button downloads file" },
-        ],
-      });
-      log("plan_create -> " + JSON.stringify(created).slice(0, 300));
-      const payloadOf = (result) => {
-        const text = result?.content?.[0]?.text;
-        if (!text) return result;
-        try { return JSON.parse(text); } catch { return result; }
-      };
-      const createPayload = payloadOf(created);
-      const ids = createPayload?.ids ?? {};
-      const firstTaskId = ids["t1"] ?? "t1";
-      await mcpCall("task_claim", { room: ROOM, agent: AGENT, task_id: firstTaskId, base_rev: 1 });
-      // Find a real micro id via plan_get, then mark it done.
-      let microId = "m1";
-      try {
-        const got = await mcpCall("plan_get", { room: ROOM });
-        const planPayload = payloadOf(got);
-        const tasks = planPayload?.plan?.tasks ?? planPayload?.tasks ?? [];
-        const firstMicro = (tasks[0]?.microtasks ?? planPayload?.tasks?.[0]?.microtasks)?.[0];
-        if (firstMicro?.id) microId = firstMicro.id;
-      } catch { /* fall back to m1 */ }
-      await mcpCall("microtask_set", { room: ROOM, agent: AGENT, id: microId, state: "done" });
-      await mcpCall("memory_set", { room: ROOM, agent: AGENT, section: "architecture", text: "CSV export: report module -> csv writer -> button download.", base_rev: 1 });
-      results.planV2 = await waitFor(bodyHas(planTitle), "MCP plan title rendered", 15000);
-      results.memory = await waitFor(bodyHas("Memory"), "Memory view entry rendered", 15000);
-      planV2 = results.planV2;
-      memory = results.memory;
-      await shot("4_plan_v2.png");
-      const memoryTab = await evalJs(`(() => { const b = document.querySelector('[role="tab"][data-nav="memory"]') || Array.from(document.querySelectorAll('button')).find((x) => x.textContent === 'Memory'); if (!b) return null; b.scrollIntoView({block:'center'}); const r = b.getBoundingClientRect(); return {x: r.x + r.width/2, y: r.y + r.height/2}; })()`);
-      if (memoryTab) {
-        for (const type of ["mousePressed", "mouseReleased"]) await cdp.send("Input.dispatchMouseEvent", { type, x: memoryTab.x, y: memoryTab.y, button: "left", clickCount: 1 }, S);
-      }
-      await sleep(800);
-      await shot("5_memory.png");
-      log(`MCP planV2=${planV2} memory=${memory}`);
-    } catch (e) {
-      log("MCP step failed: " + (e && e.stack ? e.stack : String(e)));
-      planV2 = false;
-      memory = false;
-    } finally {
-      try { mcp.stdin.end(); } catch { }
-      try { mcp.kill("SIGTERM"); } catch { }
-    }
+    await shot("1_plan.png");
+    summary.plan = true;
   }
 
-  const summary = { extId, wallUrl, plan: results.plan, drift: results.drift,
-    question: q ? { agent: q.agent, to: q.to, lamport: q.lamport } : null,
-    planV2, memory };
+  // Let the wall observe the active step before the old plan is replaced.
+  roomPost("step", "Started reading the report module", ["--step-json", JSON.stringify({ index: 0, state: "active" })]);
+  await requireView(
+    visibleText('.app[data-view="wall"] .board .step[data-state="active"] .step-label', planV1.steps[0].text),
+    "legacy first step active in Wall",
+  );
+  const closedMessages = 'button.messages-toggle[aria-expanded="false"]';
+  if (await evalJs(`!!document.querySelector(${JSON.stringify(closedMessages)})`)) await click(closedMessages);
+  const messagesTask = ".messages-legacy button.messages-task, button.task-chat";
+  const legacyTaskButton = `document.querySelector(${JSON.stringify(messagesTask)})`;
+  await requireView(`!!(${legacyTaskButton}) && !(${legacyTaskButton}).disabled`, "legacy task messages control");
+  await evalJs(`${legacyTaskButton}.click()`);
+  await requireView(
+    `!document.querySelector(${JSON.stringify(banner)}) && !!document.querySelector('.chat-drawer[data-open="true"]')`,
+    "legacy messages open before revision",
+  );
+  roomPost("plan", "Plan v2 for CSV export", ["--plan-file", join(P.plans, "plan_v2.json")]);
+  await requireView(
+    `${visibleText(banner + " .drift-removed li", planV1.steps[0].text)} &&
+     ${visibleText(banner + " .drift-added li", driftPlanV2.steps[0].text)} &&
+     ${visibleText(banner + " .drift-source", "Reviewed by " + DRIFT_LABEL.toLowerCase())}`,
+    "legacy drift verdict with removed and replacement steps",
+  );
+  await shot("2_drift.png");
+  summary.drift = true;
+
+  const question = "Why are you rewriting the module in Rust? Please keep Python.";
+  const chatInput = ".chat-drawer[data-open=true] textarea.chat-input";
+  await requireView(`!!document.querySelector(${JSON.stringify(chatInput)})`, "legacy chat composer");
+  await evalJs(`document.querySelector(${JSON.stringify(chatInput)}).focus()`);
+  await cdp.send("Input.insertText", { text: question }, S);
+  const sendButton = '.chat-drawer[data-open="true"] button.chat-send';
+  await requireView(`document.querySelector(${JSON.stringify(sendButton)})?.disabled === false`, "legacy chat Send enabled");
+  await evalJs(`document.querySelector(${JSON.stringify(sendButton)}).click()`);
+  const outgoing = '.chat-drawer[data-open="true"] .chat-msg[data-from="user"]';
+  await requireView(
+    `!!document.querySelector(${JSON.stringify(outgoing + '[data-delivery]:not([data-delivery="sending"])')})`,
+    "legacy question delivery settled",
+  );
+  const delivery = await evalJs(`document.querySelector(${JSON.stringify(outgoing + " .chat-delivery")})?.textContent`);
+  log(`legacy question -> ${delivery}`);
+  const event = JSON.parse(readRoom()).events.find((item) =>
+    item.agent === WALL_USER && item.to === AGENT && item.act === "question" && item.text === question);
+  if (!event || delivery !== `Delivered · ${event.id} · ${event.lamport}`) {
+    throw new Error(`Question delivery did not match a persisted receipt: ${delivery}`);
+  }
+  await requireView(visibleText(outgoing + '[data-delivery="delivered"] .chat-text', question),
+    "persisted question in Messages (legacy)");
+  await shot("3_chat.png");
+  summary.question = { agent: event.agent, to: event.to, lamport: event.lamport };
+
+  if (NO_MCP) {
+    log("MCP skipped (--no-mcp)");
+  } else {
+    await withMcp(async (call) => {
+      const write = (name, fields) => call(name, { ...fields, op_id: randomUUID() });
+      await click('.chat-drawer[data-open="true"] button.agent-chat-close');
+
+      const planTitle = "Verify the local TaskLight wall";
+      const taskTitle = "Check the TaskLight page entry point";
+      const indexCheck = { text: "Verify the hosted HTML title and Wall mount",
+        accept: "The source HTML declares the TaskLight title and wall mount" };
+      const memoryText = "TaskLight sends room events through the native host and extension to the Wall.";
+      // Strict web-app conformance requires these sections before plan_create.
+      for (const [section, text] of Object.entries({
+        architecture: memoryText,
+        decisions: "Use a throwaway browser profile and the development extension.",
+        constraints: "Run the demo locally without a Firebase project.",
+      })) {
+        await write("memory_set", { section, text, base_rev: 0 });
+      }
+      const created = await write("plan_create", {
+        template_id: "web-app", title: planTitle, strict: true,
+        brief: { goal: planTitle, users: "TaskLight operators", stack: "Python and Vite" },
+        tasks: [{ key: "entry", title: taskTitle, type: "test", phase: "discovery",
+          accept: "The checked HTML entry point loads and renders the Wall",
+          microtasks: [indexCheck, { text: "Inspect the plan task in the browser",
+            accept: "The Wall shows the plan and task titles" }] }],
+      });
+      const taskId = created.ids?.entry;
+      if (created.created !== true || !taskId) throw new Error("plan_create did not return the entry task");
+      const checked = await call("plan_check");
+      if (checked.conformance?.ok !== true) throw new Error("plan_check did not confirm conformance");
+      await requireView(
+        `${visibleText('.app[data-view="wall"] .plan-title', planTitle)} &&
+         ${visibleText('.app[data-view="wall"] .task-title', taskTitle)}`, "MCP plan title and task title in Wall",
+      );
+      await shot("1_plan.png");
+      summary.plan = true;
+
+      await write("agent_lifecycle", { state: "deployed", run_id: randomUUID(), harness: "external", swarm: "demo" });
+      const ready = await call("next_work");
+      const { tasks } = await call("plan_get");
+      const task = tasks.find((item) => item.id === taskId);
+      const micro = task?.microtasks.find((item) => item.text === indexCheck.text);
+      if (!Number.isSafeInteger(task?.rev) || !micro?.id || !ready.items?.some((item) => item.id === micro.id)) {
+        throw new Error("The current plan did not return the entry task revision and a ready microtask");
+      }
+      const claimed = await write("task_claim", { task_id: taskId, base_rev: task.rev });
+      const claim = claimed.task?.claim_lamport;
+      if (claimed.task?.assignee !== AGENT || !Number.isSafeInteger(claim) || claim <= 0) {
+        throw new Error("task_claim did not return ownership and a claim fence");
+      }
+      await write("microtask_set", { id: micro.id, state: "active", claim_lamport: claim });
+      const evidence = join(REPO, "hosting", "index.html");
+      const html = readFileSync(evidence, "utf8");
+      if (!html.includes("<title>TaskLight</title>") || !html.includes('id="wall"')) {
+        throw new Error("The hosted HTML source lacks the TaskLight title or Wall mount");
+      }
+      const reported = await write("microtask_set", {
+        id: micro.id, state: "done", claim_lamport: claim,
+        outcome: "Verified the TaskLight title and wall mount in the HTML source.", evidence: [evidence],
+      });
+      if (reported.microtask?.state !== "done" || !reported.microtask.evidence?.length) {
+        throw new Error("microtask_set did not acknowledge completion with evidence");
+      }
+
+      await click('button[data-nav="swarm"]');
+      const lane = `.app[data-view="swarm"] .swarm-lane[aria-label="Agent · ${AGENT} · demo"]`;
+      const progress = `${taskTitle}, active, 1/2`;
+      await requireView(
+        `${visibleText(lane + " .swarm-agent-name", AGENT)} &&
+         ${visibleText(lane + ` .swarm-task-bubble[aria-label^="${progress}"] .swarm-task-title`, taskTitle)}`,
+        "registered agent owns the task with one microtask complete in Agents",
+      );
+      await shot("4_plan_v2.png");
+      summary.planV2 = true;
+
+      await evalJs(`document.querySelector('button[data-nav="memory"]').click()`);
+      await requireView(visibleText('.app[data-view="memory"] [data-section-id="architecture"] > .memory-text',
+        memoryText), "architecture section text in Memory");
+      await shot("5_memory.png");
+      summary.memory = true;
+    });
+  }
+
+  writeFileSync(join(P.logs, "room_events.json"), readRoom());
   writeFileSync(join(P.logs, "summary.json"), JSON.stringify(summary, null, 2) + "\n");
   log("SUMMARY " + JSON.stringify(summary));
   cdp.ws.close();
