@@ -9,8 +9,10 @@ import re
 import shlex
 import shutil
 import signal
+import stat
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 from pathlib import Path
@@ -21,28 +23,15 @@ if __name__ == "__main__" and not __package__:
     sys.path[:] = [path for path in sys.path if path != _repo_root]
     sys.path.insert(0, _repo_root)
 
+from bridge import install
+
 VERBS = ("extension-id", "build-extension", "mcp-config", "doctor", "wall")
-CLIENTS = ("claude-desktop", "claude-code", "codex", "gemini", "vscode", "cursor")
-BROWSERS = ("chrome", "chromium", "edge", "brave")
-HOST_NAME = "com.contextwall.bridge"
-_LINUX_SUBDIRS = {
-    "chrome": "google-chrome",
-    "chromium": "chromium",
-    "edge": "microsoft-edge",
-    "brave": "BraveSoftware/Brave-Browser",
-}
-_DARWIN_SUBDIRS = {
-    "chrome": "Google/Chrome",
-    "chromium": "Chromium",
-    "edge": "Microsoft Edge",
-    "brave": "BraveSoftware/Brave-Browser",
-}
-_BROWSER_BINS = {
-    "chrome": ("google-chrome", "google-chrome-stable", "chrome"),
-    "chromium": ("chromium", "chromium-browser"),
-    "edge": ("microsoft-edge", "microsoft-edge-stable", "edge"),
-    "brave": ("brave-browser", "brave", "brave-stable"),
-}
+CLIENTS = (
+    "claude-desktop", "claude-code", "codex", "gemini", "vscode", "cursor",
+    "antigravity", "antigravity-cli",
+)
+BROWSERS = install.BROWSERS
+HOST_NAME = install.HOST_NAME
 
 
 def _repo_root():
@@ -53,7 +42,7 @@ def _cw_home():
     cw = os.environ.get("CW_HOME")
     if cw:
         return Path(cw)
-    return Path.home() / ".context-wall"
+    return install._home() / ".context-wall"
 
 
 def _mcp_path_str():
@@ -159,24 +148,25 @@ def _expected_entry(client):
 
 
 def _target_path(client):
-    home = Path.home()
-    plat = sys.platform
+    home = install._home()
     if client == "claude-desktop":
-        if plat == "darwin":
-            return home / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
-        if plat.startswith("win"):
-            appdata = os.environ.get("APPDATA")
-            base = Path(appdata) if appdata else home / "AppData" / "Roaming"
-            return base / "Claude" / "claude_desktop_config.json"
-        return home / ".config" / "Claude" / "claude_desktop_config.json"
+        if sys.platform == "darwin":
+            root = home / "Library" / "Application Support"
+        elif install._is_win():
+            root = install._windows_appdata(roaming=True)
+        else:
+            root = install._xdg_config_home()
+        return root / "Claude" / "claude_desktop_config.json"
     if client == "cursor":
         return home / ".cursor" / "mcp.json"
     if client == "gemini":
         return home / ".gemini" / "settings.json"
+    if client == "antigravity":
+        return home / ".gemini" / "antigravity" / "mcp_config.json"
     if client == "vscode":
         return Path.cwd() / ".vscode" / "mcp.json"
     if client == "codex":
-        return home / ".codex" / "config.toml"
+        return (install._env_path("CODEX_HOME") or home / ".codex") / "config.toml"
     return None
 
 
@@ -190,11 +180,11 @@ def _codex_snippet():
     cw = str(_cw_home())
     lines = [
         "[mcp_servers.tasklight]",
-        "command = " + json.dumps(cmd),
-        "args = " + json.dumps(args),
+        "command = " + json.dumps(cmd, ensure_ascii=False),
+        "args = " + json.dumps(args, ensure_ascii=False),
         "",
         "[mcp_servers.tasklight.env]",
-        "CW_HOME = " + json.dumps(cw),
+        "CW_HOME = " + json.dumps(cw, ensure_ascii=False),
         "",
     ]
     return "\n".join(lines)
@@ -276,20 +266,46 @@ def _strip_codex_tasklight(text):
 
 
 def _stamp():
-    return datetime.datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d%H%M%S")
 
 
 def _backup_if_exists(target):
-    if target.exists() and target.is_file():
-        backup = target.parent / (target.name + ".bak-" + _stamp())
-        backup.write_bytes(target.read_bytes())
+    if not target.is_file():
+        return
+    with target.open("rb") as source:
+        backup = target.with_name(target.name + ".bak-" + _stamp())
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+        try:
+            fd = os.open(backup, flags, 0o600)
+        except FileExistsError:
+            fd, alternate = tempfile.mkstemp(dir=target.parent, prefix=backup.name + "-")
+            backup = Path(alternate)
+        try:
+            with os.fdopen(fd, "wb") as stream:
+                shutil.copyfileobj(source, stream)
+            if install._posix_modes():
+                os.chmod(backup, stat.S_IMODE(os.fstat(source.fileno()).st_mode))
+        except OSError:
+            backup.unlink(missing_ok=True)
+            raise
 
 
 def _atomic_write(target, data_bytes):
     target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = target.parent / (target.name + ".tmp")
-    tmp.write_bytes(data_bytes)
-    os.replace(tmp, target)
+    if install._posix_modes():
+        try:
+            mode = stat.S_IMODE(target.stat().st_mode)
+        except FileNotFoundError:
+            mode = 0o600
+    fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=target.name + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data_bytes)
+        if install._posix_modes():
+            os.chmod(tmp, mode)
+        install._replace_file(tmp, target)
+    finally:
+        Path(tmp).unlink(missing_ok=True)
 
 
 def _do_extension_id(rest):
@@ -366,13 +382,8 @@ def _do_mcp_json_apply(client, entry, target, force):
             return _emit({"ok": False, "error": "invalid_json", "client": client,
                           "file": str(target), "restart_hint": _restart_hint(client)}, 1)
         try:
-            raw_text = target.read_text(encoding="utf-8")
-        except OSError:
-            return _emit({"ok": False, "error": "invalid_json", "client": client,
-                          "file": str(target), "restart_hint": _restart_hint(client)}, 1)
-        try:
-            data = json.loads(raw_text)
-        except ValueError:
+            data = json.loads(target.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
             return _emit({"ok": False, "error": "invalid_json", "client": client,
                           "file": str(target), "restart_hint": _restart_hint(client)}, 1)
         if not isinstance(data, dict):
@@ -452,9 +463,7 @@ def _do_mcp_codex_apply(entry, target, force):
                 return _emit({"ok": False, "error": "codex_config_unrewritable",
                               "restart_hint": _restart_hint("codex")}, 1)
             try:
-                backup_raw = target.read_bytes()
-                backup = target.parent / (target.name + ".bak-" + _stamp())
-                backup.write_bytes(backup_raw)
+                _backup_if_exists(target)
                 _atomic_write(target, new_text.encode("utf-8"))
             except OSError:
                 return _emit({"ok": False, "error": "write_failed", "client": "codex",
@@ -487,6 +496,87 @@ def _do_mcp_codex_apply(entry, target, force):
                "snippet": snippet, "restart_hint": _restart_hint("codex")}
     # Include snippet dict form too for uniform parsing via mappings? Keep snippet string.
     return _emit(payload, 0)
+
+
+_AGY_ANSI_COLOR = re.compile(r"\x1b\[[0-?]*[ -/]*m")
+_AGY_STATUS_MARKER = re.compile(r"^\s*[✓✔✗✘×●○•*+-]\s*")
+
+
+def _parse_agy_list(output):
+    servers = {}
+    for line in _AGY_ANSI_COLOR.sub("", output).splitlines():
+        fields = _AGY_STATUS_MARKER.sub("", line).split(maxsplit=3)
+        if fields and fields[0] != "NAME":
+            # Keep the name and status from NAME, TYPE, STATUS, COMMAND/URL.
+            servers[fields[0]] = fields[2] if len(fields) > 2 else None
+    return servers
+
+
+def _run_agy(command):
+    try:
+        result = subprocess.run(command, capture_output=True, encoding="utf-8",
+                                errors="replace", timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return result.stdout if result.returncode == 0 else None
+
+
+def _agy_list(executable):
+    output = _run_agy([executable, "mcp", "list"])
+    return None if output is None else _parse_agy_list(output)
+
+
+def _command_preview(argv):
+    return subprocess.list2cmdline(argv) if install._is_win() else shlex.join(argv)
+
+
+def _claude_add_argv(entry):
+    return ["claude", "mcp", "add", "tasklight", "--scope", "user", "-e",
+            "CW_HOME=" + entry["env"]["CW_HOME"], "--", entry["command"], *entry["args"]]
+
+
+def _setup_command(script, *args):
+    executable = sys.executable if install._is_win() else "python3"
+    return _command_preview([executable, script, *args])
+
+
+def _do_mcp_agy(apply_, force):
+    client = "antigravity-cli"
+    argv = ["agy", "mcp", "add", "--env", "CW_HOME=" + str(_cw_home()),
+            "tasklight", sys.executable, _mcp_path_str()]
+    if not apply_:
+        command = _command_preview(argv)
+        return _emit({"ok": True, "client": client, "command_argv": argv, "command": command}, 0)
+
+    payload = {"ok": False, "client": client}
+    executable = shutil.which("agy")
+    if executable is None:
+        return _emit({**payload, "error": "agy_not_found"}, 1)
+    listed = _agy_list(executable)
+    if listed is None:
+        return _emit({**payload, "error": "agy_list_failed"}, 1)
+    legacy_entry = "context-wall" in listed
+    if "tasklight" in listed and not force:
+        error = "exists"
+    else:
+        added = _run_agy([executable, *argv[1:]])
+        verified = _agy_list(executable)
+        if verified is not None:
+            listed = verified
+            legacy_entry = legacy_entry or "context-wall" in verified
+        if added is None:
+            error = "agy_add_failed"
+        elif verified is None or verified.get("tasklight") != "enabled":
+            error = "agy_verify_failed"
+        else:
+            error = None
+    if "tasklight" in listed:
+        payload["tasklight_status"] = listed["tasklight"]
+    if legacy_entry:
+        payload.update(legacy_entry=True, legacy_hint="agy mcp remove context-wall")
+    if error is not None:
+        return _emit({**payload, "error": error}, 1)
+    return _emit({**payload, "ok": True}, 0)
 
 
 def _do_mcp_config(rest):
@@ -522,10 +612,10 @@ def _do_mcp_config(rest):
             return _usage("unknown flag")
     if client is None or client not in CLIENTS:
         return _usage("missing or unknown client")
+    if client == "antigravity-cli":
+        return _do_mcp_agy(apply_, force)
     if client == "claude-code":
-        expected = ["claude", "mcp", "add", "tasklight", "--scope", "user", "-e",
-                    "CW_HOME=" + str(_cw_home()), "--", sys.executable, _mcp_path_str()]
-        command = shlex.join(expected)
+        command = _command_preview(_claude_add_argv(_expected_entry(client)))
         return _emit({"ok": True, "client": "claude-code", "command": command,
                       "restart_hint": _restart_hint("claude-code")}, 0)
     entry = _expected_entry(client)
@@ -543,29 +633,8 @@ def _do_mcp_config(rest):
     return _do_mcp_json_apply(client, entry, target, force)
 
 
-def _manifest_dir(browser):
-    home = Path.home()
-    plat = sys.platform
-    if plat.startswith("win"):
-        local = os.environ.get("LOCALAPPDATA")
-        if not local:
-            local = str(home / "AppData" / "Local")
-        return Path(local) / "TaskLight" / "native"
-    if plat == "darwin":
-        return home / "Library" / "Application Support" / _DARWIN_SUBDIRS[browser] / "NativeMessagingHosts"
-    return home / ".config" / _LINUX_SUBDIRS[browser] / "NativeMessagingHosts"
-
-
-def _browser_profile(browser):
-    """Detect user profiles, independently of browser executables on PATH."""
-    home = Path.home()
-    if sys.platform.startswith("win"):
-        vendors = {"chrome": "Google/Chrome", "chromium": "Chromium",
-                   "edge": "Microsoft/Edge", "brave": "BraveSoftware/Brave-Browser"}
-        return home / "AppData" / "Local" / vendors[browser] / "User Data"
-    if sys.platform == "darwin":
-        return home / "Library" / "Application Support" / _DARWIN_SUBDIRS[browser]
-    return home / ".config" / _LINUX_SUBDIRS[browser]
+_manifest_dir = install._manifest_dir
+_browser_profile = install._browser_profile
 
 
 def _check_one_native(browser, dev_id):
@@ -581,6 +650,8 @@ def _check_one_native(browser, dev_id):
             return False, "native host manifest malformed"
         if not isinstance(data, dict):
             return False, "native host manifest malformed"
+        if data.get("name") != HOST_NAME or data.get("type") != "stdio":
+            return False, "native host manifest malformed"
         origins = data.get("allowed_origins")
         expected = "chrome-extension://" + dev_id + "/"
         if not isinstance(origins, list) or expected not in origins:
@@ -589,9 +660,22 @@ def _check_one_native(browser, dev_id):
         if not isinstance(launcher, str) or not launcher:
             return False, "native host launcher missing"
         lp = Path(launcher)
-        if not lp.is_file():
+        if install._is_win():
+            if not install._registry_matches(browser, mpath):
+                return False, "native host registry value missing or different"
+            lp = mpath.parent / lp  # Windows allows paths relative to the manifest.
+            if not lp.is_file():
+                return False, "native host launcher missing"
+            if lp.suffix.lower() not in (".bat", ".cmd", ".exe", ".com"):
+                return False, "native host launcher not executable"
+            try:
+                with lp.open("rb"):
+                    pass
+            except OSError:
+                return False, "native host launcher not readable"
+        elif not lp.is_absolute() or not lp.is_file():
             return False, "native host launcher missing"
-        if not os.access(str(lp), os.X_OK):
+        elif not os.access(lp, os.X_OK):
             return False, "native host launcher not executable"
         return True, "native host ok for " + browser
     except Exception:
@@ -721,8 +805,8 @@ def _do_doctor(rest):
             cfg_detail = "wall.config.json ok"
     except FileNotFoundError:
         cfg_detail = "wall.config.json missing"
-        cfg_fix = ("python3 bridge/install.py --browser " + (browser or "chrome") +
-                   " --room " + room + " --apply")
+        cfg_fix = _setup_command("bridge/install.py", "--browser", browser or "chrome",
+                                 "--room", room, "--apply")
     except (OSError, ValueError) as exc:
         cfg_fix = "Correct " + str(cfg_path) + ": " + str(exc)
     if cfg_ok:
@@ -747,7 +831,7 @@ def _do_doctor(rest):
         checks.append({"id": "extension_build", "status": "ok", "detail": ext_detail})
     else:
         checks.append({"id": "extension_build", "status": "fail", "detail": ext_detail,
-                       "fix": "python3 bridge/tasklight_setup.py build-extension --json"})
+                       "fix": _setup_command("bridge/tasklight_setup.py", "build-extension", "--json")})
     # native_host
     if browser is not None:
         to_check = [browser]
@@ -762,11 +846,31 @@ def _do_doctor(rest):
             check = {"id": "native_host" if len(to_check) == 1 else "native_host_" + b,
                      "status": "ok" if ok_one else "fail", "detail": detail_one}
             if not ok_one:
-                check["fix"] = "python3 bridge/install.py --browser " + b + " --apply"
+                check["fix"] = _setup_command("bridge/install.py", "--browser", b, "--apply")
             checks.append(check)
     # mcp_<client>
     for c in clients:
         cid = "mcp_" + c
+        if c == "antigravity-cli":
+            agy = shutil.which("agy")
+            listed = _agy_list(agy) if agy is not None else None
+            tasklight_status = listed.get("tasklight") if listed is not None else None
+            if tasklight_status == "enabled":
+                check = {"id": cid, "status": "ok", "detail": "tasklight listed by agy"}
+            else:
+                detail = "agy not found" if agy is None else "tasklight not verified by agy"
+                if agy is None:
+                    fix = "Install the Antigravity CLI and add agy to PATH."
+                elif tasklight_status == "disabled":
+                    fix = "agy mcp enable tasklight"
+                else:
+                    fix = _setup_command("bridge/tasklight_setup.py", "mcp-config",
+                                         "--client", c, "--apply", "--json")
+                check = {"id": cid, "status": "fail", "detail": detail, "fix": fix}
+            if listed is not None and "tasklight" in listed:
+                check["tasklight_status"] = tasklight_status
+            checks.append(check)
+            continue
         if c == "claude-code":
             claude = shutil.which("claude")
             if claude is None:
@@ -792,16 +896,14 @@ def _do_doctor(rest):
                             if sep and name in ("Command", "Args"):
                                 fields[name] = value.strip()
                         matched = (fields.get("Command") == expected["command"] and
-                                   fields.get("Args") in (shlex.join(expected["args"]),
+                                   fields.get("Args") in (_command_preview(expected["args"]),
                                                           " ".join(expected["args"])))
             except (OSError, subprocess.TimeoutExpired):
                 pass
             check = {"id": cid, "status": "ok" if matched else "fail",
                      "detail": "registration matches" if matched else "registration missing or different"}
             if not matched:
-                check["fix"] = shlex.join(["claude", "mcp", "add", "tasklight", "--scope", "user",
-                                           "-e", "CW_HOME=" + str(_cw_home()), "--",
-                                           expected["command"], *expected["args"]])
+                check["fix"] = _command_preview(_claude_add_argv(expected))
             checks.append(check)
             continue
         entry = _expected_entry(c)
@@ -832,8 +934,12 @@ def _do_doctor(rest):
         if ok_c:
             checks.append({"id": cid, "status": "ok", "detail": detail_c})
         else:
-            checks.append({"id": cid, "status": "fail", "detail": detail_c,
-                           "fix": "python3 bridge/tasklight_setup.py mcp-config --client " + c + " --apply --json"})
+            fix = _setup_command("bridge/tasklight_setup.py", "mcp-config",
+                                 "--client", c, "--apply", "--json")
+            if c == "antigravity":
+                detail_c = "mcp antigravity missing, invalid, or different"
+                fix = "Repair invalid MCP JSON if needed, then run " + fix + " --force"
+            checks.append({"id": cid, "status": "fail", "detail": detail_c, "fix": fix})
     # templates
     tpl_ok = False
     tpl_detail = "templates invalid"

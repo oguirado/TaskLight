@@ -43,8 +43,11 @@ describe("M1 positioning and legacy scope", () => {
   });
 
   it("describes Firebase hosting without claiming a deployment that is unavailable", () => {
-    expect(plain(text("README.md"))).toMatch(/Firebase/i);
-    expect(plain(text("README.md"))).toMatch(/pending|not.{0,20}deployed|not yet.{0,20}hosted/i);
+    const readme = plain(text("README.md"));
+    expect(readme).toMatch(/Firebase/i);
+    // Hosting is live: the README names the hosted wall and no longer calls the deployment pending.
+    expect(readme).toContain("https://tasklight-d59f6.web.app");
+    expect(readme).not.toMatch(/pending|not.{0,20}deployed|not yet.{0,20}hosted/i);
   });
 });
 

@@ -10,7 +10,7 @@ Greet the user and explain in two sentences what will happen: you will check loc
 
 ## Step 1: Inspect the starting point
 
-Choose the browser to configure (`chrome`, `chromium`, `edge`, or `brave`), then run the diagnostic check first, passing your own client name (`claude-desktop`, `claude-code`, `codex`, `gemini`, `vscode`, or `cursor`):
+Choose the browser to configure (`chrome`, `chromium`, `edge`, or `brave`), then run the diagnostic check first, passing your own client name (`claude-desktop`, `claude-code`, `codex`, `gemini`, `vscode`, `cursor`, `antigravity` or `antigravity-cli`):
 
 ```sh
 python3 bridge/tasklight_setup.py doctor --browser <chosen-browser> --client <client> --json
@@ -73,7 +73,9 @@ If it fails: exit code `3` indicates Python is older than 3.10; exit code `2` in
 
 ## Step 5: Configure the MCP server
 
-Pick `<client>` matching the assistant you are running in (`claude-desktop`, `claude-code`, `codex`, `gemini`, `vscode`, or `cursor`) and run:
+For Antigravity 2 desktop (`antigravity`) or Antigravity CLI (`antigravity-cli`), follow the [Antigravity setup guide](ANTIGRAVITY.md) for registration and client checks.
+
+For other clients, pick `<client>` matching the assistant you are running in (`claude-desktop`, `claude-code`, `codex`, `gemini`, `vscode`, or `cursor`) and run:
 
 ```sh
 python3 bridge/tasklight_setup.py mcp-config --client <client> --room <room> --apply --json

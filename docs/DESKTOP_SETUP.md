@@ -3,7 +3,7 @@
 An external harness deploys and directs agents; TaskLight displays their shared
 plans, coarse microtasks, identity, harness, current work, state, liveness,
 dependencies and progress. Keep terminals and human conversations in the harness.
-This guide sets up the desktop wall and MCP server before Firebase deployment.
+This guide sets up the local desktop wall and MCP server.
 
 For browser-free plans and memory, use [HEADLESS.md](HEADLESS.md).
 
@@ -155,6 +155,8 @@ CW_HOME = "<cw-home>"
 }
 ```
 
+**Antigravity 2 desktop app and Antigravity CLI** — follow the [Antigravity setup guide](ANTIGRAVITY.md) for their separate registries.
+
 ### Check discovery before writing
 
 From the repository root, with the same `CW_HOME`, run:
@@ -226,19 +228,18 @@ The local demo runs an isolated profile, ephemeral native host, local wall serve
 node tools/demo/run_demo.mjs
 ```
 
-Set `CHROME=/path/to/browser` to choose a specific binary; otherwise it searches `google-chrome`, `google-chrome-stable`, `chromium`, `chromium-browser`, `microsoft-edge`, and `brave-browser` on `PATH` and standard macOS app bundle paths. Pass `--no-mcp` to skip the MCP v2 planning and Memory checks.
+Set `CHROME` to the path of your browser executable; otherwise it searches `google-chrome`, `google-chrome-stable`, `chromium`, `chromium-browser`, `microsoft-edge`, and `brave-browser` on `PATH` and standard macOS app bundle paths. Pass `--no-mcp` to skip the MCP v2 planning and Memory checks.
 
 ## 7. Platform notes and known limits
 
 Open items from repository audits not yet resolved:
 
 - **MCP blocking call**: `wait_inbox` polls synchronously until its timeout, blocking other requests or cancellation on that connection.
-- **MCP handshake**: `initialize` always answers protocol `"2024-11-05"`. Full tool schemas come from `tools/list`; `docs/MCP.md` lists purposes only.
+- **MCP handshake**: `initialize` always answers protocol `"2024-11-05"`. Full tool schemas come from `tools/list`. See [MCP.md](MCP.md) for usage and argument examples.
 - **Windows native host & file paths**: `bridge/wall/native_host.py` uses `select.select` on stdin, which can stall on Windows pipes, and lacks explicit CRT binary-mode setup (`bridge/wall/__main__.py`). `bridge/models/store.py` and `bridge/ctx/paths.py` still use POSIX-only primitives (`os.getuid`, `O_DIRECTORY`, `O_NOFOLLOW`, `fchmod`).
 - **Windows Claude hook**: `bridge/room/hook_claude.py` still imports `fcntl` unconditionally.
 - **Process observer**: `ProcObserver` (`bridge/wall/observers.py`) is Linux-only and disabled on macOS and Windows.
 - **Demo portability**: `tools/demo/run_demo.mjs` still uses `sh`, `openssl`, and negative-PID process-group cleanup. `tools/demo/run_tasklight.mjs` still hardcodes Linux Chrome and relies on `sh`, `openssl`, `python3`, negative-PID cleanup, and `/proc` for `--stop`.
-- **Hosted wall**: Firebase hosting and project config are pending; the normal production panel points to `https://site.test/`.
 
 ## 8. Troubleshooting
 

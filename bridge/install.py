@@ -6,12 +6,15 @@ the HKCU registry value; --remove deletes only what --apply wrote.
 """
 import base64
 import binascii
+import errno
 import hashlib
 import json
 import os
 import re
 import shlex
 import sys
+import tempfile
+import time
 from pathlib import Path
 
 HOST_NAME = "com.contextwall.bridge"
@@ -56,12 +59,33 @@ def _valid_id(s):
 
 
 def _home():
-    h = os.environ.get("HOME")
-    return Path(h) if h else Path.home()
+    if _is_win():
+        return Path.home()
+    return _env_path("HOME") or Path.home()
+
+
+def _env_path(name):
+    value = os.environ.get(name)
+    return Path(value).expanduser() if value else None
 
 
 def _is_win():
     return sys.platform.startswith("win")
+
+
+def _posix_modes():
+    return os.name == "posix" and not _is_win()
+
+
+def _windows_appdata(*, roaming=False):
+    primary, fallback = ("APPDATA", "LOCALAPPDATA") if roaming else ("LOCALAPPDATA", "APPDATA")
+    return (_env_path(primary) or _env_path(fallback)
+            or _home() / "AppData" / ("Roaming" if roaming else "Local"))
+
+
+def _xdg_config_home():
+    root = _env_path("XDG_CONFIG_HOME")
+    return root if root is not None and root.is_absolute() else _home() / ".config"
 
 
 def _get_winreg():
@@ -75,17 +99,26 @@ def _get_winreg():
     return real_winreg
 
 
+def _browser_profile(browser):
+    if _is_win():
+        vendor = _VENDOR_PATHS[browser].split("\\")
+        return _windows_appdata().joinpath(*vendor, "User Data")
+    if sys.platform == "darwin":
+        return _home() / "Library" / "Application Support" / _DARWIN_SUBDIRS[browser]
+    if browser == "chrome":
+        override = _env_path("CHROME_USER_DATA_DIR")
+        if override is not None:
+            return override
+        root = _env_path("CHROME_CONFIG_HOME")
+        if root is not None:
+            return root / _LINUX_SUBDIRS[browser]
+    return _xdg_config_home() / _LINUX_SUBDIRS[browser]
+
+
 def _manifest_dir(browser):
-    platform = sys.platform
-    if platform.startswith("win"):
-        local = os.environ.get("LOCALAPPDATA")
-        if not local:
-            local = str(_home() / "AppData" / "Local")
-        return Path(local) / "TaskLight" / "native"
-    if platform == "darwin":
-        return (_home() / "Library" / "Application Support"
-                / _DARWIN_SUBDIRS[browser] / "NativeMessagingHosts")
-    return _home() / ".config" / _LINUX_SUBDIRS[browser] / "NativeMessagingHosts"
+    if _is_win():
+        return _windows_appdata() / "TaskLight" / "native"
+    return _browser_profile(browser) / "NativeMessagingHosts"
 
 
 def _bridge_dir():
@@ -98,7 +131,7 @@ def _default_config_path():
         return Path(cw) / "wall.config.json"
     # Mirror bridge.room.store._home(None) without importing its storage
     # dependencies into the standalone installer.
-    return Path(os.path.expanduser("~")) / ".context-wall" / "wall.config.json"
+    return _home() / ".context-wall" / "wall.config.json"
 
 
 def _resolve_config(value):
@@ -273,6 +306,17 @@ def _registry_apply(browser, manifest_path):
         wr.SetValueEx(key, "", 0, wr.REG_SZ, str(manifest_path))
 
 
+def _registry_matches(browser, manifest_path):
+    wr = _get_winreg()
+    try:
+        with wr.OpenKey(wr.HKEY_CURRENT_USER, _registry_subkey(browser),
+                        0, wr.KEY_QUERY_VALUE) as key:
+            value, kind = wr.QueryValueEx(key, "")
+        return kind == wr.REG_SZ and Path(value) == manifest_path
+    except FileNotFoundError:
+        return False
+
+
 def _registry_remove(browser, manifest_path):
     wr = _get_winreg()
     if wr is None:
@@ -288,6 +332,39 @@ def _registry_remove(browser, manifest_path):
                 wr.DeleteValue(key, "")
     except FileNotFoundError:
         pass
+
+
+def _replace_file(source, target):
+    # Windows can refuse a rename until a reader closes a handle opened
+    # without delete sharing. Retry briefly with the same complete file.
+    for delay in (0.05, 0.1, 0.2, None):
+        try:
+            os.replace(source, target)
+            return
+        except OSError as exc:
+            transient = exc.errno == errno.EBUSY
+            if _is_win():
+                transient = transient or isinstance(exc, PermissionError) or (
+                    getattr(exc, "winerror", None) in (5, 32, 33)
+                )
+            if delay is None or not transient:
+                raise
+            time.sleep(delay)
+
+
+def _write_install_file(target, text, mode):
+    # An adjacent, exclusive temporary file lets us set permissions before
+    # publishing the file without following the target as a symlink.
+    fd, temporary = tempfile.mkstemp(dir=target.parent, prefix=target.name + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(text)
+        if _posix_modes():
+            os.chmod(temporary, mode)
+        # On Windows the file inherits the user-profile directory ACL.
+        _replace_file(temporary, target)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
 
 
 def main(argv=None):
@@ -365,7 +442,7 @@ def main(argv=None):
         if not os.path.lexists(launcher):
             return False
         try:
-            if not launcher.is_file():
+            if launcher.is_symlink() or not launcher.is_file():
                 return False
             return launcher.read_text(encoding="utf-8") == expected_launcher_text
         except OSError:
@@ -430,20 +507,8 @@ def main(argv=None):
         config_created = False
         try:
             base.mkdir(parents=True, exist_ok=True)
-            launcher.write_text(expected_launcher_text, encoding="utf-8")
-            os.chmod(launcher, 0o700)
-            manifest_text = json.dumps(manifest, indent=2) + "\n"
-            if _is_win():
-                mpath.write_text(manifest_text, encoding="utf-8")
-            else:
-                # Bind permissions and writes to one non-symlink descriptor.
-                # Reinstall also tightens an owned manifest's existing mode.
-                flags = os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW
-                fd = os.open(mpath, flags, 0o600)
-                with os.fdopen(fd, "w", encoding="utf-8") as stream:
-                    os.fchmod(stream.fileno(), 0o600)
-                    stream.truncate(0)
-                    stream.write(manifest_text)
+            _write_install_file(launcher, expected_launcher_text, 0o700)
+            _write_install_file(mpath, json.dumps(manifest, indent=2) + "\n", 0o600)
             # M3: an existing config is never overwritten.
             if not os.path.lexists(config_path):
                 config_path.parent.mkdir(parents=True, exist_ok=True)

@@ -1,19 +1,19 @@
 # Antigravity 2 and TaskLight
 
-Status: U137, R39, DRAFT. Antigravity 2 is a first-class harness: it thinks,
-deploys agents externally and hosts terminals and human conversation. TaskLight
-keeps their shared plan visible. Generic Antigravity MCP registration guidance
-does not establish live Antigravity 2 compatibility.
+Status — U137, R39, DRAFT. The desktop configuration location on Linux is
+`~/.gemini/antigravity/mcp_config.json`. The `mcpServers` entries use
+`command`, `args` and `env`, with optional `timeoutSeconds`. Support for
+`cwd` is **AUSENTE**. Antigravity CLI `agy` 1.5.18 [CITED] uses a separate
+registry. Not verified yet: the desktop app version, desktop file paths on
+macOS and Windows, in-app loading and reload, and native lifecycle hooks.
 
-## Registration with a user-owned launcher
+## Registration
+
+Use [the Antigravity setup guide](ANTIGRAVITY.md) to register the desktop app,
+the CLI, or both. If you already manage your own shell launcher, the optional
+desktop entry below remains available.
 
 In the Agent pane, choose **MCP Servers → Manage MCP Servers → View raw config**.
-The public registration example uses `command` and `args`; the complete native
-Antigravity 2 MCP config format is **AUSENTE**. Antigravity support for `cwd` and
-`env` keys is **AUSENTE**. Its desktop configuration location is **AUSENTE**;
-version-specific reload instructions are **AUSENTE**. Do not guess these details.
-TaskLight's generic example in [MCP.md, Registration](MCP.md#registration) is a
-server-side contract, not evidence for additional Antigravity keys.
 
 Create a user-owned launcher file containing the following shell script. Replace
 the bracketed placeholders with the repository directory and a writable storage
@@ -48,8 +48,8 @@ shell command string. The shell executable must be available to the client.
 
 Manually merge only `mcpServers.tasklight` into valid existing configuration;
 preserve unrelated servers. Leave malformed existing configuration untouched
-and report its parser error. There is no automatic configuration replacement.
-The launcher never edits client configuration. Python and the repository's
+and report its parser error. The manual launcher performs no automatic
+configuration replacement and never edits client configuration. Python and the repository's
 existing runtime dependencies must already be available; do not install packages
 automatically. Firebase MCP installation is separate from TaskLight registration.
 Firebase agent skills are optional supporting guidance, not a registration step.
@@ -113,7 +113,7 @@ states must be rejected without appending state, not repaired into valid writes.
 
 Automatic lifecycle integration is **AUSENTE**. Native event names, payload
 schema, delivery/retry identity and invocation semantics, applicable public
-sources and a tested Antigravity 2 version are **AUSENTE**. No
+sources and an Antigravity 2 version tested with native hooks are **AUSENTE**. No
 `bridge/room/hook_antigravity.py` ships. `bridge/room/hook_claude.py` mirrors todos
 through `PostToolUse` only; it supplies no Antigravity agent-lifecycle contract.
 A model-executed rule, workflow or MCP call is agent-reported and consumes
@@ -139,7 +139,7 @@ all native contract details and a tested client version, and U132/U133 are ADMIT
 Then, and only then, map documented events into U133's `bridge/room/hook.py`
 stdin contract in `docs/HARNESS_HOOKS.md`; do not invent its invocation syntax.
 Preserve U132's `agent_lifecycle` argument shape
-`{room, agent, state, run_id, swarm?, harness?, reason?, op_id?}` and response
+`{room, agent, state, run_id, swarm?, harness?, reason?, parent_agent?, parent_run_id?, op_id?}` and response
 `{"untrusted": {ok, lamport}}`; states are `deployed | alive | finished | failed`.
 The automatic origin label is `Antigravity 2 (harness-recorded)`.
 Derive stable `op_id` from documented event identity and delegate validation,
@@ -161,11 +161,11 @@ client configuration directories.
 | Prerequisite | Status and gate |
 | --- | --- |
 | U111 | Coordination prompts present in this repository; ADMIT receipt AUSENTE |
-| U132 | `agent_lifecycle` absent from current discovery; lifecycle scenarios blocked, ADMIT receipt AUSENTE |
+| U132 | `agent_lifecycle` present in server discovery. ADMIT receipt AUSENTE |
 | U133 | Neutral hook entry and documented contract required for automatic path; applicable integration evidence and ADMIT receipt AUSENTE |
 | U134 | Optional; never a prerequisite; do not assume Antigravity mailbox participation |
 | Native Antigravity 2 contract | AUSENTE; no adapter and no automatic acceptance |
-| Live Antigravity 2 compatibility | AUSENTE; client version, redacted configuration, responses and wall evidence unrecorded |
+| Live Antigravity 2 compatibility | Linux configuration location and format are known. In-app responses and wall evidence are AUSENTE |
 
 Amendment B schedules U137 in W2/W3 after U111, U132 and U133 ADMIT, with its
 Surface registered in `STRATEGY_v11_A1.md` section 4.2 [CITED: SPEC U137,

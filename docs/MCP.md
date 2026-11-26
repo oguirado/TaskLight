@@ -88,13 +88,36 @@ Shared planning and memory:
 
 Extensions:
 
-- `unit_decide`: append an immutable ADMIT, HOLD or REJECT unit decision.
-  `agent` is the caller; optional `result_agent` and `result_run_id` jointly
-  reference a terminal worker run. HOLD and REJECT may reference a run that
-  ended without a result, and ADMIT requires a recorded result. The legacy
-  same-caller `run_id` form remains accepted. See [Results and unit decisions](RESULTS.md).
-- `wait_agents`: wait for all matching lifecycle events after a caller-owned cursor;
-  see [Waiting for agent results](WAIT_AGENTS.md).
+- `unit_decide`: append an immutable unit decision. See [Results and unit decisions](RESULTS.md).
+  - Arguments: `{room, agent, op_id, task_id, verdict, reason, micro_id?, evidence?, result_agent?, result_run_id?, run_id?, expected_opened_lamport?}`.
+    `task_id` identifies a task in the active plan. Optional `micro_id` identifies
+    one of its microtasks. `verdict` is `ADMIT`, `HOLD` or `REJECT`. `reason` is
+    1–240 characters and optional `evidence` holds 1–8 `{path, sha256}` objects
+    with lowercase hexadecimal digests [CITED]. `expected_opened_lamport` is
+    a positive safe integer. Unknown keys are rejected.
+  - Result (wrapped in `{"untrusted": ...}`): `{ok: true, lamport: int, op: object}`.
+  - Supply `result_agent` and `result_run_id` together to reference a terminal
+    worker run, or use the legacy `run_id` for the caller's own run. The two
+    forms are mutually exclusive. For a worker reference, HOLD and REJECT can
+    use a terminal run without a result. ADMIT needs a recorded result. A
+    pipeline `micro_id` requires the result pair from its current binding.
+  - Error codes: `bad_room`, `bad_agent`, `bad_op`, `no_plan`, `stale_rev`,
+    `claimed_by_other`, `not_conformant`, `limit_exceeded`, `room_full`,
+    `internal`.
+- `wait_agents`: return all matching lifecycle events once any match is available.
+  See [Waiting for agent results](WAIT_AGENTS.md).
+  - Arguments: `{room, agents?, parent?, states?, since_lamport?, timeout_s?}`.
+    Only `room` is required. `agents` is a nonempty array of agent slugs and
+    `parent` filters by parent agent slug. `states` is a nonempty subset of
+    `deployed`, `alive`, `finished` and `failed` (default `["finished", "failed"]`).
+    `since_lamport` is an exclusive nonnegative safe integer Lamport position (default
+    `0`). `timeout_s` accepts 1–600 seconds (default 60) [CITED]. Unknown keys are
+    rejected.
+  - Result (wrapped in `{"untrusted": ...}`): `{events: [{agent, run_id, state, parent, lamport, result?}], timed_out?: true}` plus the caller-owned cursor (`int`).
+    Events are in ascending Lamport order. `parent` is `{agent, run_id}` or
+    `null`. On timeout, the result includes `events: []` and `timed_out: true`.
+  - Error codes: `bad_room`, `bad_args` (including a Lamport cursor ahead of the room head),
+    `room_read_failed`, `internal`.
 - `orchestrator_snapshot`: read compact current agents, attention, available work,
   and completions; see [Orchestrator snapshots](ORCHESTRATOR.md).
 - `room_events`: read room journal events strictly after a Lamport cursor.
@@ -123,7 +146,7 @@ Extensions:
 <!-- # A-C8 -->
 - `unit_bind` binds a pipeline step to a registered worker run.
 - `unit_repair` clears the pipeline from author through import and retains attempt history.
-- `room_export`: Markdown export for `what: "plan" | "memory" | "integration"`.
+- `room_export`: Markdown export for `what: "plan" | "memory" | "integration"`. To write files, use the [CLI `export` verb](CLI.md#built-in-verbs).
   - Supply `{room, agent, what, opened_lamport?}`. For integration export, set
     `opened_lamport` to the integer returned when the chosen plan was opened. Omit
     it to include all generations.
@@ -178,7 +201,9 @@ Extensions:
   `{room,agent,state,run_id,swarm?,harness?,reason?,parent_agent?,parent_run_id?,op_id?}` returns
   `{"untrusted":{"ok":true,"lamport":…}}`.
   `state` is `deployed|alive|finished|failed`. Harness hooks record lifecycle
-  without model calls; executors never self-announce deployment or exit.
+  without model calls. Executors never self-announce deployment or exit,
+  except through an explicitly enabled [agent-reported fallback](HARNESS_ANTIGRAVITY.md#lifecycle-modes-and-stop-gates)
+  for a harness without hooks for the run.
   Failure or exit with open work triggers release of eligible unfinished
   owned tasks, never plan closure. A lifecycle receipt alone does not prove
   cleanup completed. See [HARNESS_HOOKS.md](HARNESS_HOOKS.md).
@@ -378,6 +403,8 @@ with real existing absolute file paths; never pass `base_rev` to `microtask_set`
 }
 ```
 
+Evidence paths must point to files that exist at write time.
+
 Write the initial `architecture` memory section (`base_rev: 0`):
 
 ```json
@@ -428,13 +455,15 @@ Resources are read-only and never create directories:
 - `tasklight://guide/headless` (name `headless guide`, MIME `text/markdown`),
   listed immediately after the contract when both files are available;
   reads return the exact UTF-8 contents of [HEADLESS.md](HEADLESS.md).
-  Both Markdown resources accept at most 65,536 bytes, are omitted from
-  discovery when unavailable, oversized, or invalid UTF-8, and return
-  `-32002` (`resource not found`) on an unavailable read. Unknown URIs
-  remain `-32602`.
+- `tasklight://guide/swarm` (name `swarm guide`, MIME `text/markdown`) serves
+  the exact UTF-8 contents of the [swarm guide](SWARM.md).
 - `tasklight://templates/{id}` for one planning template.
 - `tasklight://rooms/{room}/plan` for the folded plan projection.
 - `tasklight://rooms/{room}/memory` for all memory sections.
+
+Markdown resources accept at most 65,536 bytes [CITED]. Unavailable, oversized or
+invalid UTF-8 documents are omitted from discovery and return `-32002`
+(`resource not found`) on read. Unknown URIs return `-32602`.
 
 6 prompts are exposed [MEASURED: candidate `prompts/list`], used to build and govern shared plans:
 
@@ -446,7 +475,6 @@ Resources are read-only and never create directories:
 - `swarm_executor` with required `room`, `agent`, and optional `task_id` arguments.
 - `executor_loop` with required `room` and `agent` arguments and optional `task_id` argument (invalid arguments return `-32602`); returns executor steering text covering task claiming, active microtask transitions, periodic `activity_beat` heartbeats, evidence recording, and task release.
 
-See the [swarm guide](SWARM.md), also served at `tasklight://guide/swarm`.
 Retained chat and liaison are legacy, with no new investment; human
 conversations and terminals belong in the harness.
 

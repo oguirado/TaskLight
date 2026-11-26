@@ -119,3 +119,56 @@ M4. The implementation must otherwise preserve the existing wall suites.
 
 This oracle's mandate is limited to the supplied `.unit/SPEC.md` and cited code
 inside the isolated project copy.
+
+## AGY_TOOL Antigravity MCP setup
+
+Run `python3 -m unittest bridge.tests.install.test_antigravity` from the
+repository root. The tests isolate the home directory and PATH. A fake `agy`
+records argv and returns canned listings. Synthetic credentials in JSON and
+subprocess output must stay out of setup and doctor output.
+
+| Requirement | Tests in `test_antigravity.AntigravitySetup` | Gate and negative contrast |
+|---|---|---|
+| R2 | `test_desktop_dry_run`, `test_desktop_different_entry_requires_force`, `test_desktop_malformed_config_is_untouched` | Desktop dry runs use the same home-relative location across platforms and create no files. Conflicts require force. Malformed JSON and invalid UTF-8 survive even with force. |
+| R2, R3 | `test_desktop_merge_keeps_private_config_and_backup`, `test_codex_force_backup_keeps_private_mode` | Merge preserves the foreign server and its credential. Output omits both. Backup bytes match the original, and private modes survive with a permissive umask. |
+| R4 | `test_cli_dry_run_requires_no_executable`, `test_cli_missing_executable`, `test_cli_existing_tasklight_requires_force`, `test_cli_force_adds_without_removing_existing_entry` | Dry run gives the complete argv and platform command without executing it. Apply refuses a missing executable or unforced conflict. Force permits the native add command. |
+| R4 | `test_cli_adds_then_verifies_and_reports_legacy`, `test_cli_add_success_requires_exact_tasklight_name_in_second_list`, `test_cli_failed_list_prevents_add`, `test_cli_failed_add_is_reported_without_command_output`, `test_cli_timeout_is_bounded_and_does_not_echo_output` | Apply verifies through a second list. Similar names and mentions in another entry fail. Legacy removal is advisory. Command failure and timeouts produce clean errors. |
+| R5 | `test_doctor_checks_both_registries`, `test_doctor_failures_have_one_line_fixes` | Exact desktop registration and enabled CLI registration pass. Malformed or different desktop entries and a missing CLI produce failures with one-line fixes. |
+
+Before editing the setup tool, the focused suite ran 16 tests [MEASURED] and
+reported `FAILED (failures=21)` [MEASURED], including failing subtests.
+
+### AGY_TOOL round 2
+
+| Tests | Gate and negative contrast |
+|---|---|
+| `test_cli_lists_names_from_real_table`, `test_cli_list_handles_color_spacing_and_markers` | The recorded `agy mcp list` table yields every server name. Headers and blank lines are skipped. ANSI color, variable spacing, and leading markers preserve the names and statuses. |
+| `test_cli_existing_tasklight_requires_force`, `test_cli_force_adds_without_removing_existing_entry`, `test_cli_adds_then_verifies_and_reports_legacy`, `test_cli_add_success_requires_enabled_tasklight` | Apply reports `tasklight_status` for a listed entry. A disabled entry still triggers `exists` before add without force and `agy_verify_failed` after add. An enabled entry passes post-add verification. |
+| `test_doctor_checks_both_registries`, `test_doctor_fails_for_disabled_tasklight` | Doctor reports the listed status and requires `enabled`. A disabled entry fails with a one-line enable command. |
+
+The focused suite against the round 1 implementation ran 20 tests [MEASURED]
+and reported `FAILED (failures=4, errors=4)` [MEASURED] with the updated fixtures.
+
+## XPLAT_INSTALL
+
+Run from the project root with Python's standard library.
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest bridge.tests.install.test_xplat_install
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s bridge/tests/install -t .
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s bridge/tests/setup -t .
+```
+
+| Rule | Gate | Negative contrast |
+| --- | --- | --- |
+| R1 | Simulated Windows install and client writes use inherited permissions. Doctor accepts a registered readable batch launcher with no executable bit. Simulated macOS keeps private manifest and launcher modes with optional POSIX APIs removed. | Windows doctor rejects missing registry registration and an unlaunchable suffix. macOS doctor rejects a launcher whose executable bit was removed. |
+| R2 | Windows browser profiles and the installer prefer `LOCALAPPDATA`. Claude Desktop prefers `APPDATA`. Linux uses `XDG_CONFIG_HOME` and Chrome's documented environment overrides. macOS uses Application Support and honors `CODEX_HOME`. | Competing directories test precedence. Unset Windows variables test the alternate AppData directory. |
+| R3 | Claude Code and Antigravity CLI render argv with Windows quoting or POSIX shell quoting. A Windows sharing violation retries an adjacent unique file. Codex's TOML round-trips Unicode paths. | An independent `.tmp` file survives. A permanent macOS replacement error returns `write_failed`, preserves the original bytes and cleans the temporary file. Same-second backups retain both originals. |
+
+- Before editing either implementation, the initial regression tests reported `Ran 10 tests in 0.011s` [MEASURED] and `FAILED (failures=8, errors=1)`.
+- The two additional backup and Unicode regression tests reported `Ran 2 tests in 0.004s` [MEASURED] and `FAILED (errors=2)` before their fixes.
+- The final targeted run reported `Ran 12 tests in 0.010s` [MEASURED] and `OK`.
+- The install suite reported `Ran 155 tests in 1.683s` [MEASURED] and `OK (skipped=1)`. The setup suite reported `Ran 133 tests in 0.306s` [MEASURED] and `OK (skipped=2)`.
+- Default wall-room discovery reported `Ran 113 tests in 0.714s` [MEASURED] and `OK`. The separate U58 relay oracles still report failures under the wider discovery pattern.
+- With a temporary HOME, Claude Desktop, Cursor, Gemini and Antigravity printed `mcpServers` JSON. VS Code printed `servers` JSON, Codex printed TOML, Claude Code printed `command`, and Antigravity CLI printed `command` and `command_argv`. Each returned `ok: true` and left HOME empty [MEASURED].
+- Native Windows and macOS verification is pending.

@@ -2,7 +2,7 @@
 
 TaskLight is a shared swarm control plane and live task wall. An external harness deploys and directs agents; agents maintain shared plans, tasks and coarse microtasks in TaskLight. The operator sees agent identity, harness, current work, state, liveness, dependencies and progress. Terminals and human conversations stay in the harness.
 
-On-device Gemini Nano swarm narration through Firebase AI Logic is the showcase; cloud models execute agents, while Firebase hosts the wall once deployment is configured. Firebase hosting is pending, not yet deployed. Retained chat and liaison controls are legacy, with no new investment. Direct human questions to the harness.
+On-device Gemini Nano swarm narration through Firebase AI Logic is the showcase; cloud models execute agents, while Firebase hosts the wall at https://tasklight-d59f6.web.app. Retained chat and liaison controls are legacy, with no new investment. Direct human questions to the harness.
 
 ## Start here
 
@@ -12,6 +12,7 @@ TaskLight is built for developers and AI agent operators who want local-first pr
 2. **Try the local demo** without installing anything or creating a Firebase project: follow [tools/demo/README_DEMO.md](tools/demo/README_DEMO.md) (or run `node tools/demo/run_demo.mjs`).
 3. **Set up manually** by building the extension, installing the native host, and connecting your MCP client with [docs/DESKTOP_SETUP.md](docs/DESKTOP_SETUP.md) and [docs/MCP.md](docs/MCP.md). For browser-free planning and memory, follow [docs/HEADLESS.md](docs/HEADLESS.md).
 4. **Use TaskLight from the shell** with the [CLI guide](docs/CLI.md).
+5. **Connect Antigravity** using the [desktop app and CLI setup guide](docs/ANTIGRAVITY.md).
 
 All agents follow [docs/PLANNING_CONTRACT.md](docs/PLANNING_CONTRACT.md) (also served over MCP via `tasklight://contract` and the `planning_contract` prompt). See [docs/PLANNING.md](docs/PLANNING.md) and [docs/MODELS.md](docs/MODELS.md) for templates and model routing.
 
@@ -49,7 +50,7 @@ bash tools/secret_scan.sh       # must report 0 findings before any push
 
 ## Status
 
-Hackathon build for Firebase #BuildHybridAI. The Firebase project is pending, so hosted features are not yet deployed.
+Hackathon build for Firebase #BuildHybridAI.
 
 ## License
 
