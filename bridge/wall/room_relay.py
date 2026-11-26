@@ -395,6 +395,10 @@ class RoomRelay:
 
     def _read_sorted(self, room, since):
         try:
+            if _is_int(since) and since == 0:
+                store._check_room(room)
+                if not store._room_directory_exists(self._home, room):
+                    return [], None
             result = store.read_checked(room, since, home=self._home)
             if not isinstance(result, tuple) or len(result) != 2:
                 return None, "room_sync_failed"
