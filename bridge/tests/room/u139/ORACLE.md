@@ -21,6 +21,8 @@ All names below are methods in `test_lifecycle_replay.py`.
 | P1 | Preserved throttle behavior: a genuinely fresh ID is accepted at the existing window boundary. | `test_p1_fresh_id_at_window_boundary_is_new_event` |
 | P2 | Preserved committed-ID replay still returns the original receipt without appending. | `test_p2_committed_id_replay_still_returns_original_result` |
 | P3 | Preserved committed-ID payload conflicts remain rejected. | `test_p3_committed_id_payload_conflict_is_rejected` |
+| HOOK_XPLAT | Preserve the original no-op receipt beyond the throttle window and leave the journal byte-identical when `O_DIRECTORY` is absent or the directory cannot be opened. A supported directory still gets synced after the receipt file. | `test_noop_receipt_without_o_directory`; `test_noop_receipt_when_directory_open_fails`; `test_noop_receipt_fsyncs_file_then_directory` |
+| HOOK_XPLAT binary writes | Pass `O_BINARY` when opening the lifecycle journal for append. | `test_lifecycle_journal_append_opens_in_binary_mode` |
 
 ## Decisions and implementation independence
 

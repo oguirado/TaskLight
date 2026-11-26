@@ -4,6 +4,7 @@ SPEC B13-B15. Framing is a 4-byte little-endian length prefix plus
 UTF-8 JSON (S5 measured). Outbound frames stay <= 65536 bytes.
 Stdout carries frames only; diagnostics go to stderr.
 """
+import io
 import json
 import os
 import select
@@ -65,6 +66,11 @@ def _parse_host_args(args):
     config = None
     pos = []
     i = 0
+    prefix = "--parent-window="
+    if args and args[0].startswith(prefix):
+        handle = args[0][len(prefix):]
+        if handle.isascii() and handle.isdecimal():
+            i = 1
     while i < len(args):
         a = args[i]
         if a == "--config":
@@ -441,6 +447,83 @@ def _process_buffer(host, buf, relay=None, model_relay=None):
     return None
 
 
+def _windows_reader(stdin, stdout):
+    from ctypes import WinDLL, byref
+    from ctypes.wintypes import BOOL, DWORD, HANDLE, LPDWORD, LPVOID
+    import msvcrt
+
+    try:
+        stdout_fd = stdout.fileno()
+    except (AttributeError, io.UnsupportedOperation):
+        pass
+    else:
+        msvcrt.setmode(stdout_fd, os.O_BINARY)
+
+    try:
+        fd = stdin.fileno()
+    except (AttributeError, io.UnsupportedOperation):
+        return lambda: stdin.read(_CHUNK)
+
+    msvcrt.setmode(fd, os.O_BINARY)
+    handle = msvcrt.get_osfhandle(fd)
+    kernel32 = WinDLL("kernel32")
+    get_type = kernel32.GetFileType
+    get_type.argtypes = (HANDLE,)
+    get_type.restype = DWORD
+    if get_type(handle) != 3:  # FILE_TYPE_PIPE
+        def read_non_pipe():
+            try:
+                return os.read(fd, _CHUNK)
+            except OSError:
+                return b""
+
+        return read_non_pipe
+
+    peek = kernel32.PeekNamedPipe
+    peek.argtypes = (HANDLE, LPVOID, DWORD, LPDWORD, LPDWORD, LPDWORD)
+    peek.restype = BOOL
+    available = DWORD()
+
+    def read_chunk():
+        # Chrome gives the host a byte pipe. With a single reader, bytes
+        # reported by PeekNamedPipe cannot be consumed before this read.
+        if not peek(handle, None, 0, None, byref(available), None):
+            return b""  # Disconnected pipe or a pipe I/O error.
+        if not available.value:
+            time.sleep(_POLL_S)
+            return None
+        try:
+            return os.read(fd, min(available.value, _CHUNK))
+        except OSError:
+            return b""
+
+    return read_chunk
+
+
+def _posix_reader(stdin):
+    fd = stdin.fileno()
+    try:
+        os.set_blocking(fd, False)
+    except (AttributeError, OSError):
+        pass
+
+    def read_chunk():
+        try:
+            ready, _, _ = select.select([fd], [], [], _POLL_S)
+        except (OSError, ValueError):
+            return None
+        if not ready:
+            return None
+        try:
+            return os.read(fd, _CHUNK)
+        except BlockingIOError:
+            return None
+        except OSError:
+            return b""
+
+    return read_chunk
+
+
 def main(argv, stdin=None, stdout=None, stderr=None):
     args = list(argv) if argv is not None else []
     if stdin is None:
@@ -459,6 +542,7 @@ def main(argv, stdin=None, stdout=None, stderr=None):
     host = _Host(cfg, stdout, stderr)
     mrelay = None
     try:
+        read_chunk = _windows_reader(stdin, stdout) if sys.platform == "win32" else None
         host._send({"t": "hello", "v": 1, "projects": host._projects})
         relay, rcfg = _build_relay(cfg, host._send)
         if relay is not None:
@@ -479,11 +563,8 @@ def main(argv, stdin=None, stdout=None, stderr=None):
         host.poll_all()
         _relay_poll(relay)
         _model_poll(mrelay)
-        fd = stdin.fileno()
-        try:
-            os.set_blocking(fd, False)
-        except (AttributeError, OSError):
-            pass
+        if read_chunk is None:
+            read_chunk = _posix_reader(stdin)
         inbuf = bytearray()
         eof = False
         partial_since = None
@@ -507,21 +588,11 @@ def main(argv, stdin=None, stdout=None, stderr=None):
                 partial_since = None
             if eof:
                 return 2 if inbuf else 0
-            try:
-                r, _, _ = select.select([fd], [], [], _POLL_S)
-            except (OSError, ValueError):
-                r = []
-            if r:
-                try:
-                    chunk = os.read(fd, 65536)
-                except BlockingIOError:
-                    chunk = None
-                except OSError:
-                    chunk = b""
-                if chunk == b"":
-                    eof = True
-                elif chunk:
-                    inbuf.extend(chunk)
+            chunk = read_chunk()
+            if chunk == b"":
+                eof = True
+            elif chunk:
+                inbuf.extend(chunk)
     except BrokenPipeError:
         return 0
     except OSError:

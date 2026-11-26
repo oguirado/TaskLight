@@ -115,7 +115,13 @@ def _persist_noops(path, receipts):
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, path)
-        directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+        directory_flag = getattr(os, "O_DIRECTORY", None)
+        if directory_flag is None:
+            return
+        try:
+            directory_fd = os.open(directory, os.O_RDONLY | directory_flag)
+        except OSError:
+            return
         try:
             os.fsync(directory_fd)
         finally:
@@ -181,7 +187,9 @@ def _commit(room, agent, op):
             payload = separator + (json.dumps(event, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n").encode("utf-8")
             if len(data) + len(payload) > store.CAP:
                 raise store.RoomError("room_full", "room file cap exceeded")
-            fd = os.open(epath, os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o600)
+            fd = os.open(
+                epath, os.O_CREAT | os.O_WRONLY | os.O_APPEND | getattr(os, "O_BINARY", 0), 0o600,
+            )
             try:
                 try:
                     os.chmod(epath, 0o600)

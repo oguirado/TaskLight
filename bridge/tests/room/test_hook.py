@@ -1,7 +1,11 @@
 """Claude Code PostToolUse hook helper."""
 import json, os, unittest
+from types import SimpleNamespace
+from unittest import mock
 
-from .support import RoomCase, run_module, file_events, room_dir
+from bridge.room import hook_claude
+
+from .support import RoomCase, run_module, run_py, file_events, room_dir
 
 MOD = "bridge.room.hook_claude"
 
@@ -42,6 +46,48 @@ class Hook(RoomCase):
         self.assertEqual((last["act"], last["step"]["index"], last["step"]["state"]), ("step", 1, "done"))
         self.assertEqual(len(file_events(self.home, "hr")), 4)
 
+    def test_todo_hook_uses_windows_exclusive_lock_without_fcntl(self):
+        code = """
+import io
+import os
+import runpy
+# Load subprocess before the fake msvcrt module can affect its platform detection.
+import subprocess
+import sys
+from types import SimpleNamespace
+
+calls = []
+def locking(fd, mode, count):
+    assert count == 1 and os.lseek(fd, 0, os.SEEK_CUR) == 0
+    calls.append((mode, fd))
+
+sys.modules["fcntl"] = None
+sys.modules["msvcrt"] = SimpleNamespace(
+    LK_LOCK="lock", LK_NBLCK="lock", LK_UNLCK="unlock", locking=locking)
+os.environ["CW_ROOM"] = "hr"
+sys.stdin = SimpleNamespace(buffer=io.BytesIO(sys.argv[2].encode()))
+module = sys.argv[1]
+sys.argv = [module]
+try:
+    runpy.run_module(module, run_name="__main__")
+except SystemExit as exc:
+    assert exc.code == 0, exc.code
+
+assert [mode for mode, _ in calls] == ["lock", "lock", "unlock", "unlock"], calls
+_, hook_fd = calls[0]
+_, journal_fd = calls[1]
+assert hook_fd != journal_fd and calls[2:] == [
+    ("unlock", journal_fd), ("unlock", hook_fd)], calls
+"""
+        payload = json.dumps(self.payload(todos(("a", "pending"))))
+        cp = run_py(code, MOD, payload, home=self.home)
+        self.assertEqual(cp.returncode, 0, cp.stderr.decode())
+        self.assertEqual(cp.stdout, b"")
+        self.assertEqual([e["act"] for e in file_events(self.home, "hr")], ["plan"])
+        state = room_dir(self.home, "hr") / "hook_state.json"
+        self.assertEqual(json.loads(state.read_text(encoding="utf-8")),
+                         {"s1": {"statuses": ["pending"], "texts": ["a"]}})
+
     def test_new_session_posts_new_plan(self):
         env = dict(CW_ROOM="hr")
         self.run_hook(self.payload(todos(("a", "pending")), sid="s1"), **env)
@@ -81,6 +127,30 @@ class Hook(RoomCase):
         self.assertTrue(log.exists())
         self.assertGreater(log.stat().st_size, 0)
         self.assertEqual(file_events(self.home, "hr"), [])
+
+    def test_log_and_state_open_in_binary_mode(self):
+        native_binary = getattr(os, "O_BINARY", 0)
+        binary_flag = native_binary or (1 << 30)
+        platform_os = SimpleNamespace(**vars(os))
+        platform_os.O_BINARY = binary_flag
+
+        def open_path(path, flags, mode):
+            return os.open(path, flags if native_binary else flags & ~binary_flag, mode)
+
+        directory = room_dir(self.home, "hr")
+        directory.mkdir(parents=True)
+        (directory / "hook.log").write_bytes(b"x" * hook_claude.LOG_CAP)
+        with mock.patch.dict(os.environ, {"CW_HOME": str(self.home)}), \
+             mock.patch.object(hook_claude, "os", platform_os), \
+             mock.patch.object(platform_os, "open", side_effect=open_path) as opened:
+            hook_claude._log("hr", "entry")
+            hook_claude._save_state("hr", {"s1": {}})
+
+        self.assertEqual([call.args[1] for call in opened.call_args_list], [
+            os.O_WRONLY | os.O_CREAT | os.O_TRUNC | binary_flag,
+            os.O_WRONLY | os.O_CREAT | os.O_APPEND | binary_flag,
+            os.O_WRONLY | os.O_CREAT | os.O_TRUNC | binary_flag,
+        ])
 
     def test_log_is_capped_at_256_kib(self):
         d = room_dir(self.home, "hr")

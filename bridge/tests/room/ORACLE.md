@@ -19,6 +19,8 @@ Against the stub: 92 tests, 91 fail or error; the 1 pass is a control (`test_rea
 | CLI verbs, exit 0/2/4/124 | test_cli |
 | MCP handshake, 5 tools, each call, isError, untrusted_text, -32601, -32700, survival | test_mcp |
 | Hook helper | test_hook |
+| HOOK_XPLAT Windows lock fallback | `test_hook.Hook.test_todo_hook_uses_windows_exclusive_lock_without_fcntl` hides `fcntl` in a fresh interpreter and records `msvcrt` calls. The silent entry writes the plan and session state while holding an exclusive lock that is released after the journal lock. |
+| HOOK_XPLAT binary writes | `test_hook.Hook.test_log_and_state_open_in_binary_mode` checks that `O_BINARY` reaches the log truncation, log append, and state save calls. |
 | Observer cursor | test_observer |
 
 ## Judgement calls (spec AUSENTE; implementer must match or raise)

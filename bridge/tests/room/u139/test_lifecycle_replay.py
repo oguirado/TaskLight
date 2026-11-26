@@ -1,18 +1,22 @@
 """U139: observable replay behavior, without choosing a persistence format."""
 import copy
+import errno
 import json
 import os
 from pathlib import Path
 import socket
+import stat
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
 from bridge.plan.errors import PlanError
 from bridge.plan.fold import apply_op_event, fold_plan
 from bridge.room import store
+from bridge.room.ext import lifecycle
 from bridge.room.ext.lifecycle import agent_lifecycle
 
 
@@ -98,6 +102,48 @@ class DurableNoopOracle(unittest.TestCase):
         self.assertEqual(self.raw(), before)
         self.assertEqual(self.lifecycle(), lifecycle)
 
+    def assert_noop_persists(self, platform_os):
+        before = self.raw()
+        self.now = 3000
+        with mock.patch.object(lifecycle, "os", platform_os):
+            self.assertEqual(agent_lifecycle(copy.deepcopy(THROTTLED)), self.original)
+        self.now = 80000
+        self.assertEqual(agent_lifecycle(copy.deepcopy(THROTTLED)), self.original)
+        self.assertEqual(self.raw(), before)
+
+    def test_noop_receipt_without_o_directory(self):
+        platform_os = SimpleNamespace(**vars(os))
+        if hasattr(platform_os, "O_DIRECTORY"):
+            del platform_os.O_DIRECTORY
+        with mock.patch.object(platform_os, "fsync", wraps=os.fsync) as sync:
+            self.assert_noop_persists(platform_os)
+        sync.assert_called_once()
+
+    @unittest.skipUnless(hasattr(os, "O_DIRECTORY"), "directory open flag required")
+    def test_noop_receipt_when_directory_open_fails(self):
+        def open_path(path, flags, *args, **kwargs):
+            if flags & os.O_DIRECTORY:
+                raise OSError(errno.EACCES, "directory open denied")
+            return os.open(path, flags, *args, **kwargs)
+
+        platform_os = SimpleNamespace(**vars(os))
+        with mock.patch.object(platform_os, "open", side_effect=open_path) as open_mock:
+            self.assert_noop_persists(platform_os)
+        self.assertTrue(any(call.args[1] & os.O_DIRECTORY for call in open_mock.call_args_list))
+
+    @unittest.skipUnless(hasattr(os, "O_DIRECTORY"), "directory open flag required")
+    def test_noop_receipt_fsyncs_file_then_directory(self):
+        synced_directories = []
+
+        def fsync(fd):
+            synced_directories.append(stat.S_ISDIR(os.fstat(fd).st_mode))
+            os.fsync(fd)
+
+        platform_os = SimpleNamespace(**vars(os))
+        with mock.patch.object(platform_os, "fsync", side_effect=fsync):
+            self.assert_noop_persists(platform_os)
+        self.assertEqual(synced_directories, [False, True])
+
     def test_a2_crash_before_consumer_record_recovers_original_result(self):
         self.lose_ack()
         replay = self.process(copy.deepcopy(THROTTLED), 80000)
@@ -136,6 +182,24 @@ class DurableNoopOracle(unittest.TestCase):
     def test_h2_same_noop_id_changed_run_id_is_bad_op(self):
         self.lose_ack()
         self.assert_conflict(dict(THROTTLED, run_id="r2"))
+
+    def test_lifecycle_journal_append_opens_in_binary_mode(self):
+        native_binary = getattr(os, "O_BINARY", 0)
+        binary_flag = native_binary or (1 << 30)
+        platform_os = SimpleNamespace(**vars(os))
+        platform_os.O_BINARY = binary_flag
+
+        def open_path(path, flags, mode):
+            return os.open(path, flags if native_binary else flags & ~binary_flag, mode)
+
+        self.now = 32000
+        with mock.patch.object(lifecycle, "os", platform_os), \
+             mock.patch.object(platform_os, "open", side_effect=open_path) as opened:
+            result = agent_lifecycle(dict(ALIVE, op_id="alive-0003"))
+        self.assertEqual(result, {"ok": True, "lamport": 3})
+        journal = str(self.home / "rooms" / "demo" / "events.jsonl")
+        self.assertEqual([call.args[1] for call in opened.call_args_list if call.args[0] == journal],
+                         [os.O_CREAT | os.O_WRONLY | os.O_APPEND | binary_flag])
 
     def test_p1_fresh_id_at_window_boundary_is_new_event(self):
         self.lose_ack()

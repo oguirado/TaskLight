@@ -9,10 +9,14 @@ if __name__ == "__main__" and sys.argv[1:] == ["--lifecycle"]:
     sys.exit(lifecycle_main())
 
 import contextlib
-import fcntl
 import json
 import os
 import re
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 
 STATUS_MAP = {"pending": "pending", "in_progress": "active", "completed": "done"}
 LOG_CAP = 256 * 1024
@@ -83,7 +87,9 @@ def _log(room, msg):
             except OSError:
                 tail = b""
             try:
-                fd = os.open(logp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                fd = os.open(
+                    logp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0), 0o600,
+                )
                 try:
                     os.write(fd, tail)
                 finally:
@@ -95,7 +101,9 @@ def _log(room, msg):
             except OSError:
                 pass
         try:
-            fd = os.open(logp, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+            fd = os.open(
+                logp, os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_BINARY", 0), 0o600,
+            )
             try:
                 os.write(fd, entry)
             finally:
@@ -132,7 +140,9 @@ def _save_state(room, state):
     p = _state_path(room)
     tmp = "%s.%d.tmp" % (p, os.getpid())
     try:
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        fd = os.open(
+            tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0), 0o600,
+        )
         try:
             os.write(fd, json.dumps(state, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
             try:
@@ -175,13 +185,23 @@ def _state_lock(room):
         yield
         return
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        yield
-    finally:
+        if fcntl is None:
+            import msvcrt
+            # The lock descriptor stays at byte zero throughout the hold.
+            msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
+        else:
+            fcntl.flock(fd, fcntl.LOCK_EX)
         try:
-            fcntl.flock(fd, fcntl.LOCK_UN)
-        except OSError:
-            pass
+            yield
+        finally:
+            try:
+                if fcntl is None:
+                    msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+                else:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+            except OSError:
+                pass
+    finally:
         try:
             os.close(fd)
         except OSError:
