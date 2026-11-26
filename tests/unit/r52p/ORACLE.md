@@ -34,3 +34,7 @@ R52P_BURST_EVIDENCE="$BURST_REPORT" npx vitest run tests/unit/r52p
 The runner alternates five adjacent pairs [TARGET], invokes the existing benchmark in fresh processes, records raw values and rejects missing or invalid evidence. The gate binds the candidate observations to the current `src/app/agent_store.ts` digest. Without a paired report, the frozen pre-author evidence exercises the known failure. Use the paired evidence for the wave-exit unit run that includes this gate.
 
 The real browser, relay delivery, waiter and the G, S, W, H, D and A acceptance cases are outside the R52P oracle. The common wave-exit gate and cross-family ADMIT belong to integration.
+
+## Evidence for the store robustness change (HUNT_STORE)
+
+`baseline.json` was re-pinned after `src/app/agent_store.ts` changed so that valid lifecycle evidence projects `finished`, journal questions with `re: null` import, and diary entries follow the selected workspace. Five adjacent pairs were measured against the pinned pre-author control (source `398099878486...`) with identical benchmark inputs on one scratch disk [MEASURED]: control median 55.009 ms for the first projection, 3.910 ms for ingestion and 141.6 MiB of Node peak RSS; candidate median 32.374 ms, 3.151 ms and 140.5 MiB. The gate passed with the paired report before the re-pin.

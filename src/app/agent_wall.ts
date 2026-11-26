@@ -137,7 +137,6 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
   let invalidSelection = false;
   let lastWorkspace: string | undefined = undefined;
   let lastRenderedKey = "";
-  let lastPlanAssignee: string | null | undefined = undefined;
   const readStates = (): AgentState[] => (readPort(() => store.states(), Array.isArray) ?? []).filter(state =>
     typeof state?.room === "string" && typeof state?.agent === "string");
   const readEvents = (room: string) => readPort(() => store.events(room), Array.isArray);
@@ -249,7 +248,6 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
     invalidSelection = true;
     drawerOpen = false;
     suggestNoticeMsg = "";
-    lastPlanAssignee = undefined;
   };
 
   const rejectSelection = (): void => {
@@ -282,7 +280,12 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
     lamport?: number;
     code?: string;
   }
+  type TaskAssignment = Pick<PlanTask, "assignee" | "claim_lamport">;
+  const assignmentChanged = (previous: TaskAssignment | undefined, task: PlanTask): boolean =>
+    previous !== undefined && (previous.assignee !== task.assignee || previous.claim_lamport !== task.claim_lamport);
+
   interface TaskChatState {
+    assignment?: TaskAssignment;
     draft: string | undefined;
     seq: number;
     records: OutgoingRecord[];
@@ -290,8 +293,6 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
   const taskStates = new Map<string, TaskChatState>();
   let clientSeq = 0;
   let lastKey: string | null = null;
-
-  const currentKey = (): string | null => (selected !== null ? selected : lastKey);
 
   const stateFor = (key: string): TaskChatState => {
     let st = taskStates.get(key);
@@ -314,14 +315,21 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
     finally { internalDraftWrite = previous; }
   };
 
+  const noteDraftEdit = (): void => {
+    if (!internalDraftWrite && lastKey !== null) stateFor(lastKey).seq += 1;
+  };
+
+  const onDraftInput = (event: Event): void => {
+    if (event.target === chatHost.querySelector("textarea.chat-input")) noteDraftEdit();
+  };
+
   const wrapSetDraft = (handle: AgentChatHandle | null): void => {
     if (handle === null) return;
     try {
       const orig = (handle as unknown as { setDraft?: (t: string) => void }).setDraft;
       if (typeof orig !== "function") return;
       (handle as unknown as { setDraft: (t: string) => void }).setDraft = (t: string): void => {
-        const key = currentKey();
-        if (!internalDraftWrite && key !== null) stateFor(key).seq += 1;
+        noteDraftEdit();
         readPort(() => orig.call(handle, t), isVoid);
       };
     } catch { /* handle already settled */ }
@@ -416,12 +424,9 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
     const st = taskStates.get(key);
     const records = st?.records ?? [];
     if (records.length === 0) return base;
-    const deliveredIds = new Set<string>();
+    const messages = [...base.messages];
+    const journalPositions = new Map(base.messages.map((message, index) => [message.id, index]));
     for (const r of records) {
-      if (r.status === "delivered" && r.eventId !== undefined) deliveredIds.add(r.eventId);
-    }
-    const journal = base.messages.filter((m) => !deliveredIds.has(m.id));
-    const locals: ChatMessageVM[] = records.map((r) => {
       const msg: ChatMessageVM = {
         id: `local:${r.clientId}`, from: "user", agent: r.to, text: r.text, at: r.createdAt,
         delivery: r.status === "sending"
@@ -432,10 +437,13 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
               ? { client_id: r.clientId, state: "failed", code: r.code ?? "unexpected_result" }
               : { client_id: r.clientId, state: "unknown", code: r.code ?? "unexpected_result" },
       };
-      return msg;
-    });
+      const position = r.status === "delivered" && r.eventId !== undefined
+        ? journalPositions.get(r.eventId) : undefined;
+      if (position === undefined) messages.push(msg);
+      else messages[position] = msg;
+    }
     const pending = records.some((r) => r.status === "sending");
-    return { ...base, messages: [...journal, ...locals], sending: base.sending || pending };
+    return { ...base, messages, sending: base.sending || pending };
   };
 
   const retryRecord = (clientId: string): void => {
@@ -658,8 +666,9 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
     else if (readFailed || events === undefined) {
       state("Workspace unavailable", "Ask the harness to inspect the room");
       guidance.error = readErrorReason;
-    } else if (events.length === 0) state("Empty workspace", "Open workspace help");
-    else if (result?.projection.plan === null && events.some(event => event.act === "op"
+    } else if (events.length === 0 && !states.some(agent => agent.room === workspace)) {
+      state("Empty workspace", "Open workspace help");
+    } else if (result?.projection.plan === null && events.some(event => event.act === "op"
       && ["memory.set", "agent.lifecycle"].includes(event.op?.kind ?? ""))) {
       state("No plan yet", "Ask the harness to seed required memory and create a plan");
     } else if (result === undefined || result.source === "legacy" || result.projection.plan === null) {
@@ -693,12 +702,14 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
     swarmTimer = undefined;
     const timerGen = ++swarmTimerGen;
     if (previousSwarmTimer !== undefined) readPort(() => clock.clearTimeout(previousSwarmTimer), isVoid);
-    if (currentView === "wall" || currentView === "swarm") {
+    const isWall = currentView === "wall";
+    const isAgents = currentView === "swarm";
+    const cacheable = synced && canCacheBoard;
+    if (isWall || isAgents || cacheable) {
       // Preserve liveness in legacy hosts; this never certifies workspace connection.
       const activityConnected = d.workspaceStatus !== undefined ? connected : link.state === undefined
         || readPort(() => link.state?.(), value => value != null && typeof value === "object"
           && typeof value.kind === "string")?.kind === "linked";
-      const isWall = currentView === "wall";
       const previous = lastGoodBoards.get(workspace);
       const syncError = isWall || d.workspaceStatus === undefined || synced ? undefined
         : (status?.link?.kind === "unreachable" ? status.link.reason : guidance.heading) || "Workspace unavailable";
@@ -710,8 +721,7 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
           const inventory = deriveSwarmViewModel({ room: workspace, projection, events, nowMs, connected: activityConnected });
           const progress = projection?.plan === null ? null : inventory.progress;
           if (isWall) wallVm.swarm = { ...inventory, progress };
-          const cacheable = synced && canCacheBoard;
-          if (!isWall || cacheable) {
+          if (isAgents || cacheable) {
             const board: AgentBoardViewModel = {
               ...inventory,
               totals: (inventory as AgentBoardViewModel).totals,
@@ -722,7 +732,7 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
               unassigned: projection?.tasks.filter(task => task.assignee == null) ?? [],
             };
             if (cacheable) lastGoodBoards.set(workspace, board);
-            if (!isWall) {
+            if (isAgents) {
               if (syncError === undefined) wallVm.swarm = board;
               else if (board.agents.length === 0) boardError = syncError;
               else wallVm.swarm = { ...board, sync_error: syncError,
@@ -731,10 +741,10 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
           }
         } catch {
           // Agent data is optional on the secondary Wall.
-          if (!isWall) boardError = readErrorReason;
+          if (isAgents) boardError = readErrorReason;
         }
       }
-      if (boardError !== undefined && (!isWall || roomErrorReason !== undefined)) {
+      if (boardError !== undefined && (isAgents || (isWall && roomErrorReason !== undefined))) {
         const emptyBoard: AgentBoardViewModel = { room: workspace, agents: [], progress: null, refresh_at_ms: null };
         const board: AgentBoardViewModel = {
           ...(previous ?? emptyBoard),
@@ -818,7 +828,6 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
         selected = null;
         invalidSelection = true;
         drawerOpen = false;
-        lastPlanAssignee = undefined;
         if ("invalid" !== lastRenderedKey) {
           if (lastKey !== null) { stateFor(lastKey).draft = safeGetDraft(); lastKey = null; }
           clearComposer();
@@ -830,17 +839,17 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
       const assignee = task.assignee;
       const planKey = `plan:${plan.room}:${plan.taskId}:${assignee ?? ""}`;
       const taskKey = `plan:${plan.room}:${plan.taskId}`;
-      const assigneeChanged = lastKey === taskKey && lastPlanAssignee !== undefined && lastPlanAssignee !== assignee;
+      const st = stateFor(taskKey);
       let restoreDraft = applyDraftForKey(taskKey);
-      if (assigneeChanged) {
-        const st = stateFor(taskKey);
+      if (assignmentChanged(st.assignment, task)) {
         st.draft = "";
         st.seq += 1;
         restoreDraft = "";
+        suggestNoticeMsg = "";
       }
+      st.assignment = { assignee, claim_lamport: task.claim_lamport };
       if (planKey !== lastRenderedKey) suggestNoticeMsg = "";
       lastRenderedKey = planKey;
-      lastPlanAssignee = assignee;
       if (assignee === null) {
         showChat(withLocal(taskKey, {
           room: plan.room, agent: "", title: task.title,
@@ -871,7 +880,6 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
     const restoreDraftLegacy = applyDraftForKey(legacyTaskKey);
     if (restoreDraftLegacy !== null) suggestNoticeMsg = "";
     lastRenderedKey = `agent:${legacyKey}`;
-    lastPlanAssignee = undefined;
     const key = legacyKey;
     const verdict = verdicts.get(key);
     const drift = verdict !== undefined && accepted.get(key) !== verdict ? verdict : undefined;
@@ -936,7 +944,6 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
           selected = null;
           invalidSelection = true;
           drawerOpen = false;
-          lastPlanAssignee = undefined;
           render();
           return;
         }
@@ -944,11 +951,12 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
           render();
           return;
         }
-        if (lastPlanAssignee !== undefined && lastPlanAssignee !== task.assignee) {
+        const taskKey = `plan:${plan.room}:${plan.taskId}`;
+        if (assignmentChanged(taskStates.get(taskKey)?.assignment, task)) {
           render();
           return;
         }
-        submitRecord(`plan:${plan.room}:${plan.taskId}`, plan.room, task.assignee, safeGetDraft(), text);
+        submitRecord(taskKey, plan.room, task.assignee, safeGetDraft(), text);
         return;
       }
       const target = resolveLegacyTarget();
@@ -1032,12 +1040,14 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
     readPort(() => oldChat?.destroy(), isVoid);
     notifySelection();
     selectionListeners.clear();
+    attempt(() => chatHost.removeEventListener("input", onDraftInput, true));
     attempt(() => { chatHost.classList.remove("chat-drawer"); });
     attempt(() => { chatHost.removeAttribute("data-open"); });
     attempt(() => { chatHost.removeAttribute("role"); });
     attempt(() => { chatHost.removeAttribute("aria-label"); });
   };
 
+  chatHost.addEventListener("input", onDraftInput, true);
   interval = readPort(() => clock.setInterval(refresh, WALL_REFRESH_MS), isTimerId);
   if (d.workspaceStatus !== undefined) workspaceTimer = readPort(() => clock.setInterval(() => {
     if (destroyed) return;

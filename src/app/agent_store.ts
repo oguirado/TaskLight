@@ -128,9 +128,6 @@ function canonicalJsonString(v: unknown): string {
   const keys = Object.keys(obj).sort();
   return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJsonString(obj[k])}`).join(",")}}`;
 }
-function opByteLength(op: Record<string, unknown>): number {
-  return encoder.encode(canonicalJsonString(op)).length;
-}
 
 /** Stricter than U34's shape check: id/room/agent slugs, lamport >= 1, 4096 UTF-8 byte cap. */
 function validEvent(v: unknown): v is RoomEvent {
@@ -171,13 +168,10 @@ function validEvent(v: unknown): v is RoomEvent {
         const br = op["base_rev"];
         if (!isSafeInt(br) || (br as number) < 0) return false;
       }
-      try {
-        if (opByteLength(op as Record<string, unknown>) > 8192) return false;
-      } catch { return false; }
       // mutual exclusion
       if (planField !== undefined) return false;
       if (stepField !== undefined) return false;
-      // delegate per-kind shape validation to U60
+      // The canonical validator enforces operation and lifecycle result limits.
       try {
         if (!Plan.validateOpEvent(v)) return false;
       } catch { return false; }
@@ -502,6 +496,9 @@ export function createAgentStore(opts?: AgentStoreOptions): AgentStore {
             if (complete) summary.malformed += 1;
             else summary.torn = true;
             continue;
+          }
+          if (isRecord(parsed) && parsed["act"] === "question" && parsed["re"] === null) {
+            delete parsed["re"];
           }
           if (!validEvent(parsed)) {
             summary.malformed += 1;
@@ -922,6 +919,7 @@ export function toWallVM(
     // Preserve the initial v2 plan selection while keeping its workspace aligned.
     const defaultWorkspace = wsOpt === undefined ? (safePlans[0]?.room ?? rooms[0]) : rooms[0];
     const workspace = wsOpt !== undefined && rooms.includes(wsOpt) ? wsOpt : (defaultWorkspace ?? "");
+    const scopedPlans = safePlans.filter((pr) => pr.room === workspace);
     const accentOf = new Map<string, AccentVM>();
     rooms.forEach((r, i) => accentOf.set(r, ACCENTS[i % ACCENTS.length] as AccentVM));
     const workspaces = rooms.map((r) => ({ id: r, name: r, lens: "dev" as const, accent: accentOf.get(r) as AccentVM }));
@@ -1173,7 +1171,7 @@ export function toWallVM(
     if (safePlans.length > 0) {
       try {
         diary = [];
-        for (const pr of safePlans) {
+        for (const pr of scopedPlans) {
           const p = pr.projection;
           const planTs = p.plan?.opened_ts ?? nowMs;
           const tasksArr = Array.isArray(p.tasks) ? p.tasks : [];
@@ -1302,7 +1300,6 @@ export function toWallVM(
 
     // Memory: scoped to the selected workspace before section collection.
     let memory: (MemoryVM & { room?: string; history?: MemoryHistoryVM }) | undefined;
-    const scopedPlans = safePlans.filter((pr) => pr.room === workspace);
     if (scopedPlans.length > 0) {
       try {
         const sections: MemorySectionVM[] = [];

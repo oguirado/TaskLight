@@ -11,14 +11,14 @@
         "python": "3.12.3",
         "scratch_device": 66306,
         "load": [
-          10.3408203125,
-          15.525390625,
-          18.6171875
+          12.40576171875,
+          16.96875,
+          22.58642578125
         ],
-        "available_kib": 82905100,
-        "ingest_ms": 3.107116,
-        "projection_ms": 54.627554,
-        "peak_rss_bytes": 156450816
+        "available_kib": 61858528,
+        "ingest_ms": 3.074953,
+        "projection_ms": 53.953049,
+        "peak_rss_bytes": 159490048
       },
       {
         "fixture_sha256": "10e0c1e5132282c471fa3277cab74b149f70c8cad25b05215eb09db2cda7c5ed",
@@ -29,14 +29,14 @@
         "python": "3.12.3",
         "scratch_device": 66306,
         "load": [
-          10.47412109375,
-          15.466796875,
-          18.58154296875
+          12.61376953125,
+          16.93603515625,
+          22.54541015625
         ],
-        "available_kib": 82939796,
-        "ingest_ms": 4.67101,
-        "projection_ms": 51.535159,
-        "peak_rss_bytes": 149983232
+        "available_kib": 61755492,
+        "ingest_ms": 3.910331,
+        "projection_ms": 54.541755,
+        "peak_rss_bytes": 147742720
       },
       {
         "fixture_sha256": "10e0c1e5132282c471fa3277cab74b149f70c8cad25b05215eb09db2cda7c5ed",
@@ -47,14 +47,14 @@
         "python": "3.12.3",
         "scratch_device": 66306,
         "load": [
-          10.47412109375,
-          15.466796875,
-          18.58154296875
+          12.61376953125,
+          16.93603515625,
+          22.54541015625
         ],
-        "available_kib": 82977036,
-        "ingest_ms": 3.553534,
-        "projection_ms": 50.533347,
-        "peak_rss_bytes": 156078080
+        "available_kib": 61658132,
+        "ingest_ms": 3.165513,
+        "projection_ms": 55.009053,
+        "peak_rss_bytes": 150007808
       },
       {
         "fixture_sha256": "10e0c1e5132282c471fa3277cab74b149f70c8cad25b05215eb09db2cda7c5ed",
@@ -65,14 +65,14 @@
         "python": "3.12.3",
         "scratch_device": 66306,
         "load": [
-          10.47412109375,
-          15.466796875,
-          18.58154296875
+          12.61376953125,
+          16.93603515625,
+          22.54541015625
         ],
-        "available_kib": 82967480,
-        "ingest_ms": 3.592974,
-        "projection_ms": 50.138049,
-        "peak_rss_bytes": 160047104
+        "available_kib": 61727376,
+        "ingest_ms": 4.009611,
+        "projection_ms": 55.374654,
+        "peak_rss_bytes": 148455424
       },
       {
         "fixture_sha256": "10e0c1e5132282c471fa3277cab74b149f70c8cad25b05215eb09db2cda7c5ed",
@@ -83,19 +83,19 @@
         "python": "3.12.3",
         "scratch_device": 66306,
         "load": [
-          10.47412109375,
-          15.466796875,
-          18.58154296875
+          12.61376953125,
+          16.93603515625,
+          22.54541015625
         ],
-        "available_kib": 83002668,
-        "ingest_ms": 3.439133,
-        "projection_ms": 52.574906,
-        "peak_rss_bytes": 157171712
+        "available_kib": 61642584,
+        "ingest_ms": 4.350877,
+        "projection_ms": 56.082863,
+        "peak_rss_bytes": 148258816
       }
     ]
   },
   "candidate": {
-    "source_sha256": "11235031d73e3815ce7bad41a3cda943823275ed38e9fbba6b8fc3139df56916",
+    "source_sha256": "5d27adce3f22bac5402a32f0bd47f09e7a8d6109fa77e1fab8f5f48c0e0eac76",
     "samples": [
       {
         "fixture_sha256": "10e0c1e5132282c471fa3277cab74b149f70c8cad25b05215eb09db2cda7c5ed",
@@ -106,14 +106,14 @@
         "python": "3.12.3",
         "scratch_device": 66306,
         "load": [
-          10.3408203125,
-          15.525390625,
-          18.6171875
+          12.61376953125,
+          16.93603515625,
+          22.54541015625
         ],
-        "available_kib": 82895340,
-        "ingest_ms": 3.061259,
-        "projection_ms": 30.328341,
-        "peak_rss_bytes": 145633280
+        "available_kib": 61768372,
+        "ingest_ms": 3.163033,
+        "projection_ms": 32.37374,
+        "peak_rss_bytes": 160034816
       },
       {
         "fixture_sha256": "10e0c1e5132282c471fa3277cab74b149f70c8cad25b05215eb09db2cda7c5ed",
@@ -124,14 +124,14 @@
         "python": "3.12.3",
         "scratch_device": 66306,
         "load": [
-          10.3408203125,
-          15.525390625,
-          18.6171875
+          12.61376953125,
+          16.93603515625,
+          22.54541015625
         ],
-        "available_kib": 82926212,
-        "ingest_ms": 3.059436,
-        "projection_ms": 31.542809,
-        "peak_rss_bytes": 147763200
+        "available_kib": 61796476,
+        "ingest_ms": 3.190553,
+        "projection_ms": 33.67576,
+        "peak_rss_bytes": 153235456
       },
       {
         "fixture_sha256": "10e0c1e5132282c471fa3277cab74b149f70c8cad25b05215eb09db2cda7c5ed",
@@ -142,14 +142,14 @@
         "python": "3.12.3",
         "scratch_device": 66306,
         "load": [
-          10.47412109375,
-          15.466796875,
-          18.58154296875
+          12.61376953125,
+          16.93603515625,
+          22.54541015625
         ],
-        "available_kib": 83013280,
-        "ingest_ms": 3.166172,
-        "projection_ms": 31.876235,
-        "peak_rss_bytes": 150470656
+        "available_kib": 61713892,
+        "ingest_ms": 3.037897,
+        "projection_ms": 32.130635,
+        "peak_rss_bytes": 147316736
       },
       {
         "fixture_sha256": "10e0c1e5132282c471fa3277cab74b149f70c8cad25b05215eb09db2cda7c5ed",
@@ -160,14 +160,14 @@
         "python": "3.12.3",
         "scratch_device": 66306,
         "load": [
-          10.47412109375,
-          15.466796875,
-          18.58154296875
+          12.61376953125,
+          16.93603515625,
+          22.54541015625
         ],
-        "available_kib": 82956228,
-        "ingest_ms": 3.06758,
-        "projection_ms": 30.833991,
-        "peak_rss_bytes": 149659648
+        "available_kib": 61730036,
+        "ingest_ms": 3.150649,
+        "projection_ms": 32.51142,
+        "peak_rss_bytes": 147283968
       },
       {
         "fixture_sha256": "10e0c1e5132282c471fa3277cab74b149f70c8cad25b05215eb09db2cda7c5ed",
@@ -178,14 +178,14 @@
         "python": "3.12.3",
         "scratch_device": 66306,
         "load": [
-          10.47412109375,
-          15.466796875,
-          18.58154296875
+          12.32421875,
+          16.80419921875,
+          22.47265625
         ],
-        "available_kib": 83014480,
-        "ingest_ms": 3.131868,
-        "projection_ms": 30.862679,
-        "peak_rss_bytes": 152317952
+        "available_kib": 61607776,
+        "ingest_ms": 3.075545,
+        "projection_ms": 32.247356,
+        "peak_rss_bytes": 146448384
       }
     ]
   }
