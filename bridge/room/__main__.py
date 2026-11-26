@@ -14,6 +14,9 @@ from bridge.room.store import RoomError
 from bridge.wall.emit import sanitize_output
 
 
+_VERBS = ("post", "read", "wait", "status", "export", "tools", "call", "run", "wave")
+
+
 def _home():
     v = os.environ.get("CW_HOME")
     if v:
@@ -190,7 +193,15 @@ def main(argv=None):
                 return 2
             _emit({"tools": app.list_tools()})
             return 0
-        elif verb == "call":
+        elif verb == "--help" and not rest:
+            app.guard_session({}, pin=pin)
+            # Discovery contains only protocol identifiers.
+            _emit({"verbs": _VERBS, "tools": sorted(app.tool_names())}, sanitized=True)
+            return 0
+        else:
+            # Explicit verbs win. Direct tool calls use the same parser as call.
+            if verb != "call":
+                rest = argv
             if len(rest) != 3 or rest[1] != "--json" or not rest[0] or rest[0].startswith("--"):
                 _emit({"ok": False, "code": "bad_args"})
                 return 2
@@ -225,9 +236,6 @@ def main(argv=None):
             # room_export already redacts before rendering Markdown.
             _emit(payload, sanitized=(tool_name == "room_export"))
             return 0
-        else:
-            _emit({"ok": False, "code": "bad_args"})
-            return 2
     except SystemExit:
         raise
     except RoomError as e:

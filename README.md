@@ -11,6 +11,7 @@ TaskLight is built for developers and AI agent operators who want local-first pr
 1. **Set up with your AI assistant:** Open your AI assistant in this folder and say: `Set up TaskLight for me`. Following [AGENTS.md](AGENTS.md) and [docs/SETUP_WITH_AI.md](docs/SETUP_WITH_AI.md), it installs dependencies, builds the extension, configures MCP, starts the wall, and guides you through the browser clicks.
 2. **Try the local demo** without installing anything or creating a Firebase project: follow [tools/demo/README_DEMO.md](tools/demo/README_DEMO.md) (or run `node tools/demo/run_demo.mjs`).
 3. **Set up manually** by building the extension, installing the native host, and connecting your MCP client with [docs/DESKTOP_SETUP.md](docs/DESKTOP_SETUP.md) and [docs/MCP.md](docs/MCP.md). For browser-free planning and memory, follow [docs/HEADLESS.md](docs/HEADLESS.md).
+4. **Use TaskLight from the shell** with the [CLI guide](docs/CLI.md).
 
 All agents follow [docs/PLANNING_CONTRACT.md](docs/PLANNING_CONTRACT.md) (also served over MCP via `tasklight://contract` and the `planning_contract` prompt). See [docs/PLANNING.md](docs/PLANNING.md) and [docs/MODELS.md](docs/MODELS.md) for templates and model routing.
 

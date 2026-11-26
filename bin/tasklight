@@ -1,0 +1,24 @@
+#!/bin/sh
+
+launcher=$0
+case $launcher in
+    */*) ;;
+    *) if [ ! -f "$launcher" ]; then
+           launcher=$(command -v "$launcher") || exit 1
+       fi ;;
+esac
+case $launcher in
+    /*) ;;
+    *) launcher=$(pwd -P)/$launcher || exit 1 ;;
+esac
+
+while [ -L "$launcher" ]; do
+    target=$(readlink "$launcher") || exit 1
+    case $target in
+        /*) launcher=$target ;;
+        *) launcher=${launcher%/*}/$target ;;
+    esac
+done
+
+cd -P "${launcher%/*}/.." || exit 1
+exec python3 -m bridge.room "$@"

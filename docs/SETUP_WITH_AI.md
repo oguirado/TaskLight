@@ -2,6 +2,8 @@
 
 Execute these steps in order from `<repo>` using `python3 bridge/tasklight_setup.py <verb> --json` and `python3 bridge/install.py`. Run commands yourself and pause only for user approvals or human UI steps.
 
+For shell access to TaskLight rooms, see the [CLI guide](CLI.md).
+
 ## Step 0: Say hello and set expectations
 
 Greet the user and explain in two sentences what will happen: you will check local prerequisites, build the TaskLight extension, configure the native host and MCP server, and start the local task wall. Tell the user you will only pause to ask about downloading dependencies, choosing a browser and room name, loading the extension in the browser, and restarting the assistant.
