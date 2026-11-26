@@ -145,6 +145,7 @@ describe("R1-F5 startup entry points actually wire the pieces (B9/B10/B16)", () 
     const { posts } = panelEnv();
     vi.resetModules();
     await import("../../../extension/src/panel/panel");
+    document.querySelector("iframe")!.dispatchEvent(new Event("load"));
     await settle(20);
     const hellos = posts.filter((p) => p.m?.t === "hello");
     expect(hellos).toHaveLength(1);
@@ -156,6 +157,7 @@ describe("R1-F5 startup entry points actually wire the pieces (B9/B10/B16)", () 
     const { cw, posts, sent } = panelEnv();
     vi.resetModules();
     await import("../../../extension/src/panel/panel");
+    document.querySelector("iframe")!.dispatchEvent(new Event("load"));
     await settle(20);
     const nonce = posts.find((p) => p.m?.t === "hello")!.m.nonce as string;
     const ev = new MessageEvent("message", { data: { t: "ack", v: 1, nonce }, origin: SITE });
@@ -169,6 +171,7 @@ describe("R1-F5 startup entry points actually wire the pieces (B9/B10/B16)", () 
     const { posts } = panelEnv();
     vi.resetModules();
     await import("../../../extension/src/panel/panel");
+    document.querySelector("iframe")!.dispatchEvent(new Event("load"));
     await settle(20);
     window.dispatchEvent(new Event("pagehide"));
     window.dispatchEvent(new Event("unload"));

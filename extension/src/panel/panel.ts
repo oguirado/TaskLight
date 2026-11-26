@@ -60,7 +60,31 @@ if (chromeGlobal && iframe) {
   window.addEventListener("message", (ev: MessageEvent) => {
     client.onMessage({ origin: ev.origin, data: ev.data, source: ev.source });
   });
-  window.addEventListener("pagehide", () => client.stop());
-  window.addEventListener("unload", () => client.stop());
-  client.start();
+  const cancelStart = () => {
+    iframe.removeEventListener("load", startClient);
+    window.removeEventListener("load", startClient);
+  };
+  const startClient = () => {
+    cancelStart();
+    client.start();
+  };
+  const stopClient = () => {
+    cancelStart();
+    client.stop();
+  };
+  window.addEventListener("pagehide", stopClient);
+  window.addEventListener("unload", stopClient);
+
+  const frameDocument = iframe.contentDocument;
+  // The panel document waits for its eager iframe, even across origins.
+  const frameReady = frameDocument === null
+    ? document.readyState === "complete"
+    : frameDocument.readyState === "complete" && frameDocument.URL !== "about:blank";
+  if (frameReady) {
+    startClient();
+  } else {
+    iframe.addEventListener("load", startClient);
+    // A cross-origin frame may have loaded before this script ran.
+    if (frameDocument === null) window.addEventListener("load", startClient);
+  }
 }

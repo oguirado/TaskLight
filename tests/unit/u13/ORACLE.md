@@ -56,3 +56,7 @@ Real host frames carry `t:"event", v:1` (repo/bridge/wall/native_host.py:140). `
 
 ## Oracle amendment A-U38
 SPEC_U38 G2: `sw.ts` no longer self-starts; `sw_main.ts` is the only SW entry. `review1.test.ts` R1-F5 now imports `extension/src/sw_main` (was `sw`) and expects the same wiring (T1 listener, native port, runtime listener). `static.test.ts` is NOT amended: `chrome.*` outside `chrome_ports.ts` remains a regression.
+
+### Oracle amendment A-U13-PF1
+
+In `review1.test.ts`, the R1-F5 hello test dispatches the iframe's `load` event after importing the panel and before settling. The host ack and unload tests dispatch it at the same point under P5. The test DOM keeps the iframe in `loading` and never fires that event, so these tests signal readiness before checking the handshake and teardown.
