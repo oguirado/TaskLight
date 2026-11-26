@@ -251,11 +251,13 @@ describe("U125 A6 hostile text, help focus and announcements", () => {
     expect(text(h.wallHost)).toContain(HOSTILE); noExecutableText(h.wallHost);
     assertState(h.wallHost, "Empty workspace", "Open workspace help");
   });
-  it("A6 throwing reader error is passive text, never an executable URL", async () => {
+  it("A6 throwing reader shows the fixed notice and omits the error detail", async () => {
     const data = dataFixture(); data.store.plan.mockImplementation(() => { throw new Error(ERROR); });
     const h = mount({ data }); await flush();
     assertState(h.wallHost, "Workspace unavailable", "Ask the harness to inspect the room");
-    expect(text(h.wallHost)).toContain(ERROR);
+    const alerts = [...h.wallHost.querySelectorAll('[role="alert"]')].map(text);
+    expect(alerts).toContain("Can't read this workspace: Room data could not be read.");
+    expect(h.wallHost.textContent).not.toContain(ERROR);
     noExecutableText(h.wallHost);
   });
   it("M5 Open workspace help opens existing registration help, focuses heading, and Close restores its trigger", async () => {

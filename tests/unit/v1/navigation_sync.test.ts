@@ -68,13 +68,18 @@ describe("V1 M1 default and secondary navigation", () => {
 });
 
 describe("V1 M6 honest sync at existing store and availability seams", () => {
-  it.each(["events", "plan"] as const)("M6 %s read failure retains the last good lanes below its reason banner", port => {
+  const readFailureNotice = "Can't read this workspace: Room data could not be read.";
+
+  it.each(["events", "plan"] as const)("M6 %s read failure retains the last good lanes below the fixed notice", port => {
     const wall = integrated("swarm");
     expect(visibleText(wall.host)).toContain("z-lead");
     const before = visibleText(lane(wall.host, "z-lead"));
-    wall[port].mockImplementation(() => { throw new Error("journal permission denied"); });
+    const readerError = "journal permission denied";
+    wall[port].mockImplementation(() => { throw new Error(readerError); });
     wall.wall.refresh();
-    const error = banner(wall.host, "journal permission denied"), row = lane(wall.host, "z-lead");
+    const error = banner(wall.host), row = lane(wall.host, "z-lead");
+    expect(text(error)).toBe(readFailureNotice);
+    expect(wall.host.textContent).not.toContain(readerError);
     expect(error.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(visibleText(row)).toContain(before);
     expect(visibleText(wall.host)).not.toContain("No agents in this room");
@@ -97,17 +102,20 @@ describe("V1 M6 honest sync at existing store and availability seams", () => {
     expect(visibleText(wall.host)).not.toContain("No agents in this room");
   });
 
-  it("M6 first unavailable read is explicit, has a literal hostile reason and never invents healthy lanes", () => {
+  it("M6 first unavailable read shows the fixed notice and never invents healthy lanes", () => {
     const wall = integrated("swarm", HOSTILE);
-    banner(wall.host, HOSTILE);
+    expect(text(banner(wall.host))).toBe(readFailureNotice);
+    expect(wall.host.textContent).not.toContain(HOSTILE);
     expect(wall.host.querySelector("img,script,iframe,[onerror]")).toBeNull();
     expect(visibleText(wall.host)).not.toContain("No agents in this room");
   });
 
   it("M6 recovery replaces retained content with current lanes and clears the error", () => {
     const wall = integrated("swarm");
-    wall.events.mockImplementation(() => { throw new Error("read denied"); }); wall.wall.refresh();
-    banner(wall.host, "read denied");
+    const readerError = "read denied";
+    wall.events.mockImplementation(() => { throw new Error(readerError); }); wall.wall.refresh();
+    expect(text(banner(wall.host))).toBe(readFailureNotice);
+    expect(wall.host.textContent).not.toContain(readerError);
     wall.events.mockReturnValue([]); wall.plan.mockReturnValue({ ...wall.result, projection: projection(board([agent("after-recovery")])) }); wall.wall.refresh();
     expect(visibleText(wall.host)).not.toContain("Can't read this workspace:");
     expect(visibleText(lane(wall.host, "after-recovery"))).toContain("after-recovery");

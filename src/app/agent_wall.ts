@@ -118,7 +118,7 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
   let wallHandle: WallMountHandle | null = null;
   let swarmTimer: number | undefined;
   let swarmTimerGen = 0;
-  const lastGoodBoards = new Map<string, { board: AgentBoardViewModel; verified: boolean }>();
+  const lastGoodBoards = new Map<string, AgentBoardViewModel>();
   let chatHandle: AgentChatHandle | null = null;
   const verdicts = new Map<string, DriftVerdict>();
   const accepted = new Map<string, DriftVerdict>();
@@ -612,33 +612,42 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
     }
     let events: ReturnType<AgentStore["events"]> | undefined;
     let result: PlanProjectionResult | undefined;
-    let readFailed = false;
-    let error: string | undefined;
+    let readFailed: boolean;
+    const readErrorReason = "Room data could not be read.";
     try {
       events = store.events(workspace);
       result = store.plan(workspace);
-      readFailed = !Array.isArray(events) || (result !== undefined
-        && (result.room !== workspace || result.projection == null
-          || !Array.isArray(result.projection.tasks) || result.projection.plan === undefined
-          || result.invalidOps > 0 || (result.rejectedOps ?? 0) > 0
-          || (result.errors?.length ?? 0) > 0 || (result.projection.rejected?.length ?? 0) > 0));
-    } catch (cause) {
+      readFailed = !Array.isArray(events) || events.some(event => event === null || typeof event !== "object")
+        || (result === undefined
+          ? events.some(event => event.act === "op")
+          : result === null || result.room !== workspace || result.projection == null
+            || !Array.isArray(result.projection.tasks) || result.projection.plan === undefined
+            || result.invalidOps > 0 || (result.rejectedOps ?? 0) > 0
+            || (result.errors?.length ?? 0) > 0 || (result.projection.rejected?.length ?? 0) > 0);
+    } catch {
       readFailed = true;
-      error = readPort(() => cause instanceof Error ? cause.message : String(cause), value => typeof value === "string");
     }
-    const projection = result?.projection ?? plans?.find(item => item.room === workspace)?.projection ?? null;
+    const projection = readFailed ? null
+      : result?.projection ?? plans?.find(item => item.room === workspace)?.projection ?? null;
     const roomError = status?.roomErrors?.[workspace];
-    const roomErrorReason = roomError === "room_read_failed" ? "Room data could not be read."
+    const roomErrorReason = roomError === "room_read_failed" ? readErrorReason
       : roomError === "room_sync_failed" ? "Room synchronization could not complete." : undefined;
     const connected = status?.link?.kind === "linked" && status.rooms.includes(workspace);
     const synced = connected && status?.synced.includes(workspace) === true;
-    const hasUnverifiedReplay = link.hasUnverifiedReplay?.(workspace) === true;
+    // Legacy hosts can omit replay status. If the port fails, leave the cache intact.
+    const legacyReplayStatus = Symbol();
+    const replayStatus = readPort(() => {
+      const readReplayStatus = link.hasUnverifiedReplay;
+      return readReplayStatus === undefined ? legacyReplayStatus : readReplayStatus.call(link, workspace);
+    }, value => value === legacyReplayStatus || typeof value === "boolean");
+    const canCacheBoard = replayStatus === false || replayStatus === legacyReplayStatus;
     const guidance: WorkspaceGuidanceVM = {
       room: workspace, heading: null, action: null, connected,
       saved: !connected && (wallVm.plan !== undefined || wallVm.tasks.some(task => task.workspace === workspace)
         || (events?.length ?? 0) > 0), notices: [],
     };
     const state = (heading: string, action: string): void => { guidance.heading = heading; guidance.action = action; };
+    const roomReadError = roomErrorReason ?? (readFailed ? readErrorReason : undefined);
     if (roomErrorReason !== undefined) {
       state("Workspace unavailable", "Ask the harness to inspect the room");
       guidance.error = roomErrorReason;
@@ -646,17 +655,16 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
     else if (status.link.kind === "connecting") state("Connecting to bridge", "Check workspace connection setup");
     else if (status.link.kind === "unreachable") state("Bridge disconnected", "Open workspace help");
     else if (!synced) state("Syncing workspace", "Wait for room replay");
-    else if (readFailed || events === undefined) state("Workspace unavailable", "Ask the harness to inspect the room");
-    else if (events.length === 0) state("Empty workspace", "Open workspace help");
-    else if (result === undefined && events.some(event => event.act === "op")) {
+    else if (readFailed || events === undefined) {
       state("Workspace unavailable", "Ask the harness to inspect the room");
-    } else if (result?.projection.plan === null && events.some(event => event.act === "op"
+      guidance.error = readErrorReason;
+    } else if (events.length === 0) state("Empty workspace", "Open workspace help");
+    else if (result?.projection.plan === null && events.some(event => event.act === "op"
       && ["memory.set", "agent.lifecycle"].includes(event.op?.kind ?? ""))) {
       state("No plan yet", "Ask the harness to seed required memory and create a plan");
     } else if (result === undefined || result.source === "legacy" || result.projection.plan === null) {
       state("Legacy activity only", "Ask the harness to create a shared plan");
     } else if (result.projection.tasks.length === 0) state("No tasks yet", "Ask the harness to add work");
-    if (guidance.heading === "Workspace unavailable" && guidance.error === undefined && error !== undefined) guidance.error = error;
     if (["No plan yet", "Legacy activity only", "No tasks yet"].includes(guidance.heading ?? "")) {
       guidance.body = "Use the swarm_coordinator prompt in your harness to coordinate shared planning.";
     }
@@ -690,65 +698,51 @@ export function startAgentWall(d: AgentWallDeps): AgentWall {
       const activityConnected = d.workspaceStatus !== undefined ? connected : link.state === undefined
         || readPort(() => link.state?.(), value => value != null && typeof value === "object"
           && typeof value.kind === "string")?.kind === "linked";
-      if (roomErrorReason !== undefined) {
-        const cached = lastGoodBoards.get(workspace);
-        const previous = cached?.verified ? cached.board : undefined;
-        const board: AgentBoardViewModel = {
-          ...(previous ?? { room: workspace, agents: [], progress: null, refresh_at_ms: null }),
-          totals: previous?.totals?.total === 0 ? undefined : previous?.totals,
-          sync_error: roomErrorReason,
-          ...(previous === undefined ? {} : { stale: true }),
-        };
-        wallVm.swarm = board;
-      } else if (currentView === "wall") {
-        // Preserve the secondary Wall's established optional-agent contract.
+      const isWall = currentView === "wall";
+      const previous = lastGoodBoards.get(workspace);
+      const syncError = isWall || d.workspaceStatus === undefined || synced ? undefined
+        : (status?.link?.kind === "unreachable" ? status.link.reason : guidance.heading) || "Workspace unavailable";
+      // A pending replay can show current live data only when there is no verified snapshot to retain.
+      const canPreview = connected && replayStatus === false && previous === undefined;
+      let boardError = roomReadError ?? (canPreview ? undefined : syncError);
+      if (boardError === undefined && events !== undefined) {
         try {
-          if (Array.isArray(events)) {
-            wallVm.swarm = deriveSwarmViewModel({ room: workspace, projection, events, nowMs, connected: activityConnected });
-            // A readable Wall snapshot is also available when opening Agents
-            // during a transport outage; the board still marks it stale.
-            if (!readFailed && !hasUnverifiedReplay && (synced || !lastGoodBoards.has(workspace))) {
-              const inventory = wallVm.swarm;
-              lastGoodBoards.set(workspace, { verified: synced, board: {
-                ...inventory,
-                totals: (inventory as AgentBoardViewModel).totals,
-                agents: inventory.agents.map(agent => ({ ...agent,
-                  tasks: projection?.tasks.filter(task => task.assignee === agent.agent) ?? agent.tasks })),
-                unassigned: projection?.tasks.filter(task => task.assignee == null) ?? [],
-              } });
-            }
-            if (projection?.plan === null) wallVm.swarm = { ...wallVm.swarm, progress: null };
-          }
-        } catch { /* Optional agent data is unavailable. */ }
-      } else {
-        let syncError = readFailed || guidance.heading === "Workspace unavailable"
-          ? error || "Workspace projection could not be read"
-          : d.workspaceStatus !== undefined && !synced
-            ? (status?.link?.kind === "unreachable" ? status.link.reason : guidance.heading) || "Workspace unavailable"
-            : undefined;
-        if (!syncError && Array.isArray(events)) {
-          try {
-            const inventory = deriveSwarmViewModel({ room: workspace, projection, events, nowMs, connected: activityConnected });
+          const inventory = deriveSwarmViewModel({ room: workspace, projection, events, nowMs, connected: activityConnected });
+          const progress = projection?.plan === null ? null : inventory.progress;
+          if (isWall) wallVm.swarm = { ...inventory, progress };
+          const cacheable = synced && canCacheBoard;
+          if (!isWall || cacheable) {
             const board: AgentBoardViewModel = {
               ...inventory,
               totals: (inventory as AgentBoardViewModel).totals,
               // The compatibility VM sorts task IDs; the board follows the plan.
               agents: inventory.agents.map(agent => ({ ...agent,
                 tasks: projection?.tasks.filter(task => task.assignee === agent.agent) ?? agent.tasks })),
-              progress: projection?.plan === null ? null : inventory.progress,
+              progress,
               unassigned: projection?.tasks.filter(task => task.assignee == null) ?? [],
             };
-            if (!hasUnverifiedReplay) lastGoodBoards.set(workspace, { board, verified: synced });
-            wallVm.swarm = board;
-          } catch (cause) {
-            syncError = cause instanceof Error ? cause.message : String(cause);
+            if (cacheable) lastGoodBoards.set(workspace, board);
+            if (!isWall) {
+              if (syncError === undefined) wallVm.swarm = board;
+              else if (board.agents.length === 0) boardError = syncError;
+              else wallVm.swarm = { ...board, sync_error: syncError,
+                totals: board.totals?.total === 0 ? undefined : board.totals };
+            }
           }
-        } else if (!syncError) syncError = "Workspace events could not be read";
-        if (syncError !== undefined) {
-          const previous = lastGoodBoards.get(workspace)?.board;
-          wallVm.swarm = { ...(previous ?? { room: workspace, agents: [], progress: null, refresh_at_ms: null }),
-            sync_error: syncError || "Workspace unavailable" } as AgentBoardViewModel;
+        } catch {
+          // Agent data is optional on the secondary Wall.
+          if (!isWall) boardError = readErrorReason;
         }
+      }
+      if (boardError !== undefined && (!isWall || roomErrorReason !== undefined)) {
+        const emptyBoard: AgentBoardViewModel = { room: workspace, agents: [], progress: null, refresh_at_ms: null };
+        const board: AgentBoardViewModel = {
+          ...(previous ?? emptyBoard),
+          totals: previous?.totals?.total === 0 ? undefined : previous?.totals,
+          sync_error: boardError,
+          ...(previous === undefined ? {} : { stale: true }),
+        };
+        wallVm.swarm = board;
       }
       const deadline = wallVm.swarm?.sync_error === undefined ? wallVm.swarm?.refresh_at_ms : null;
       if (deadline !== undefined && deadline !== null && Number.isFinite(deadline) && Number.isFinite(nowMs)) swarmTimer = readPort(() => clock.setTimeout(() => {
