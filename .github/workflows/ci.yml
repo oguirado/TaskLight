@@ -1,0 +1,88 @@
+name: TaskLight CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run bridge suites
+        run: |
+          failed=0
+          for suite in \
+            bridge/tests/ctx \
+            bridge/tests/models \
+            bridge/tests/install \
+            bridge/tests/plan_demo \
+            bridge/tests/room/c7b \
+            bridge/tests/room/u94 \
+            bridge/tests/room/u94c \
+            bridge/tests/room/fixc_a \
+            bridge/tests/wall_room \
+            bridge/tests/viewpoint \
+            bridge/tests/room/tlcli \
+            bridge/tests/room/u139 \
+            bridge/tests/room/winhost \
+            bridge/tests/room
+          do
+            echo "::group::$suite"
+            if ! python -B -m unittest discover -s "$suite" -t . -p 'test_*.py'; then
+              failed=1
+            fi
+            echo "::endgroup::"
+          done
+          exit "$failed"
+
+      - name: Install Node dependencies
+        if: ${{ !cancelled() }}
+        run: npm ci
+
+      - name: Run cross-platform Node tests
+        if: ${{ !cancelled() }}
+        run: node tools/demo/xplat.test.mjs
+
+      - name: Check headless demo readiness
+        env:
+          TASKLIGHT_DEMO_DIR: ${{ runner.temp }}/tasklight-demo
+        if: ${{ !cancelled() }}
+        run: |
+          if [[ "$RUNNER_OS" != "Linux" ]]; then
+            echo "::warning::Skipping headless demo readiness on $RUNNER_OS because the demo hard-codes the Linux Chrome executable."
+          else
+            node tools/demo/run_tasklight.mjs --check --headless
+          fi

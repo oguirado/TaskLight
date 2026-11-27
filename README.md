@@ -43,6 +43,8 @@ The local demo runs the full path without a Firebase project. See [tools/demo/RE
 
 ## Repository checks
 
+A green [TaskLight CI](.github/workflows/ci.yml) run verifies that TaskLight installs and works from a fresh clone on Linux, Windows, and macOS.
+
 ```sh
 bash tests/secret_scan/run.sh   # oracle: planted fake secrets must be caught
 bash tools/secret_scan.sh       # must report 0 findings before any push
