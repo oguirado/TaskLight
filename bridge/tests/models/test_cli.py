@@ -1,5 +1,10 @@
 """python3 -m bridge.models: add/remove/list/probe/set-key. rc 0 ok, 2 usage/refusal, 1 I/O. Acceptance 6, 7, 8, 9."""
 import json, os, stat, threading, time
+from io import StringIO
+from unittest.mock import patch
+
+from bridge.models import cli, store
+from bridge.tests.xplat_support import windows_filesystem
 from . import support as S
 
 
@@ -8,6 +13,16 @@ def mode(p):
 
 
 class Cli(S.Base):
+    def test_windows_cli_reports_store_refusal_when_supported(self):
+        store.save_endpoints(self.home, [])
+        (self.home / "models" / "endpoints.json").chmod(0o644)
+        stdout, stderr = StringIO(), StringIO()
+        with windows_filesystem(), patch.object(cli, "_home", return_value=self.home), \
+                patch.object(store._windows_acl, "available", return_value=True):
+            self.assertEqual(cli.main(["list"], stdout=stdout, stderr=stderr), 2)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertEqual(stderr.getvalue(), cli._REFUSED_MSG % store.store_dir(self.home))
+
     def run_cli(self, *args, stdin=b""):
         return S.run_cli(list(args), self.home, stdin=stdin)
 

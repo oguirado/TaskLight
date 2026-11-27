@@ -7,7 +7,8 @@ remove(home, endpoint_id)         -> None; also drops the key; unknown id -> Key
 validate_endpoint(e)              -> None; raises ValueError
 store_dir(home) -> str            (<home>/models)
 
-Directory 0700, files 0600, owned by the current uid, never symlinks; any defect refuses the whole store
+Private directory and files (0700/0600 on POSIX, owner-only ACL on Windows),
+owned by the current user, with links refused. Any defect refuses the whole store
 (including an unpaired surrogate in any endpoint string: the relay then serves no endpoint and model_hello is empty).
 Writes: O_CREAT|O_EXCL|O_NOFOLLOW temp file + fsync + os.replace.
 """
@@ -16,6 +17,9 @@ import os
 import secrets
 import stat
 
+from bridge.ctx.paths import windows_directory, windows_realpath
+
+from . import _windows_acl
 from . import ID_RE, KIND_LOCAL, KIND_REMOTE, KINDS, MAX_ENDPOINTS, MAX_STORE_BYTES
 from .common import parse_base_url
 
@@ -92,7 +96,20 @@ def _validate_list(endpoints):
 
 
 def _mode_ok(st):
-    return st.st_uid == os.getuid() and not (st.st_mode & 0o077)
+    uid = getattr(os, "getuid", None)
+    return (callable(uid) and getattr(st, "st_uid", None) == uid()
+            and not (st.st_mode & 0o077))
+
+
+def _private_store_supported():
+    if os.name == "nt":
+        return _windows_acl.available()
+    return (os.name == "posix" and callable(getattr(os, "getuid", None))
+            and all(hasattr(os, name) for name in
+                    ("O_DIRECTORY", "O_NOFOLLOW", "O_NONBLOCK", "O_CLOEXEC", "fchmod")))
+
+
+_PRIVATE_STORE_UNAVAILABLE = "cannot verify private model store ownership and permissions on this platform"
 
 
 def _dir_ok(st):
@@ -161,6 +178,10 @@ def _parse(raw, field):
 
 def _load_strict(home):
     """Returns (endpoints, keys, existed). Raises _Refused on any defect."""
+    if not _private_store_supported():
+        raise _Refused(_PRIVATE_STORE_UNAVAILABLE)
+    if os.name == "nt":
+        return _load_windows(home)
     dfd = _open_dir(store_dir(home))
     if dfd is None:
         return [], {}, False
@@ -169,6 +190,10 @@ def _load_strict(home):
         kraw = _read(dfd, KEYS_FILE)
     finally:
         os.close(dfd)
+    return _parse_records(eraw, kraw)
+
+
+def _parse_records(eraw, kraw):
     try:
         endpoints = [] if eraw is None else _parse(eraw, "endpoints")
         _validate_list(endpoints)
@@ -196,6 +221,8 @@ def load(home):
 
 # ---------------------------------------------------------------- writes
 def _ensure_dir(home):
+    if not _private_store_supported():
+        raise ValueError(_PRIVATE_STORE_UNAVAILABLE)
     d = store_dir(home)
     try:
         os.lstat(d)
@@ -220,6 +247,11 @@ def _write(home, name, obj):
     data = json.dumps(obj, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     if len(data) > MAX_STORE_BYTES:
         raise ValueError("store too large")
+    if os.name == "nt":
+        if not _private_store_supported():
+            raise ValueError(_PRIVATE_STORE_UNAVAILABLE)
+        _write_windows(home, name, data)
+        return
     dfd = _ensure_dir(home)
     tmp = ".%s.%s.tmp" % (name, secrets.token_hex(8))
     try:
@@ -248,11 +280,69 @@ def _write(home, name, obj):
         os.close(dfd)
 
 
+def _load_windows(home):
+    try:
+        directory = store_dir(windows_realpath(home))
+        with windows_directory(directory) as root:
+            permissions = _windows_acl.PrivatePermissions()
+            permissions.verify_directory(root.path)
+            endpoints = _read_windows(root, ENDPOINTS_FILE, permissions)
+            keys = _read_windows(root, KEYS_FILE, permissions)
+    except FileNotFoundError:
+        return [], {}, False
+    except OSError:
+        raise _Refused() from None
+    return _parse_records(endpoints, keys)
+
+
+def _read_windows(root, name, permissions):
+    try:
+        fd = root.open_file(name)
+    except FileNotFoundError:
+        return None
+    with os.fdopen(fd, "rb") as stream:
+        permissions.verify_file(fd)
+        raw = stream.read(MAX_STORE_BYTES + 1)
+        if len(raw) > MAX_STORE_BYTES:
+            raise _Refused()
+        return raw
+
+
+def _write_windows(home, name, data):
+    try:
+        permissions = _windows_acl.PrivatePermissions()
+        with windows_directory(windows_realpath(home), create=permissions.create_directory) as parent:
+            directory = parent.entry("models")
+            try:
+                permissions.create_directory(directory)
+            except FileExistsError:
+                pass
+            with parent.subdir("models") as root:
+                permissions.verify_directory(root.path)
+                _read_windows(root, name, permissions)
+                tmp = root.entry(".%s.%s.tmp" % (name, secrets.token_hex(8)))
+                fd = permissions.create_file(tmp)
+                try:
+                    with os.fdopen(fd, "wb") as output:
+                        output.write(data)
+                        output.flush()
+                        os.fsync(output.fileno())
+                    os.replace(tmp, root.entry(name))
+                finally:
+                    try:
+                        os.unlink(tmp)
+                    except FileNotFoundError:
+                        pass
+    except (OSError, _Refused):
+        raise ValueError("store refused (endpoints.json/keys.json mode, owner, type or content)") from None
+
+
 def _current(home):
     try:
         return _load_strict(home)
-    except _Refused:
-        raise ValueError("store refused (endpoints.json/keys.json mode, owner, type or content)") from None
+    except _Refused as exc:
+        raise ValueError(str(exc) or
+                         "store refused (endpoints.json/keys.json mode, owner, type or content)") from None
 
 
 def save_endpoints(home, endpoints):

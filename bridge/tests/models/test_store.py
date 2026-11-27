@@ -1,13 +1,123 @@
 """store.py: layout, perms, atomic writes, validation, refusal (acceptance 7), limits."""
+import ctypes
 import json, os, pathlib, stat
+from ctypes import wintypes
+from types import SimpleNamespace
+from unittest import mock
 from . import support as S
-from bridge.models import store
+from bridge.models import _windows_acl, store
 
 OK = dict(S.ep(None, id="a1", base_url="http://127.0.0.1:8080/v1"))
 
 
 def mode(p):
     return stat.S_IMODE(os.stat(p).st_mode)
+
+
+from bridge.tests.xplat_support import PrivatePermissionsOracle, windows_filesystem
+
+
+class WindowsStore(S.Base):
+    def test_windows_creation_attributes_pass_native_pointer_to_ctypes(self):
+        owner_sid = ctypes.create_unicode_buffer("S-1-5-21")
+        descriptor = ctypes.create_string_buffer(16)
+        address = ctypes.addressof(descriptor)
+        pointer_values = []
+
+        class Structure(ctypes.Structure):
+            def __init__(self, length, pointer, inherit):
+                pointer_values.append(pointer)
+                super().__init__(length, pointer, inherit)
+
+        def sid_string(_sid, result):
+            ctypes.cast(result, ctypes.POINTER(wintypes.LPWSTR))[0] = ctypes.cast(owner_sid, wintypes.LPWSTR)
+            return True
+
+        def descriptor_from_string(_sddl, _revision, result, _size):
+            ctypes.cast(result, ctypes.POINTER(ctypes.c_void_p))[0] = address
+            return True
+
+        bindings = {"ConvertSidToStringSidW": sid_string,
+                    "ConvertStringSecurityDescriptorToSecurityDescriptorW": descriptor_from_string}
+        class ObservedCtypes(SimpleNamespace):
+            def __getattr__(self, name):
+                return getattr(ctypes, name)
+
+        permissions = _windows_acl.PrivatePermissions.__new__(_windows_acl.PrivatePermissions)
+        permissions.ctypes = ObservedCtypes(Structure=Structure)
+        permissions.types = wintypes
+        permissions.security = object()
+        with mock.patch.object(permissions, "_bind", side_effect=lambda _lib, name, *_: bindings[name]), \
+                mock.patch.object(permissions, "_user_sid"), mock.patch.object(permissions, "_free") as free:
+            with permissions._creation_attributes() as pointer:
+                attributes = pointer._obj
+                self.assertEqual(attributes.descriptor, address)
+                self.assertEqual(attributes.length, ctypes.sizeof(type(attributes)))
+                self.assertFalse(attributes.inherit)
+                free.assert_called_once()
+        self.assertEqual(pointer_values, [address])
+        self.assertEqual([call.args[0].value for call in free.call_args_list],
+                         [ctypes.addressof(owner_sid), address])
+
+    def test_windows_store_reads_and_writes_under_canonical_home(self):
+        store.save_endpoints(self.home, [OK])
+        alias = self.home.with_name("HOME~1")
+        acl = SimpleNamespace(available=lambda: True, PrivatePermissions=PrivatePermissionsOracle)
+        with mock.patch.object(store, "_windows_acl", acl):
+            with windows_filesystem(alias=(alias, self.home)):
+                self.assertEqual(store.load(alias)["endpoints"], [OK])
+                store.set_key(alias, "a1", "private-value")
+            with windows_filesystem(alias, alias=(alias, self.home)):
+                self.assertTrue(store.load(alias)["refused"])
+                with self.assertRaises(ValueError):
+                    store.save_endpoints(alias, [])
+        self.assertFalse(alias.exists())
+        self.assertEqual(store.load(self.home)["keys"], {"a1": "private-value"})
+
+    def test_windows_load_refusal_has_no_platform_unavailable_message(self):
+        store.save_endpoints(self.home, [OK])
+        (self.home / "models" / "endpoints.json").chmod(0o644)
+        acl = SimpleNamespace(available=lambda: True, PrivatePermissions=PrivatePermissionsOracle)
+        with windows_filesystem(), mock.patch.object(store, "_windows_acl", acl):
+            with self.assertRaises(store._Refused) as exc:
+                store._load_windows(self.home)
+        self.assertEqual(exc.exception.args, ())
+
+    def test_windows_write_refusal_reports_invalid_store(self):
+        store.save_endpoints(self.home, [OK])
+        path = self.home / "models" / "endpoints.json"
+        before = path.read_bytes()
+        path.chmod(0o644)
+        acl = SimpleNamespace(available=lambda: True, PrivatePermissions=PrivatePermissionsOracle)
+        with windows_filesystem(), mock.patch.object(store, "_windows_acl", acl):
+            with self.assertRaises(ValueError) as exc:
+                store.save_endpoints(self.home, [])
+        self.assertEqual(str(exc.exception), "store refused (endpoints.json/keys.json mode, owner, type or content)")
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_windows_store_refuses_when_private_permissions_cannot_be_verified(self):
+        store.save_endpoints(self.home, [OK])
+        path = self.home / "models" / "endpoints.json"
+        before = path.read_bytes()
+        with windows_filesystem():
+            self.assertEqual(store.load(self.home), {"endpoints": [], "keys": {}, "refused": True})
+            with self.assertRaisesRegex(ValueError, "verify private model store"):
+                store.save_endpoints(self.home, [])
+        self.assertEqual(path.read_bytes(), before)
+
+
+    def test_windows_store_checks_owner_and_private_permissions(self):
+        acl = mock.Mock(available=lambda: True, PrivatePermissions=PrivatePermissionsOracle)
+        with windows_filesystem(), mock.patch.object(store, "_windows_acl", acl):
+            store.save_endpoints(self.home, [OK])
+            store.set_key(self.home, "a1", "private-value")
+            self.assertEqual(store.load(self.home)["keys"], {"a1": "private-value"})
+            path = self.home / "models" / "keys.json"
+            path.chmod(0o644)
+            self.assertTrue(store.load(self.home)["refused"])
+            path.chmod(0o600)
+            with windows_filesystem(path):
+                self.assertTrue(store.load(self.home)["refused"])
 
 
 class Layout(S.Base):

@@ -56,6 +56,17 @@ def _read_artifact(path):
         # Rooms currently have no project binding. Anchor relative paths to
         # the bridge's working directory.
         root = os.getcwd()
+        if os.name == "nt":
+            from bridge.ctx.paths import Roots, open_file_confined
+
+            roots = Roots((root,))
+            resolved = roots.resolve(os.path.join(root, path))
+            if resolved is None:
+                raise store.RoomError("bad_args", "path escapes the project root or contains a link")
+            with ExitStack() as stack:
+                fd = open_file_confined(resolved, roots)
+                stack.callback(os.close, fd)
+                return _read_artifact_fd(fd)
         target = os.path.realpath(os.path.join(root, path))
         if os.path.commonpath((root, target)) != root:
             raise store.RoomError("bad_args", "path escapes the project root")
@@ -75,15 +86,19 @@ def _read_artifact(path):
                 raise store.RoomError("bad_args", "artifact must be a regular file")
             fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
             stack.callback(os.close, fd)
-            info = os.fstat(fd)
-            if not stat.S_ISREG(info.st_mode):
-                raise store.RoomError("bad_args", "artifact must be a regular file")
-            if info.st_size > _FILE_LIMIT:
-                raise store.RoomError("limit_exceeded", "artifact exceeds the file size limit")
-            with os.fdopen(fd, "rb", closefd=False) as stream:
-                data = stream.read(_FILE_LIMIT + 1)
+            return _read_artifact_fd(fd)
     except (OSError, ValueError):
         raise store.RoomError("bad_args", "artifact could not be read") from None
+
+
+def _read_artifact_fd(fd):
+    info = os.fstat(fd)
+    if not stat.S_ISREG(info.st_mode):
+        raise store.RoomError("bad_args", "artifact must be a regular file")
+    if info.st_size > _FILE_LIMIT:
+        raise store.RoomError("limit_exceeded", "artifact exceeds the file size limit")
+    with os.fdopen(fd, "rb", closefd=False) as stream:
+        data = stream.read(_FILE_LIMIT + 1)
     if len(data) > _FILE_LIMIT:
         raise store.RoomError("limit_exceeded", "artifact exceeds the file size limit")
     return data

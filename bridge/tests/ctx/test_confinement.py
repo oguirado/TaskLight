@@ -1,13 +1,110 @@
+import ctypes
 import os
+import sys
 import unittest
+from ctypes import wintypes
+from unittest.mock import Mock, patch
 
+from bridge.ctx import _windows
 from bridge.ctx.paths import Roots
 from bridge.ctx.page import page
 from bridge.ctx.find import find
 from bridge.ctx.census import census
+from bridge.ctx.check import check
 from bridge.ctx.tail import tail
 from bridge.ctx.state import state
-from .helpers import ReadSpy, TmpCase, assert_envelope, canon
+from .helpers import ReadSpy, TmpCase, assert_envelope, canon, clk_tck, make_proc
+
+
+from bridge.tests.xplat_support import windows_filesystem
+
+
+class WindowsConfinement(TmpCase):
+    def test_windows_resolve_returns_canonical_root_and_child(self):
+        visible = self.w("folder/plain.txt", "visible\n")
+        alias = os.path.join(self.base, "ROOT~1")
+        alternate_file = os.path.join(alias, "folder", "plain.txt")
+        with windows_filesystem(alias=(alias, self.root)):
+            roots = Roots((alias,))
+            self.assertEqual(roots.roots, (self.root,))
+            self.assertEqual(roots.resolve(alternate_file), visible)
+            missing = os.path.join(alias, "missing", "file.txt")
+            self.assertEqual(roots.resolve(missing), os.path.join(self.root, "missing", "file.txt"))
+        with windows_filesystem(alias, alias=(alias, self.root)):
+            self.assertIsNone(Roots((alias,)).resolve(visible))
+        with windows_filesystem(os.path.dirname(alternate_file), alias=(alias, self.root)):
+            self.assertIsNone(Roots((alias,)).resolve(alternate_file))
+
+    def test_windows_directory_handle_reads_attributes_and_shares_writes(self):
+        create = Mock(return_value=123)
+        close = Mock()
+
+        def attributes(_handle, _kind, info, _size):
+            info[0] = 0x10  # FILE_ATTRIBUTE_DIRECTORY
+            return True
+
+        bindings = {
+            "CreateFileW": create, "CloseHandle": close,
+            "GetDriveTypeW": Mock(return_value=3),
+            "GetFileInformationByHandleEx": attributes,
+        }
+        with patch.object(_windows, "_kernel", return_value=(ctypes, wintypes, lambda name, *_: bindings[name])):
+            with patch.dict(sys.modules, msvcrt=Mock()):
+                with _windows.open_handle(self.root, directory=True) as handle:
+                    self.assertIsNone(handle)
+        self.assertEqual(create.call_args.args[:3], (self.root, 0x80, 3))
+        close.assert_called_once_with(123)
+
+    def test_windows_context_reads_and_skips_junction(self):
+        visible = self.w("plain.txt", "visible\n")
+        hidden = self.w("junction/hidden.txt", "hidden\n")
+        junction = os.path.dirname(hidden)
+        with windows_filesystem(junction):
+            self.assertIsNone(self.roots.resolve(hidden))
+            self.assertEqual(page(visible, 1, self.roots)["data"]["lines"], ["visible"])
+            self.assertEqual(tail(visible, 1, self.roots)["data"]["lines"], ["visible"])
+            self.assertEqual(find(["visible", "hidden"], self.root, 5, self.roots)
+                             ["data"]["absent"], ["hidden"])
+            self.assertEqual(census(self.root, self.roots)["data"]["files"], 1)
+
+    def test_windows_git_state_refuses_unpinned_subprocess(self):
+        with windows_filesystem():
+            result = state(self.root, self.roots)
+        self.assertEqual(result["rc"], 7)
+        self.assertIn("confinement", result["data"]["error"])
+        self.assertTrue(check(canon(result))["data"]["valid"])
+
+    def test_windows_pid_state_rejects_invalid_pid(self):
+        with windows_filesystem(), patch.object(sys, "platform", "win32"):
+            result = state("pid:abc", self.roots)
+        assert_envelope(self, result, "state", 2)
+        self.assertEqual(result["data"], {"facts": {}})
+
+    def test_windows_pid_state_reports_unavailable_default_procfs(self):
+        with windows_filesystem(), patch.object(sys, "platform", "win32"):
+            result = state("pid:1234", self.roots)
+        assert_envelope(self, result, "state", 7)
+        self.assertEqual(result["data"], {"facts": {}, "capability": "procfs_unavailable"})
+
+    def test_windows_pid_state_reads_explicit_proc_root(self):
+        proc = os.path.join(self.base, "proc")
+        make_proc(proc, 1234, starttime_ticks=10 * clk_tck(), rss_kib=17)
+        with windows_filesystem(), patch.object(sys, "platform", "win32"):
+            result = state("pid:1234", self.roots, proc_root=proc, now_s=30)
+        assert_envelope(self, result, "state", 0)
+        self.assertEqual(result["data"], {
+            "facts": {"kind": "pid", "alive": True, "rss_kib": 17, "runtime_s": 20}
+        })
+
+    def test_windows_git_state_rejects_unconfined_targets(self):
+        junction = os.path.join(self.root, "junction")
+        os.mkdir(junction)
+        with windows_filesystem(junction), patch.object(sys, "platform", "win32"):
+            for target in ("", self.outside, junction):
+                with self.subTest(target=target):
+                    result = state(target, self.roots)
+                    assert_envelope(self, result, "state", 2)
+                    self.assertEqual(result["data"], {"facts": {}})
 
 
 class RootsTests(TmpCase):

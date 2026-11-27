@@ -13,6 +13,9 @@ from .support import ARTIFACT, NO_REFERENCE, REVIEWER, ProjectCase, digest
 MAX_SIZE = 4 * 1024 * 1024
 
 
+from bridge.tests.xplat_support import windows_filesystem
+
+
 class ArtifactOracle(ProjectCase):
     def artifact(self, path=ARTIFACT, **fields):
         # Test the handler itself before the separate MCP registration case.
@@ -21,6 +24,15 @@ class ArtifactOracle(ProjectCase):
 
     def assert_artifact_error(self, path=ARTIFACT, code=None, detail=None, **fields):
         self.assert_room_error(lambda: self.artifact(path, **fields), code, detail)
+
+    def test_windows_artifact_reads_regular_file_and_refuses_junction(self):
+        data = b"recorded artifact"
+        self.write_artifact(data)
+        self.record_receipt()
+        with windows_filesystem():
+            self.assertEqual(self.artifact()["text"], data.decode())
+        with windows_filesystem(self.project / "artifacts"):
+            self.assert_artifact_error(code="bad_args")
 
     def test_m1_reads_historical_terminal_receipt(self):
         data = b"historical worker report\n"

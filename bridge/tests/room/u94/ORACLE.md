@@ -120,3 +120,17 @@ An exploratory existing-Python run disabled the module only in its parent
 interpreter; its child interpreters still discovered the on-disk module. That
 run is not treated as a pristine full-suite baseline. The isolated legacy
 comparison above establishes the conflict directly.
+
+### XPLAT_STORE
+
+Without descriptor-relative opens, export renders both files and refuses simulated reparse points in output directories and files.
+
+A simulated reparse-point journal refuses export before staging.
+
+The import boundary permits the shared Windows directory and private ACL primitives by name.
+
+#### Round 2
+
+`test_files.py` checks that a simulated alternate Windows home name resolves before constructing
+the journal path or comparing an absolute output destination. A simulated reparse home is
+refused before reading the journal or publishing outputs.

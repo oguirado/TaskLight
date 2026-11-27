@@ -1,10 +1,11 @@
+from contextlib import ExitStack
 import errno
 import os
 import stat
 
 from .envelope import respond
 from .limits import CENSUS_ENTRIES_MAX, CENSUS_TOP
-from .paths import open_dir_confined
+from .paths import confined_directory, is_link
 
 
 def _base():
@@ -19,8 +20,9 @@ def census(dir: str, roots):
         resolved = roots.resolve(dir)
         if resolved is None:
             return respond("census", 2, _base())
+        directories = ExitStack()
         try:
-            root_fd = open_dir_confined(resolved, roots)
+            root_dir = directories.enter_context(confined_directory(resolved, roots))
         except OSError as exc:
             if exc.errno == errno.ELOOP:
                 return respond("census", 2, _base())
@@ -35,12 +37,12 @@ def census(dir: str, roots):
         complete = True
         stopped = False
 
-        def _recurse(dir_str, dir_fd):
+        def _recurse(dir_str, directory):
             nonlocal entries, files, nbytes, complete, stopped
             if stopped:
                 return
             try:
-                names = os.listdir(dir_fd)
+                names = directory.names()
             except OSError:
                 complete = False
                 return
@@ -52,10 +54,10 @@ def census(dir: str, roots):
             entries_by_name = []
             for name in sorted(names):
                 try:
-                    st = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+                    st = directory.stat(name)
                 except OSError:
                     continue
-                if stat.S_ISLNK(st.st_mode):
+                if is_link(st):
                     continue
                 entries_by_name.append((name, st))
             for name, st in entries_by_name:
@@ -79,28 +81,21 @@ def census(dir: str, roots):
                     continue
                 if name == ".git":
                     continue
+                child = ExitStack()
                 try:
-                    child_fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY
-                                       | os.O_NOFOLLOW | os.O_CLOEXEC,
-                                       dir_fd=dir_fd)
+                    child_dir = child.enter_context(directory.subdir(name))
                 except OSError:
                     complete = False
                     continue
                 try:
-                    _recurse(os.path.join(dir_str, name), child_fd)
+                    _recurse(os.path.join(dir_str, name), child_dir)
                 finally:
-                    try:
-                        os.close(child_fd)
-                    except OSError:
-                        pass
+                    child.close()
 
         try:
-            _recurse(resolved, root_fd)
+            _recurse(resolved, root_dir)
         finally:
-            try:
-                os.close(root_fd)
-            except OSError:
-                pass
+            directories.close()
         items.sort(key=lambda item: (-item[1], item[0]))
         largest = [{"path": path, "bytes": size}
                    for path, size in items[:CENSUS_TOP]]

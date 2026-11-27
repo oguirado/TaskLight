@@ -89,7 +89,10 @@ def _out(stream, obj):
 def _load_or_refuse(home, stderr):
     st = store.load(home)
     if st["refused"]:
-        stderr.write(_REFUSED_MSG % store.store_dir(home))
+        if store._private_store_supported():
+            stderr.write(_REFUSED_MSG % store.store_dir(home))
+        else:
+            stderr.write("models: " + store._PRIVATE_STORE_UNAVAILABLE + "\n")
         return None
     return st
 

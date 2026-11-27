@@ -20,3 +20,7 @@ The spec gives an MCP argument object. The stub follows the existing extension h
 The room API and evidence validators expose no room-to-project lookup. Artifact fixtures exercise the specified working-directory fallback. Page limits count file bytes before UTF-8 replacement and redaction. If both a recorded and a caller hash exist, the artifact must satisfy both. Generation fixtures use distinct runs that start and finish within their own plan openings and reuse the same task identifier. The spec does not define ownership for a run that straddles openings.
 
 The wider package also describes C4 segmented journals, C1w detached workers and result-error telemetry, C8 pipeline templates, and C9 envelope and hook changes. These units are out of scope. Earlier C6 and C7 behavior is covered by the existing suites.
+
+### XPLAT_STORE
+
+Without descriptor-relative opens, artifact reads a recorded regular file and refuses a simulated junction.

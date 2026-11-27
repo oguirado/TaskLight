@@ -87,11 +87,17 @@ with patch.object(socket, 'socket', side_effect=AssertionError('network forbidde
 
     def test_m1_extension_import_boundary(self):
         from bridge.room.ext import export as exports
+        windows_filesystem = {
+            "bridge.ctx.paths": {"windows_directory", "windows_realpath"},
+            "bridge.models._windows_acl": {"PrivatePermissions"},
+        }
         for node in ast.walk(ast.parse(inspect.getsource(exports))):
             if isinstance(node, ast.ImportFrom):
                 if node.level:
                     self.assertEqual(node.level, 1)
                     self.assertIn(node.module, (None,))
+                elif node.module in windows_filesystem:
+                    self.assertLessEqual({a.name for a in node.names}, windows_filesystem[node.module])
                 elif node.module and node.module.startswith("bridge"):
                     # A-U163: exports apply the Wall's shared sanitizer (SPEC_U163 M1), imported from bridge.wall.emit.
                     self.assertTrue(node.module in ("bridge.room", "bridge.room.store", "bridge.room.ext", "bridge.wall.emit")

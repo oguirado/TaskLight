@@ -436,6 +436,11 @@ def state(target: str, roots, proc_root: str = "/proc", now_s: int | None = None
             return respond("state", 0,
                            {"facts": {"kind": "pid", "alive": True,
                                       "rss_kib": rss, "runtime_s": runtime}})
+        if os.name == "nt":
+            if roots.resolve(target) is None:
+                return respond("state", 2, {"facts": {}})
+            return respond("state", 7, {"facts": {},
+                                        "error": "Git subprocess confinement is unavailable on Windows"})
         return _git_facts(target, roots)
     except Exception:
         return respond("state", 2, {"facts": {}})

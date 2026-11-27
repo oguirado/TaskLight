@@ -1,4 +1,6 @@
 """M1/M2/M6/M8: refusal, allowlists and hostile filesystem inputs."""
+from contextlib import redirect_stderr
+from io import StringIO
 import copy
 import json
 import os
@@ -7,6 +9,22 @@ from unittest import mock
 
 from bridge.room import app
 from .support import FamilyCase, REAL_OPEN, canonical, envelope
+
+
+from bridge.tests.xplat_support import windows_filesystem
+
+
+class WindowsMailbox(FamilyCase):
+    def test_windows_mailbox_refuses_before_ownership_without_durability(self):
+        self.publish()
+        from bridge.room import family
+
+        stderr = StringIO()
+        with windows_filesystem(), redirect_stderr(stderr):
+            self.assertEqual(family.main(["drain", "--endpoint", "board"]), 2)
+        self.assertIn("durability", stderr.getvalue())
+        self.assertFalse((self.mailbox / "consumer.lock").exists())
+        self.assert_no_dispatch()
 
 
 class MailboxOracle(FamilyCase):

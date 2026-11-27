@@ -1,3 +1,4 @@
+from contextlib import ExitStack
 import errno
 import os
 import stat
@@ -6,7 +7,7 @@ import time
 from .envelope import respond
 from .limits import (FIND_DEADLINE_MS, FIND_FILE_MAX, FIND_K_MAX,
                      FIND_TERMS_MAX, SNIPPET_MAX)
-from .paths import open_dir_confined
+from .paths import confined_directory, is_link
 
 
 def _base():
@@ -49,8 +50,9 @@ def find(terms, root: str, k: int, roots, deadline_ms: int = FIND_DEADLINE_MS,
         def _expired() -> bool:
             return (clock() - start) * 1000 > deadline_ms
 
+        directories = ExitStack()
         try:
-            root_fd = open_dir_confined(resolved, roots)
+            root_dir = directories.enter_context(confined_directory(resolved, roots))
         except OSError as exc:
             if exc.errno == errno.ELOOP:
                 return respond("find", 2, _base())
@@ -60,24 +62,24 @@ def find(terms, root: str, k: int, roots, deadline_ms: int = FIND_DEADLINE_MS,
                 return respond("find", 0, data)
             return respond("find", 7, _base())
 
-        def _recurse(dir_str, dir_fd):
+        def _recurse(dir_str, directory):
             nonlocal timed_out, scanned, skipped, binary
             if _expired():
                 timed_out = True
                 return
             try:
-                names = os.listdir(dir_fd)
+                names = directory.names()
             except OSError:
                 skipped += 1
                 return
             entries = []
             for name in sorted(names):
                 try:
-                    st = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+                    st = directory.stat(name)
                 except OSError:
                     skipped += 1
                     continue
-                if stat.S_ISLNK(st.st_mode):
+                if is_link(st):
                     continue
                 kind = stat.S_IFMT(st.st_mode)
                 entries.append((name, st, kind))
@@ -95,9 +97,7 @@ def find(terms, root: str, k: int, roots, deadline_ms: int = FIND_DEADLINE_MS,
                     skipped += 1
                     continue
                 try:
-                    fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW
-                                 | os.O_NONBLOCK | os.O_CLOEXEC,
-                                 dir_fd=dir_fd)
+                    fd = directory.open_file(name)
                 except OSError:
                     skipped += 1
                     continue
@@ -147,30 +147,23 @@ def find(terms, root: str, k: int, roots, deadline_ms: int = FIND_DEADLINE_MS,
                     return
                 if name == ".git":
                     continue
+                child = ExitStack()
                 try:
-                    child_fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY
-                                       | os.O_NOFOLLOW | os.O_CLOEXEC,
-                                       dir_fd=dir_fd)
+                    child_dir = child.enter_context(directory.subdir(name))
                 except OSError:
                     skipped += 1
                     continue
                 try:
-                    _recurse(os.path.join(dir_str, name), child_fd)
+                    _recurse(os.path.join(dir_str, name), child_dir)
                 finally:
-                    try:
-                        os.close(child_fd)
-                    except OSError:
-                        pass
+                    child.close()
                 if timed_out:
                     return
 
         try:
-            _recurse(resolved, root_fd)
+            _recurse(resolved, root_dir)
         finally:
-            try:
-                os.close(root_fd)
-            except OSError:
-                pass
+            directories.close()
         if not timed_out and _expired():
             timed_out = True
         hits.sort(key=lambda h: (-h["cover"], h["path"], h["line"]))

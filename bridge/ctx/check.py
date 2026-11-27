@@ -180,7 +180,9 @@ def _tail_data(d, errs):
 
 
 def _state_data(d, errs):
-    _keys(d, {"facts"}, "data.", errs)
+    _keys(d, {"facts"}, "data.", errs, optional={"error"})
+    if "error" in d:
+        _str(d["error"], "data.error", errs)
     if "facts" in d:
         if not isinstance(d["facts"], dict):
             _err("WRONG_TYPE", "data.facts", errs)

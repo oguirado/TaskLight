@@ -7,6 +7,7 @@ import stat
 from bridge.plan.ops import check_arguments
 from collections import deque
 from contextlib import contextmanager
+from functools import partial
 
 from bridge.plan.fold import fold_plan
 from bridge.plan.markdown import render_memory_md, render_plan_md
@@ -53,26 +54,38 @@ def _legacy_result_event(event):
 
 def _read_snapshot(room, *, legacy_results=False):
     try:
-        events, malformed = store.read(room)
-        if not (legacy_results and malformed):
-            return events, events
-        # Revalidate legacy summaries while retaining the other validation
-        # and torn-tail rules. Render all CLI outputs from the same bytes.
-        with open(store._events_path(None, room), "rb") as stream:
-            data = stream.read()
-        events, _ = store._parse_events_bytes(data)
-        compatible = []
-        for raw in data.split(b"\n")[:-1]:
-            try:
-                event = _legacy_result_event(json.loads(raw.decode("utf-8")))
-            except (UnicodeError, ValueError, RecursionError):
-                continue
-            if isinstance(event, dict) and store._is_valid_event(event):
-                compatible.append(event)
+        if os.name == "nt":
+            from bridge.ctx.paths import windows_directory, windows_realpath
+
+            home = windows_realpath(store._home(None))
+            directory = store._room_dir(home, room)
+            with windows_directory(directory) as root:
+                with os.fdopen(root.open_file("events.jsonl"), "rb") as stream:
+                    data = stream.read()
+            events, malformed = store._parse_events_bytes(data)
+            if not (legacy_results and malformed):
+                return events, events
+        else:
+            events, malformed = store.read(room)
+            if not (legacy_results and malformed):
+                return events, events
+            # Revalidate legacy summaries while retaining the other validation
+            # and torn-tail rules. Render all CLI outputs from the same bytes.
+            with open(store._events_path(None, room), "rb") as stream:
+                data = stream.read()
+            events, _ = store._parse_events_bytes(data)
     except (FileNotFoundError, NotADirectoryError, IsADirectoryError):
         return [], []
     except OSError as exc:
         _fail(exc)
+    compatible = []
+    for raw in data.split(b"\n")[:-1]:
+        try:
+            event = _legacy_result_event(json.loads(raw.decode("utf-8")))
+        except (UnicodeError, ValueError, RecursionError):
+            continue
+        if isinstance(event, dict) and store._is_valid_event(event):
+            compatible.append(event)
     return events, compatible
 
 
@@ -230,7 +243,8 @@ def _segments_for_out(out, canonical):
         _bad("out must name a directory beneath root without parent traversal, NUL or symlink components")
     if out == "" or "\x00" in out:
         _bad("out must name a directory beneath root without parent traversal, NUL or symlink components")
-    if ".." in out.split("/"):
+    separators = out.replace("\\", "/") if os.name == "nt" else out
+    if ".." in separators.split("/"):
         _bad("out must name a directory beneath root without parent traversal, NUL or symlink components")
     if os.path.isabs(out):
         norm = os.path.normpath(out)
@@ -238,7 +252,7 @@ def _segments_for_out(out, canonical):
             common = os.path.commonpath([canonical, norm])
         except ValueError:
             _bad("out must name a directory beneath root without parent traversal, NUL or symlink components")
-        if common != canonical:
+        if os.path.normcase(common) != os.path.normcase(canonical):
             _bad("out must name a directory beneath root without parent traversal, NUL or symlink components")
         rel = os.path.relpath(norm, canonical)
         if rel == ".":
@@ -256,7 +270,7 @@ def _segments_for_out(out, canonical):
         common = os.path.commonpath([canonical, joined])
     except ValueError:
         _bad("out must name a directory beneath root without parent traversal, NUL or symlink components")
-    if common != canonical:
+    if os.path.normcase(common) != os.path.normcase(canonical):
         _bad("out must name a directory beneath root without parent traversal, NUL or symlink components")
     return norm.split(os.sep)
 
@@ -352,10 +366,21 @@ def _read_output(name, dir_fd):
 
 
 def _stage(dir_fd, data):
+    def create(name):
+        return os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                       0o644, dir_fd=dir_fd)
+
+    def unlink(name):
+        os.unlink(name, dir_fd=dir_fd)
+
+    return _stage_output(data, create, unlink)
+
+
+def _stage_output(data, create, unlink):
     for _attempt in range(5):
         name = ".u94-%s.tmp" % secrets.token_hex(4)
         try:
-            fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644, dir_fd=dir_fd)
+            fd = create(name)
         except FileExistsError:
             continue
         except OSError as exc:
@@ -371,7 +396,7 @@ def _stage(dir_fd, data):
                 os.fsync(fd)
         except BaseException as exc:
             try:
-                os.unlink(name, dir_fd=dir_fd)
+                unlink(name)
             except OSError:
                 pass
             if isinstance(exc, OSError):
@@ -381,9 +406,111 @@ def _stage(dir_fd, data):
     _fail(OSError(errno.EEXIST, "cannot stage"))
 
 
+def _publish_outputs(outputs, texts, read, stage, replace, unlink, *, discard=None):
+    if discard is None:
+        discard = unlink
+    old = {name: read(name) for name in outputs}
+    staged = {}
+    replaced = []
+    try:
+        for name in outputs:
+            staged[name] = stage(texts[name])
+        for name in outputs:
+            replace(staged[name], name)
+            replaced.append(name)
+    except (OSError, store.RoomError):
+        for name in reversed(replaced):
+            try:
+                if old[name] is None:
+                    unlink(name)
+                else:
+                    backup = stage(old[name])
+                    try:
+                        replace(backup, name)
+                    finally:
+                        try:
+                            discard(backup)
+                        except FileNotFoundError:
+                            pass
+            except (OSError, store.RoomError):
+                pass
+        raise
+    finally:
+        for temporary in staged.values():
+            try:
+                discard(temporary)
+            except OSError:
+                pass
+
+
+def _export_windows(canonical, segments, outputs, texts):
+    from bridge.ctx.paths import windows_directory
+    from bridge.models._windows_acl import PrivatePermissions
+
+    try:
+        permissions = PrivatePermissions()
+        target = os.path.join(canonical, *segments) if segments else canonical
+        with windows_directory(target, create=permissions.create_directory) as directory:
+            def read(name):
+                try:
+                    fd = directory.open_file(name)
+                except FileNotFoundError:
+                    return None
+                with _closing(fd), os.fdopen(fd, "rb", closefd=False) as stream:
+                    return stream.read()
+
+            def unlink(name):
+                os.unlink(directory.entry(name))
+
+            # Pin private staging so writers in the destination directory
+            # cannot substitute the source of a rename.
+            temporary = ".u94-" + secrets.token_hex(16)
+            temporary_path = directory.entry(temporary)
+            permissions.create_directory(temporary_path)
+            try:
+                with directory.subdir(temporary) as staging:
+                    permissions.verify_directory(staging.path)
+
+                    def create(name):
+                        return permissions.create_file(staging.entry(name))
+
+                    def discard(name):
+                        os.unlink(staging.entry(name))
+
+                    def replace(source, destination):
+                        # Replacing an entry does not open its destination.
+                        os.replace(staging.entry(source), directory.entry(destination))
+
+                    _publish_outputs(outputs, texts, read, partial(_stage_output, create=create,
+                                     unlink=discard), replace, unlink, discard=discard)
+            except BaseException:
+                try:
+                    os.rmdir(temporary_path)
+                except OSError:
+                    pass
+                raise
+            else:
+                os.rmdir(temporary_path)
+    except OSError as exc:
+        if _is_path_error(exc):
+            _bad("out must name a directory beneath root without parent traversal, NUL or symlink components")
+        _fail(exc)
+
+
 def export_room(room: str, out: str, *, include_integration=False) -> dict:
     store._check_room(room)
-    canonical = os.path.realpath(store._home(None))
+    home = store._home(None)
+    if os.name == "nt":
+        from bridge.ctx.paths import windows_realpath
+
+        try:
+            canonical = windows_realpath(home)
+        except OSError as exc:
+            if _is_path_error(exc):
+                _bad("out must name a directory beneath root without parent traversal, NUL or symlink components")
+            _fail(exc)
+    else:
+        canonical = os.path.realpath(home)
     segments = _segments_for_out(out, canonical)
     events, integration_events = _read_snapshot(room, legacy_results=include_integration)
     # Sanitize the complete snapshot before rendering or staging outputs.
@@ -396,8 +523,10 @@ def export_room(room: str, out: str, *, include_integration=False) -> dict:
     if include_integration:
         texts["INTEGRATION.md"] = _integration(integration_events)["text"].encode("utf-8")
         outputs += ("INTEGRATION.md",)
+    if os.name == "nt":
+        _export_windows(canonical, segments, outputs, texts)
+        return {"ok": True, "room": room, "rev": projection["last_lamport"]}
     fds = []
-    staged = {}
     close_error = None
     try:
         if not os.path.isdir(canonical):
@@ -421,45 +550,16 @@ def export_room(room: str, out: str, *, include_integration=False) -> dict:
             current = _open_dir(segment, current, True)
             fds.append(current)
         target_fd = current
-        old = {}
-        for name in outputs:
+        def read(name):
             _stat_output(name, target_fd)
-            old[name] = _read_output(name, target_fd)
-        for name in outputs:
-            staged[name] = _stage(target_fd, texts[name])
-        replaced = []
-        try:
-            for name in outputs:
-                try:
-                    os.replace(staged[name], name, src_dir_fd=target_fd, dst_dir_fd=target_fd)
-                except OSError as exc:
-                    _fail(exc)
-                replaced.append(name)
-        except store.RoomError:
-            for name in reversed(replaced):
-                try:
-                    if old[name] is None:
-                        os.unlink(name, dir_fd=target_fd)
-                    else:
-                        backup = _stage(target_fd, old[name])
-                        try:
-                            os.replace(backup, name, src_dir_fd=target_fd, dst_dir_fd=target_fd)
-                        except OSError:
-                            try:
-                                os.unlink(backup, dir_fd=target_fd)
-                            except OSError:
-                                pass
-                except Exception:
-                    pass
-            raise
+            return _read_output(name, target_fd)
+
+        _publish_outputs(outputs, texts, read, partial(_stage, target_fd),
+                         partial(os.replace, src_dir_fd=target_fd, dst_dir_fd=target_fd),
+                         partial(os.unlink, dir_fd=target_fd))
     except OSError as exc:
         _fail(exc)
     finally:
-        for name, tmp in list(staged.items()):
-            try:
-                os.unlink(tmp, dir_fd=fds[-1] if fds else None)
-            except Exception:
-                pass
         for fd in reversed(fds):
             try:
                 os.close(fd)

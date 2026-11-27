@@ -8,7 +8,11 @@ from unittest.mock import patch
 from bridge.plan.fold import fold_plan
 from bridge.plan.markdown import render_memory_md, render_plan_md
 from bridge.room import store
+from bridge.room.ext import export
 from .support import Case, file_export, history_events, memory_event, tree
+
+
+from bridge.tests.xplat_support import windows_filesystem
 
 
 class FileExport(Case):
@@ -23,6 +27,53 @@ class FileExport(Case):
         for name in ("PLAN.md", "MEMORY.md"):
             (target / name).write_bytes(("old " + name).encode())
         return target
+
+    def test_windows_export_writes_under_home_and_refuses_junction(self):
+        self.seed()
+        target = self.home / "exports"
+        with windows_filesystem():
+            file_export("demo", "exports")
+        for name, data in self.expected().items():
+            self.assertEqual((target / name).read_bytes(), data)
+        before = tree(self.tmp)
+        with windows_filesystem(target):
+            self.assert_file_error("bad_args", "exports/child")
+        with windows_filesystem(target / "PLAN.md"):
+            self.assert_file_error("bad_args", "exports")
+        self.assertEqual(tree(self.tmp), before)
+
+    def test_windows_snapshot_reads_under_canonical_home(self):
+        self.seed()
+        expected = store.read("demo")[0]
+        alias = self.home.with_name("HOME~1")
+        with patch.dict(os.environ, CW_HOME=str(alias)):
+            with windows_filesystem(alias=(alias, self.home)):
+                self.assertEqual(export._read_snapshot("demo"), (expected, expected))
+            with windows_filesystem(alias, alias=(alias, self.home)):
+                with self.assertRaises(store.RoomError) as exc:
+                    export._read_snapshot("demo")
+                self.assertEqual(exc.exception.code, "export_failed")
+
+    def test_windows_export_uses_canonical_home_for_absolute_destination(self):
+        self.seed()
+        alias = self.home.with_name("HOME~1")
+        target = self.home / "exports"
+        with patch.dict(os.environ, CW_HOME=str(alias)), patch.object(export, "_read_snapshot", return_value=([], [])):
+            with windows_filesystem(alias=(alias, self.home)):
+                file_export("demo", str(target))
+            before = tree(self.tmp)
+            with windows_filesystem(alias, alias=(alias, self.home)):
+                self.assert_file_error("bad_args", str(target))
+            self.assertEqual(tree(self.tmp), before)
+        self.assertTrue((target / "PLAN.md").is_file())
+        self.assertFalse(alias.exists())
+
+    def test_windows_export_refuses_reparse_journal(self):
+        journal = self.seed()
+        before = tree(self.tmp)
+        with windows_filesystem(journal):
+            self.assert_file_error("export_failed", "exports")
+        self.assertEqual(tree(self.tmp), before)
 
     def test_a5_relative_destination_writes_only_both_exact_documents(self):
         journal = self.seed(history_events() + [memory_event(13, "café ✓\n第二行", 0, section="utf8")])

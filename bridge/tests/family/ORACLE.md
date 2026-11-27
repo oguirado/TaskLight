@@ -108,3 +108,7 @@ takeover, storage rotation, UI work and backend repairs are OUT OF SCOPE.
 | Containment | `docs/MCP.md:24` |
 
 This oracle is limited to the supplied specification and confirmed workspace code.
+
+### XPLAT_STORE
+
+Without native mailbox durability, drain refuses before ownership or dispatch.

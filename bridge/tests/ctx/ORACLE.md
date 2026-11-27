@@ -64,3 +64,13 @@ NON-BLOCKING (no test): stale "STUB" text in `bridge/ctx/__init__.py`.
 ## XPLAT_PROC
 
 `test_state_platforms.py` injects Windows and macOS and rejects a default procfs read. An unavailable procfs root returns `capability: procfs_unavailable`, while a missing PID under an available root retains the existing empty facts. Git config isolation must use the platform null device.
+### XPLAT_STORE
+
+Without descriptor-relative opens, page and tail read a regular file, find and census skip a simulated junction, and Git state refuses when it cannot confine the subprocess.
+
+#### Round 2
+
+In `test_confinement.py`, a simulated alternate Windows name resolves to the canonical root and
+child, including a missing suffix. Reparse points at the root and below it are refused. The
+directory handle requests `FILE_READ_ATTRIBUTES` and shares read and write access while omitting
+delete sharing.

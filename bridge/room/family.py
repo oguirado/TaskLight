@@ -10,11 +10,15 @@ from contextlib import ExitStack, contextmanager
 import errno
 from inspect import signature
 import os
-import posix
 import secrets
 import stat
 import sys
 import time
+
+try:
+    import posix
+except ImportError:
+    posix = None
 
 from bridge.room import _lock, app, store
 from bridge.room.family_envelope import (
@@ -267,6 +271,10 @@ class Mailbox:
         return fd
 
     def open(self):
+        if (os.name != "posix" or posix is None or not callable(getattr(os, "geteuid", None))
+                or not all(hasattr(os, flag) for flag in
+                           ("O_DIRECTORY", "O_NOFOLLOW", "O_CLOEXEC", "O_NONBLOCK"))):
+            raise Refusal("mailbox ownership and directory durability cannot be verified on this platform")
         if ENDPOINT_RE.fullmatch(self.endpoint) is None:
             raise Refusal("invalid endpoint")
         home = os.environ.get("CW_HOME")
