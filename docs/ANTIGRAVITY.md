@@ -96,6 +96,7 @@ Use the explicitly enabled [agent-reported fallback](HARNESS_ANTIGRAVITY.md#life
 ## 9. Troubleshooting
 
 - `agy_not_found` means `agy` is missing from `PATH`. The desktop registration can be used independently.
+- In print mode (`agy -p`) a tool call needs the `mcp` permission, which headless mode cannot ask for, so TaskLight tools are denied and the session ends without output. Allow the server in `permissions.allow` of the Antigravity settings (for example `mcp(tasklight)`) or run the session with `--dangerously-skip-permissions`. Interactive sessions ask normally.
 - `exists` means the CLI already lists `tasklight`. Inspect the registry before using `--force`, which allows the setup tool to attempt another add.
 
 ```sh
