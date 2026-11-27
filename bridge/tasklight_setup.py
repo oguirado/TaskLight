@@ -1,4 +1,5 @@
-"""U82 TaskLight setup CLI for AI assistants."""
+"""TaskLight desktop setup and wall launch."""
+import argparse
 import base64
 import binascii
 import datetime
@@ -16,6 +17,7 @@ import tempfile
 import time
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlsplit
 
 if __name__ == "__main__" and not __package__:
     _here = os.path.dirname(os.path.abspath(__file__))
@@ -32,6 +34,14 @@ CLIENTS = (
 )
 BROWSERS = install.BROWSERS
 HOST_NAME = install.HOST_NAME
+
+# POSIX names and bundle names follow the desktop demo's chromeCandidates.
+_BROWSER_PROGRAMS = {
+    "chrome": (("google-chrome", "google-chrome-stable"), "Google Chrome", "chrome.exe"),
+    "chromium": (("chromium", "chromium-browser"), "Chromium", "chromium.exe"),
+    "edge": (("microsoft-edge",), "Microsoft Edge", "msedge.exe"),
+    "brave": (("brave-browser",), "Brave Browser", "brave.exe"),
+}
 
 
 def _repo_root():
@@ -635,6 +645,207 @@ def _do_mcp_config(rest):
 
 _manifest_dir = install._manifest_dir
 _browser_profile = install._browser_profile
+
+
+def _http_url(value):
+    if not value or re.search(r"[\s\x00-\x1f\x7f\\]", value):
+        return None
+    try:
+        parsed = urlsplit(value)
+        hostname, _ = parsed.hostname, parsed.port
+    except ValueError:
+        return None
+    if parsed.scheme in ("http", "https") and hostname:
+        return parsed
+    return None
+
+
+def _hosted_wall_url():
+    root = _repo_root()
+    try:
+        manifest = json.loads((root / "extension" / "manifest.json").read_text(encoding="utf-8"))
+        matches = manifest["externally_connectable"]["matches"]
+    except (OSError, ValueError, TypeError, KeyError):
+        matches = []
+    # The go-live tool puts the hosted wall first. The stock manifest uses
+    # site.test as a fixture, so use the published address from the guide.
+    if isinstance(matches, list):
+        for match in matches:
+            if not isinstance(match, str) or not match.endswith("/*"):
+                continue
+            origin = match[:-2]
+            parsed = _http_url(origin)
+            if (parsed and parsed.scheme == "https" and parsed.hostname != "site.test"
+                    and "*" not in parsed.netloc and not parsed.username
+                    and not (parsed.path or parsed.query or parsed.fragment)):
+                return origin
+    try:
+        readme = (root / "README.md").read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        return None
+    match = re.search(r"Firebase hosts the wall at (https://[a-z0-9-]+\.web\.app)\b", readme)
+    return match[1] if match else None
+
+
+def _native_host_manifest(browser):
+    return _manifest_dir(browser) / (HOST_NAME + ".json")
+
+
+def _has_native_host(browser):
+    manifest = _native_host_manifest(browser)
+    try:
+        return manifest.is_file() and (
+            not install._is_win() or install._registry_matches(browser, manifest)
+        )
+    except (ImportError, OSError):
+        return False
+
+
+def _browser_executable(browser):
+    commands, app, exe = _BROWSER_PROGRAMS[browser]
+    windows = install._is_win()
+    for name in (exe,) if windows else commands:
+        found = shutil.which(name)
+        if found and (not windows or Path(found).suffix.lower() == ".exe"):
+            return os.path.abspath(found)
+
+    candidates = []
+    if windows:
+        vendor = install._VENDOR_PATHS[browser].split("\\")
+        vendor_exes = ("chromium.exe", "chrome.exe") if browser == "chromium" else (exe,)
+        for name in ("ProgramFiles", "ProgramFiles(x86)", "ProgramW6432", "LOCALAPPDATA"):
+            root = install._env_path(name)
+            if root is not None:
+                for vendor_exe in vendor_exes:
+                    candidates.append(root.joinpath(*vendor, "Application", vendor_exe))
+    elif sys.platform == "darwin":
+        for root in (install._home() / "Applications", Path("/Applications")):
+            candidates.append(root / (app + ".app") / "Contents" / "MacOS" / app)
+    for candidate in candidates:
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return os.path.abspath(candidate)
+    return None
+
+
+def _find_browser(browser):
+    if browser is not None:
+        return browser, _browser_executable(browser)
+    override = os.environ.get("CHROME")
+    if override:
+        found = shutil.which(override)
+        if found and (not install._is_win() or Path(found).suffix.lower() == ".exe"):
+            filename = Path(found).name.lower()
+            for name, (commands, app, exe) in _BROWSER_PROGRAMS.items():
+                if filename in (*commands, app.lower(), exe):
+                    return name, os.path.abspath(found)
+            return None, os.path.abspath(found)
+    # Use the same profile and registration locations as the desktop installer.
+    for name in sorted(BROWSERS, key=_has_native_host, reverse=True):
+        executable = _browser_executable(name)
+        if executable:
+            return name, executable
+    return None, None
+
+
+def _has_enabled_extension(profile, extension_ids):
+    for filename in ("Secure Preferences", "Preferences"):
+        try:
+            preferences = json.loads((profile / filename).read_text(encoding="utf-8"))
+            settings = preferences["extensions"]["settings"]
+        except (OSError, ValueError, TypeError, KeyError):
+            continue
+        if isinstance(settings, dict):
+            for extension in extension_ids:
+                entry = settings.get(extension)
+                if (isinstance(entry, dict) and entry.get("state", 1) == 1
+                        and not entry.get("disable_reasons")):
+                    return True
+    return False
+
+
+def _wall_profile(browser):
+    if browser is None or not _has_native_host(browser):
+        return None
+    root = _browser_profile(browser)
+    try:
+        manifest = json.loads(_native_host_manifest(browser).read_text(encoding="utf-8"))
+        origins = manifest["allowed_origins"]
+        state = json.loads((root / "Local State").read_text(encoding="utf-8"))
+        profiles = state["profile"]
+        info = profiles["info_cache"]
+    except (OSError, ValueError, TypeError, KeyError):
+        return None
+    if not isinstance(origins, list) or not isinstance(info, dict):
+        return None
+    extension_ids = []
+    for origin in origins:
+        if not isinstance(origin, str):
+            continue
+        match = re.fullmatch(r"chrome-extension://([a-p]{32})/", origin)
+        if match:
+            extension_ids.append(match[1])
+    if not extension_ids:
+        return None
+    last_used = profiles.get("last_used")
+    for name in sorted(info, key=lambda name: name != last_used):
+        if name in ("", ".", "..") or any(c in name for c in "/\\:\0"):
+            continue
+        if _has_enabled_extension(root / name, extension_ids):
+            return name
+    return None
+
+
+def _positive_dimension(value):
+    size = int(value)
+    if size <= 0:
+        raise argparse.ArgumentTypeError("expected a positive window dimension")
+    return size
+
+
+def open_wall(argv):
+    parser = argparse.ArgumentParser(prog="tasklight open", allow_abbrev=False,
+                                     description="Open the TaskLight wall in an application window.")
+    parser.add_argument("--browser", metavar="{" + ",".join(BROWSERS) + "}")
+    parser.add_argument("--url", metavar="URL", help="override the hosted wall URL")
+    parser.add_argument("--width", metavar="N", type=_positive_dimension)
+    parser.add_argument("--height", metavar="N", type=_positive_dimension)
+    parser.add_argument("--json", action="store_true", help="print the launch result as JSON")
+    args = parser.parse_args(argv)
+    if args.browser is not None and args.browser not in BROWSERS:
+        return _emit({"reason": "unknown_browser", "exit_status": 2}, 2)
+    url = _hosted_wall_url() if args.url is None else args.url
+    if not _http_url(url):
+        return _emit({"reason": "invalid_url", "exit_status": 2}, 2)
+    name, browser = _find_browser(args.browser)
+    if browser is None:
+        return _emit({"reason": "browser_not_found", "exit_status": 2}, 2)
+
+    command = [browser, "--app=" + url]
+    profile = _wall_profile(name)
+    if profile is not None:
+        command.append("--profile-directory=" + profile)
+    if args.width is not None or args.height is not None:
+        command.append(f"--window-size={args.width or 1280},{args.height or 900}")
+    if install._is_win():
+        detach = {"creationflags": subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP}
+    else:
+        detach = {"start_new_session": True}
+    try:
+        proc = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL, shell=False, **detach)
+    except OSError:
+        return _emit({"reason": "launch_failed", "browser": browser, "url": url, "exit_status": 2}, 2)
+    try:
+        status = proc.wait(timeout=0.25)
+    except subprocess.TimeoutExpired:
+        # A browser that stays up owns the detached window.
+        status = 0
+    if status < 0:
+        status = 128 - status
+    if args.json:
+        return _emit({"browser": browser, "url": url, "exit_status": status}, status)
+    print(f"{browser} -> {url} (exit status {status})")
+    return status
 
 
 def _check_one_native(browser, dev_id):

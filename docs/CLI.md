@@ -36,12 +36,35 @@ tasklight tools
 tasklight call list_templates --json '{}'
 tasklight run --room demo --agent worker --harness generic -- python3 -c 'print("done")'
 tasklight wave --manifest wave.json
+tasklight open
 ```
 
 `export` writes under `CW_HOME`. For `run`, put the child command after
 `--`. For `wave`, supply a JSON manifest with `room`, `parent`,
 `parent_run` and `lanes`. The lane entries specify each child's `agent`,
 `run_id`, `argv` and `result_file`.
+
+### Open the wall in its own window
+
+`tasklight open` launches the hosted wall in an existing browser profile.
+The launcher prefers a browser registered with the TaskLight native host
+and looks for the registered extension in that browser's profiles. If the
+browser's profile records do not identify it, the browser uses its normal
+profile selection. Use `--browser chrome|chromium|edge|brave` to select a
+browser or `--url URL` to open a different HTTP or HTTPS wall.
+The default URL comes from the production extension manifest or the hosted
+address in the [README](../README.md).
+
+```sh
+tasklight open --browser chrome --width 1280 --height 900 --json
+tasklight open --url http://localhost:5173/
+```
+
+`--width` and `--height` request a window size. When you specify only one,
+the other uses its default (width `1280`, height `900`). `--json` prints one
+object with `browser`, `url`, and `exit_status`. A browser that keeps running
+after launch reports status `0`. An unknown or missing browser, or an invalid
+URL, returns status `2` and a JSON `reason`.
 
 ## Operations
 

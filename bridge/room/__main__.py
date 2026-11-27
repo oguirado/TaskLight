@@ -14,7 +14,7 @@ from bridge.room.store import RoomError
 from bridge.wall.emit import sanitize_output
 
 
-_VERBS = ("post", "read", "wait", "status", "export", "tools", "call", "run", "wave")
+_VERBS = ("post", "read", "wait", "status", "export", "tools", "call", "run", "wave", "open")
 
 
 def _home():
@@ -70,6 +70,9 @@ def main(argv=None):
     if argv and argv[0] == "wave":
         from bridge.room.ext.wave import main as wave
         return wave(argv[1:])
+    if argv and argv[0] == "open":
+        from bridge.tasklight_setup import open_wall
+        return open_wall(argv[1:])
     try:
         pin = app.session_pin_from_env()
     except RoomError as e:

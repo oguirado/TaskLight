@@ -340,6 +340,7 @@ class LauncherAndHelp(CliCase):
                     yield from names(item)
 
         reported = set(names(help_info))
+        self.assertIn("open", help_info["verbs"])
         self.assertEqual(set(VERBS) - reported, set(), "missing legacy verbs in help")
         self.assertEqual({tool["name"] for tool in self.tools()} - reported, set(),
                          "missing registered tool names in help")

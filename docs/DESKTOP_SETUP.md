@@ -181,15 +181,30 @@ Ask your connected AI agent to run these MCP tools against `room: "demo"` (or an
 
 Open the wall (next section). It shows the live plan band (title, phase chips, progress, tasks and microtasks) and the **Memory** view.
 
-## 5b. Open the wall locally
+## 5b. Open the wall
 
-Until the hosted wall is deployed, serve it from your clone with the extension origin allowed:
+With the TaskLight extension loaded and the native host installed, open the
+hosted wall in a dedicated window:
+
+```sh
+./bin/tasklight open --browser chrome
+```
+
+On Windows, run `python -m bridge.room open --browser chrome` from the
+checkout. The launcher looks for the profile with the TaskLight extension.
+See the [CLI guide](CLI.md#open-the-wall-in-its-own-window) for browser, URL
+and size options.
+
+To use the local development wall, serve it from your clone with the extension origin allowed:
 
 ```sh
 VITE_EXTENSION_ORIGINS=chrome-extension://<extension-id> npx vite --config tools/demo/vite.demo.config.ts --host 127.0.0.1 --port 5173 --strictPort
 ```
 
-Then browse `http://localhost:5173/` (use `localhost`, not `127.0.0.1`: the development manifest only allows `http://localhost/*`). The page connects to the extension, the extension starts the native host, and the rooms in your `wall.config.json` appear as workspaces.
+Then run `./bin/tasklight open --url http://localhost:5173/`. Use `localhost`
+to match the origin allowed by the development manifest. The page connects to
+the extension, the extension starts the native host, and the rooms in your
+`wall.config.json` appear as workspaces.
 
 ### Model routing and legacy liaison
 
