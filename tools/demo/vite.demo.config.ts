@@ -5,7 +5,7 @@
 import { dirname, join } from "node:path";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { defineConfig } from "vite";
+import { defineConfig, normalizePath } from "vite";
 import type { ConfigEnv, Plugin, UserConfig } from "vite";
 import base from "../../hosting/vite.config.ts";
 import { parseStylesheetImports } from "./demo_lib.mjs";
@@ -21,7 +21,7 @@ const injectStyles: Plugin = {
   transformIndexHtml() {
     return stylesheetNames.map((f) => ({
       tag: "link",
-      attrs: { rel: "stylesheet", href: "/@fs" + join(repo, "styles", f) },
+      attrs: { rel: "stylesheet", href: "/@fs/" + normalizePath(join(repo, "styles", f)).replace(/^\//, "") },
       injectTo: "head" as const,
     }));
   },

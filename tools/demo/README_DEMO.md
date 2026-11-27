@@ -15,17 +15,28 @@ node tools/demo/run_demo.mjs --headless --no-mcp --dir <fresh-directory>
 node tools/demo/run_demo.mjs --keep
 ```
 
-Use Node.js 22 or later, Python 3, OpenSSL, and a Chrome-family browser. The
-script opens a window when `DISPLAY` is set unless you pass `--headless`.
-`CHROME` overrides discovery on `PATH` and in standard macOS app bundles.
+Use Node.js 22 or later, Python 3.10 or later, and a Chrome-family browser.
+The demo uses Node to generate the extension key. It discovers browsers on
+`PATH`, in macOS application bundles, and in Windows program and user
+installation directories. Set `CHROME` to select a specific executable.
+Pass `--headless` to run without a window. On Linux, an unset `DISPLAY`
+also selects headless mode.
 `--dir` overrides `TASKLIGHT_DEMO_DIR` and the default temp directory
 `tasklight-demo`. Use a fresh directory for separate evidence from each run.
 
 The directory holds the throwaway browser profile, room data, demo key, built
 extension, Vite cache, and evidence. `logs/run_demo.log` records checks and
 tool replies. `logs/room_events.json` and `logs/summary.json` record the room
-events and verification results. By default the script stops the Chrome and
-Vite process groups it started. `--keep` leaves them running.
+events and verification results. The demo stops the Chrome and Vite children
+it starts. `--keep` leaves them running.
+
+Linux and macOS use a native messaging launcher in the throwaway browser
+profile. Windows uses a batch launcher and a per-user registry entry named
+for the demo extension. The demos remove their Windows registration when
+they stop their children. After a local `run_demo.mjs --keep` session, close
+Chrome and Vite and pass the demo's manifest to
+`python tools/demo/setup_native.py --unregister <manifest> --browser <browser>`
+to remove the entry. The default browser for that command is `chrome`.
 
 ## What the demo verifies
 
@@ -72,7 +83,11 @@ and checks only `plan`, `drift`, and `question`.
 
 # Tasklight: ViewPoint agents on the wall (`run_tasklight.mjs`)
 
-This command runs the same local wall pipeline as `run_demo.mjs`. It allows the rooms `viewpoint` and `demo` and adds the U40 observer, `python3 -m bridge.viewpoint watch --root R --room viewpoint --interval 0.5`.
+This command runs the same local wall pipeline as `run_demo.mjs`. It allows
+the rooms `viewpoint` and `demo` and adds the U40 observer,
+`python -m bridge.viewpoint watch --root R --room viewpoint --interval 0.5`.
+For live observation on macOS or Windows, use `--root` to point at your
+runs directory. Replay supplies its own root.
 
 ```
 node tools/demo/run_tasklight.mjs --check [--headless]     # readiness table; exit 1 on any FAIL
@@ -101,10 +116,12 @@ Options:
 
 What the `--check` rows test:
 - display: refuses DISPLAY `:98`. In headless mode, DISPLAY is removed for child processes.
-- node 22 or later, and Chrome.
+- Node.js 22 or later, Python 3.10 or later, and a Chrome-family browser.
 - vite: installed, and the port is free.
 - extension id: from the demo key.
-- native host manifest: written into the throwaway profile. It asserts `rooms.allow` holds `viewpoint` and `demo`, and that the launcher is executable.
+- native host manifest: written into the throwaway profile and registered for
+  the selected browser on Windows. Readiness checks the launcher and the
+  `viewpoint` and `demo` entries in `rooms.allow`.
 - CW_HOME: which one is used.
 - observer: the import, a construct + poll on an empty temp root, and `watch --once` (rc 99 means the U40 stub).
 - replay writer: `--once` into a temp root writes 4 runs, and the real root is refused (rc 3).
@@ -134,7 +151,8 @@ Output files are in `--dir`:
 - `logs/tasklight_check.json`
 - `logs/tasklight_summary.json`
 - `logs/observer.log`, `logs/replay.log`
-- `logs/tasklight_pids.json`. It records each pid with its start time, so `--stop` never signals a reused pid.
+- `logs/tasklight_pids.json` records the live runner and child PIDs for
+  diagnostics. `--stop` authenticates to the runner and uses its child handles.
 - `shots/replay_mid.png`, `shots/replay.png`
 
 CW_HOME:
@@ -144,7 +162,7 @@ CW_HOME:
 Hard rules:
 - The launcher refuses DISPLAY `:98`, port 5998, and a replay root under `/dev/shm/vqa-cu`.
 - It never starts ViewPoint or MetaViewer and never uses a real Chrome profile.
-- It stops only the process groups it started.
+- It stops only the child processes it started.
 
 ## Replay fixture (`vp_replay.py`, stdlib)
 

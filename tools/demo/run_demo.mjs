@@ -5,17 +5,21 @@
 // room events.jsonl -> bridge.wall native host -> extension SW -> hosted wall page (vite dev)
 // The browser sends a question through Messages (legacy). MCP drives shared planning.
 // Everything lives under --dir (throwaway profile, CW_HOME, key pair, logs, shots).
-// Only processes started here are stopped (their own process groups); --keep leaves them up.
+// Only processes started here are stopped (using their child handles); --keep leaves them up.
 import { spawn, execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:net";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, openSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { chromeCandidates, summaryExitCode } from "./demo_lib.mjs";
+import {
+  browserKind, closeChrome, configureDemoExtension, extensionId, findChrome, findPython,
+  spawnLogged, stopChildren, unregisterNative,
+} from "./demo_runtime.mjs";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const args = process.argv.slice(2);
@@ -24,7 +28,7 @@ const opt = (name, dflt) => {
   return i >= 0 && i + 1 < args.length ? args[i + 1] : dflt;
 };
 const DIR = path.resolve(opt("--dir", process.env.TASKLIGHT_DEMO_DIR ?? join(os.tmpdir(), "tasklight-demo")));
-const HEADLESS = args.includes("--headless") || !process.env.DISPLAY;
+const HEADLESS = args.includes("--headless") || (process.platform === "linux" && !process.env.DISPLAY);
 const KEEP = args.includes("--keep");
 const NO_MCP = args.includes("--no-mcp");
 const ROOM = "demo";
@@ -32,15 +36,11 @@ const AGENT = "claude-code";
 const WALL_USER = "wall-user";
 const DRIFT_LABEL = "Rules";
 
-function findChrome() {
-  const candidates = chromeCandidates(process.platform, process.env);
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) return candidate;
-  }
-  return null;
-}
-const CHROME = findChrome();
-if (!CHROME) throw new Error("Chrome/Chromium browser not found: set CHROME or install google-chrome/chromium on PATH");
+const CHROME = findChrome(chromeCandidates(process.platform, process.env));
+if (!CHROME) throw new Error("Chrome/Chromium browser not found: set CHROME or install a supported browser");
+const BROWSER = browserKind(CHROME);
+const PYTHON = findPython(process.platform === "win32" ? ["python", "python3"] : ["python3", "python"]);
+if (!PYTHON) throw new Error("Python 3.10 or later not found on PATH");
 
 const P = {
   profile: join(DIR, "profile"), cwhome: join(DIR, "cwhome"), keys: join(DIR, "keys"),
@@ -50,7 +50,9 @@ const P = {
 if (P.profile.includes("/.config/")) throw new Error("refusing profile under ~/.config");
 for (const d of Object.values(P)) if (!d.endsWith(".json")) mkdirSync(d, { recursive: true });
 
-const started = []; // {name, pid}
+const started = [];
+let nativeManifest;
+let browserCdp;
 const log = (...a) => {
   const line = `[${new Date().toISOString()}] ` + a.join(" ");
   console.log(line);
@@ -68,24 +70,13 @@ const freePort = () =>
   });
 
 function startProc(name, cmd, argv, extra = {}) {
-  const out = openSync(join(P.logs, name + ".log"), "a");
-  const ch = spawn(cmd, argv, { stdio: ["ignore", out, out], detached: true, ...extra });
-  started.push({ name, pid: ch.pid });
-  writeFileSync(join(P.logs, "pids.json"), JSON.stringify(started, null, 2) + "\n");
-  log(`started ${name} pid=${ch.pid}`);
-  return ch;
+  const child = spawnLogged(cmd, argv, join(P.logs, name + ".log"),
+    { detached: KEEP, ...extra }, (error) => log(`start ${name}: ${error.message}`));
+  started.push({ name, child });
+  writeFileSync(join(P.logs, "pids.json"), JSON.stringify(started.map(({ name, child }) => ({ name, pid: child.pid })), null, 2) + "\n");
+  log(`started ${name} pid=${child.pid}`);
+  return child;
 }
-function stopAll() {
-  for (const { name, pid } of [...started].reverse()) {
-    try {
-      process.kill(-pid, "SIGTERM"); // own process group (detached)
-      log(`stopped ${name} pgid=${pid}`);
-    } catch (e) {
-      log(`stop ${name} pgid=${pid}: ${e.code}`);
-    }
-  }
-}
-
 
 async function waitForVite(url) {
   const deadline = Date.now() + 15000;
@@ -115,7 +106,7 @@ const roomEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
 Object.assign(roomEnv, { CW_HOME: P.cwhome, PYTHONDONTWRITEBYTECODE: "1" });
 
 function py(argv) {
-  return execFileSync("python3", argv, { cwd: REPO, encoding: "utf8", env: roomEnv });
+  return execFileSync(PYTHON, argv, { cwd: REPO, encoding: "utf8", env: roomEnv });
 }
 function roomPost(act, text, extra = []) {
   const out = py(["-m", "bridge.room", "post", "--room", ROOM, "--agent", AGENT, "--act", act, "--text", text, ...extra]);
@@ -141,7 +132,7 @@ function toolAnswer(name, answer, isError = false) {
 }
 
 async function withMcp(run) {
-  const child = spawn("python3", ["-m", "bridge.room.mcp"], {
+  const child = spawn(PYTHON, ["-m", "bridge.room.mcp"], {
     cwd: REPO, env: { ...roomEnv, PYTHONPATH: REPO },
     stdio: ["pipe", "pipe", "ignore"],
   });
@@ -243,28 +234,20 @@ class Cdp {
 }
 
 async function main() {
-  const extId = (() => {
-    const f = join(P.keys, "ext_id.txt");
-    if (!existsSync(f) || !existsSync(join(P.keys, "demo_pub.b64"))) {
-      // fresh RSA-2048 key pair; private key stays in keys/ (0600), never printed
-      execFileSync("sh", ["-c", `umask 077 && openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out demo_key.pem 2>/dev/null && openssl pkey -in demo_key.pem -pubout -outform DER -out demo_pub.der`], { cwd: P.keys });
-      execFileSync("python3", ["-c", `
-import base64,hashlib
-d=open('demo_pub.der','rb').read()
-open('demo_pub.b64','w').write(base64.b64encode(d).decode())
-h=hashlib.sha256(d).hexdigest()[:32]
-open('ext_id.txt','w').write(''.join(chr(97+int(c,16)) for c in h))`], { cwd: P.keys });
-    }
-    return readFileSync(f, "utf8").trim();
-  })();
+  const extId = extensionId(P.keys);
   log(`extension id ${extId} (headless=${HEADLESS})`);
 
   // 1. build extension (built manifest copy carries the demo public key)
-  log(execFileSync("node", ["extension/build.mjs", "--manifest", "dev", "--key-file", join(P.keys, "demo_pub.b64"), "--out", P.ext], { cwd: REPO, encoding: "utf8" }).trim());
+  log(execFileSync(process.execPath, ["extension/build.mjs", "--manifest", "dev", "--key-file", join(P.keys, "demo_pub.b64"), "--out", P.ext], { cwd: REPO, encoding: "utf8" }).trim());
 
   // 2. native host manifest + launcher + wall config (throwaway profile only)
-  log(py(["tools/demo/setup_native.py", "--profile", P.profile, "--ext-id", extId, "--cw-home", P.cwhome,
-    "--config-out", P.config, "--room", ROOM, "--tier", "private", "--log", join(P.logs, "native_host.stderr.log")]).trim());
+  if (!existsSync(join(P.ext, "manifest.json"))) throw new Error("Extension build did not write its manifest");
+  configureDemoExtension(P.ext, extId);
+  const registration = py(["tools/demo/setup_native.py", "--profile", P.profile, "--ext-id", extId, "--cw-home", P.cwhome,
+    "--config-out", P.config, "--room", ROOM, "--tier", "private", "--browser", BROWSER,
+    "--log", join(P.logs, "native_host.stderr.log")]).trim();
+  nativeManifest = JSON.parse(registration).manifest;
+  log(registration);
 
   // 3. Fresh room before the host starts. Post the plans after the wall links.
   rmSync(join(P.cwhome, "rooms", ROOM), { recursive: true, force: true });
@@ -306,7 +289,8 @@ open('ext_id.txt','w').write(''.join(chr(97+int(c,16)) for c in h))`], { cwd: P.
   const cdpPort = await freePort();
   const chromeArgs = [`--user-data-dir=${P.profile}`, `--remote-debugging-port=${cdpPort}`, "--remote-allow-origins=*",
     "--enable-unsafe-extension-debugging", "--no-first-run", "--no-default-browser-check", "--disable-sync",
-    "--password-store=basic", "--window-size=1280,900", "about:blank"];
+    "--window-size=1280,900", "about:blank"];
+  if (process.platform === "linux") chromeArgs.unshift("--password-store=basic");
   if (HEADLESS) chromeArgs.unshift("--headless=new");
   startProc("chrome", CHROME, chromeArgs, { env: roomEnv });
   let wsUrl;
@@ -314,7 +298,7 @@ open('ext_id.txt','w').write(''.join(chr(97+int(c,16)) for c in h))`], { cwd: P.
     try { wsUrl = (await (await fetch(`http://127.0.0.1:${cdpPort}/json/version`)).json()).webSocketDebuggerUrl; } catch { await sleep(250); }
   }
   if (!wsUrl) throw new Error("CDP endpoint never came up");
-  const cdp = new Cdp(wsUrl);
+  const cdp = browserCdp = new Cdp(wsUrl);
   await cdp.open();
   const consoleOut = join(P.logs, "page_console.log");
   cdp.handlers.push((m) => {
@@ -529,7 +513,6 @@ open('ext_id.txt','w').write(''.join(chr(97+int(c,16)) for c in h))`], { cwd: P.
   writeFileSync(join(P.logs, "room_events.json"), readRoom());
   writeFileSync(join(P.logs, "summary.json"), JSON.stringify(summary, null, 2) + "\n");
   log("SUMMARY " + JSON.stringify(summary));
-  cdp.ws.close();
   return summaryExitCode(summary, { noMcp: NO_MCP });
 }
 
@@ -539,10 +522,18 @@ try {
 } catch (e) {
   log("ERROR " + (e && e.stack ? e.stack : String(e)));
 } finally {
-  if (KEEP) log("--keep: leaving processes up: " + JSON.stringify(started));
-  else {
-    stopAll();
-    await sleep(1000);
+  if (KEEP && rc === 0) {
+    browserCdp?.ws.close();
+    log("--keep: leaving processes up: " + JSON.stringify(started.map(({ name, child }) => ({ name, pid: child.pid }))));
+  } else {
+    try {
+      await closeChrome(browserCdp, started.find(({ name }) => name === "chrome")?.child);
+      await stopChildren(started.map(({ child }) => child));
+      unregisterNative(PYTHON, nativeManifest, BROWSER, { cwd: REPO, env: roomEnv });
+    } catch (e) {
+      log("ERROR during cleanup: " + e.message);
+      rc = 1;
+    }
   }
 }
 process.exit(rc);

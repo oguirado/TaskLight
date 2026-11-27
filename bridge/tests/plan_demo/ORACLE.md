@@ -49,3 +49,16 @@ Run this command from the repository root.
 ```sh
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s bridge/tests/plan_demo -t .
 ```
+
+## XPLAT_DEMO native host coverage
+
+Run `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tools.demo.test_setup_native`
+alongside this suite. The new tests live under `tools/demo/`, within the
+flight's write surface. They check the macOS profile manifest and executable
+launcher, and the Windows batch launcher and browser-specific registration
+using a mock registry boundary. The Windows launcher forwards the extension
+origin and drops the browser window argument. Both cases were red before
+implementation [MEASURED]. Native macOS and Windows runs remain pending.
+
+The existing suite passed all 17 tests before and after the portability
+change [MEASURED]. Its assertions and pins still apply.

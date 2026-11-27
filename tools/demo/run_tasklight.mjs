@@ -15,14 +15,19 @@
 // -> Vite dev wall (tools/demo/vite.demo.config.ts) -> Chrome with a THROWAWAY profile -> CDP Extensions.loadUnpacked -> wall page
 // -> `python3 -m bridge.viewpoint watch --root R --room viewpoint --interval 0.5` -> (replay) tools/demo/vp_replay.py --root R.
 // Hard rules: never writes under /dev/shm/vqa-cu (replay root refused), never uses DISPLAY :98 or port 5998, never touches a
-// real Chrome profile, never starts ViewPoint/MetaViewer. Only processes started here are stopped (their own process groups).
-import { spawn, execFileSync, spawnSync } from "node:child_process";
+// real Chrome profile, never starts ViewPoint/MetaViewer. Only processes started here are stopped (using their child handles).
+import { fork, spawn, execFileSync, spawnSync } from "node:child_process";
 import { createServer } from "node:net";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, openSync, rmSync, mkdtempSync, accessSync, constants } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync, rmSync, mkdtempSync, accessSync, constants } from "node:fs";
 import { dirname, join } from "node:path";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { chromeCandidates } from "./demo_lib.mjs";
+import {
+  browserKind, closeChrome, configureDemoExtension, extensionId, findChrome, findPython,
+  openStopControl, readdirCount, requestStop, spawnLogged, stopChildren, unregisterNative,
+} from "./demo_runtime.mjs";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const args = process.argv.slice(2);
@@ -37,10 +42,13 @@ if (MODES.length !== 1) {
   process.exit(2);
 }
 const MODE = MODES[0].slice(2);
-const FORBIDDEN_ROOT = "/dev/shm/vqa-cu";
+const FORBIDDEN_ROOT = path.resolve(REPO, "/dev/shm/vqa-cu");
 const FORBIDDEN_PORT = 5998;
 const FORBIDDEN_DISPLAY = /^[^:]*:98(\.\d+)?$/;
-const CHROME = "/usr/bin/google-chrome";
+const CHROME = MODE === "stop" ? undefined : findChrome(chromeCandidates(process.platform, process.env));
+const BROWSER = browserKind(CHROME);
+const PYTHON = MODE === "stop" ? undefined
+  : findPython(process.platform === "win32" ? ["python", "python3"] : ["python3", "python"]);
 const ROOM = "viewpoint";
 const ROOMS = ["viewpoint", "demo"];
 const GOALS = [
@@ -60,14 +68,16 @@ const AGENT_SLUG_RE = /^(arxiv|github|gemini|wikipedia|mdn|hugging-face|viewpoin
 
 const DIR = path.resolve(opt("--dir", process.env.TASKLIGHT_DEMO_DIR ?? path.join(os.tmpdir(), "tasklight-demo")));
 const under = (p, root) => p === root || p.startsWith(root + path.sep);
-if (under(DIR, FORBIDDEN_ROOT)) { console.error(`REFUSED: --dir under ${FORBIDDEN_ROOT}`); process.exit(2); }
+const withoutDrive = (p) => path.sep === "\\" ? p.slice(path.parse(p).root.length - 1).toLowerCase() : p;
+const underForbiddenRoot = (p) => under(withoutDrive(p), withoutDrive(FORBIDDEN_ROOT));
+if (underForbiddenRoot(DIR)) { console.error(`REFUSED: --dir under ${FORBIDDEN_ROOT}`); process.exit(2); }
 const DISPLAY = process.env.DISPLAY ?? "";
-const HEADLESS = has("--headless") || !DISPLAY;
+const HEADLESS = has("--headless") || (process.platform === "linux" && !DISPLAY);
 if (!HEADLESS && FORBIDDEN_DISPLAY.test(DISPLAY)) {
   console.error(`REFUSED: DISPLAY ${DISPLAY} is reserved (ViewPoint). Use --headless or another display.`);
   process.exit(2);
 }
-const BASE_ENV = { ...process.env };
+const BASE_ENV = { ...process.env, PYTHONDONTWRITEBYTECODE: "1" };
 if (HEADLESS) delete BASE_ENV.DISPLAY; // headless children never see a display (in particular :98)
 const PORT_ARG = opt("--port", null);
 if (PORT_ARG !== null && Number(PORT_ARG) === FORBIDDEN_PORT) { console.error(`REFUSED: port ${FORBIDDEN_PORT}`); process.exit(2); }
@@ -82,6 +92,7 @@ const P = {
   profile: join(DIR, "profile"), keys: join(DIR, "keys"), logs: join(DIR, "logs"), shots: join(DIR, "shots"),
   ext: join(DIR, "ext"), check: join(DIR, "check"), vpRuns: join(DIR, "vp_runs"),
   config: join(DIR, "tasklight.config.json"), pids: join(DIR, "logs", "tasklight_pids.json"),
+  cache: join(DIR, "vite-cache"), stop: join(DIR, "logs", "tasklight_stop.json"),
 };
 if (under(P.profile, path.join(os.homedir(), ".config"))) throw new Error("refusing profile under ~/.config");
 for (const k of ["profile", "keys", "logs", "shots", "ext", "check", "vpRuns"]) mkdirSync(P[k], { recursive: true });
@@ -89,10 +100,16 @@ for (const k of ["profile", "keys", "logs", "shots", "ext", "check", "vpRuns"]) 
 const CW_HOME = path.resolve(opt("--cw-home",
   MODE === "viewpoint" ? (process.env.CW_HOME || path.join(os.homedir(), ".context-wall")) : join(DIR, "cwhome")));
 
-const started = []; // {name, pid, start}
+const started = [];
+let nativeManifest;
+let browserCdp;
+const print = (line) => {
+  if (process.connected) process.send({ line });
+  else console.log(line);
+};
 const log = (...a) => {
   const line = `[${new Date().toISOString()}] ` + a.join(" ");
-  console.log(line);
+  print(line);
   writeFileSync(join(P.logs, "run_tasklight.log"), line + "\n", { flag: "a" });
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -111,32 +128,18 @@ const portFree = (p) => new Promise((res) => {
   s.once("error", () => res(false));
   s.listen(p, "127.0.0.1", () => s.close(() => res(true)));
 });
-const procStart = (pid) => {
-  try {
-    const s = readFileSync(`/proc/${pid}/stat`, "utf8");
-    return s.slice(s.lastIndexOf(")") + 2).split(" ")[19];
-  } catch { return null; }
-};
-
 function startProc(name, cmd, argv, extra = {}) {
-  const out = openSync(join(P.logs, name + ".log"), "a");
-  const ch = spawn(cmd, argv, { stdio: ["ignore", out, out], detached: true, env: BASE_ENV, ...extra });
-  started.push({ name, pid: ch.pid, start: procStart(ch.pid) });
-  writeFileSync(P.pids, JSON.stringify({ dir: DIR, runner: { pid: process.pid, start: procStart(process.pid) }, procs: started }, null, 2) + "\n");
-  log(`started ${name} pid=${ch.pid}`);
-  return ch;
-}
-const alive = (pid) => { try { process.kill(-pid, 0); return true; } catch { return false; } };
-async function stopList(list) {
-  for (const { name, pid } of [...list].reverse()) {
-    try { process.kill(-pid, "SIGTERM"); log(`stopped ${name} pgid=${pid}`); } catch (e) { log(`stop ${name} pgid=${pid}: ${e.code}`); }
-  }
-  await sleep(1500);
-  for (const { name, pid } of list) if (alive(pid)) { try { process.kill(-pid, "SIGKILL"); log(`killed ${name} pgid=${pid}`); } catch { /* gone */ } }
+  const child = spawnLogged(cmd, argv, join(P.logs, name + ".log"),
+    { env: BASE_ENV, ...extra }, (error) => log(`start ${name}: ${error.message}`));
+  started.push({ name, child });
+  const procs = started.map(({ name, child }) => ({ name, pid: child.pid }));
+  writeFileSync(P.pids, JSON.stringify({ dir: DIR, runner: { pid: process.pid }, procs }, null, 2) + "\n");
+  log(`started ${name} pid=${child.pid}`);
+  return child;
 }
 
 function py(argv, env = {}) {
-  return execFileSync("python3", argv, {
+  return execFileSync(PYTHON, argv, {
     cwd: REPO, encoding: "utf8", env: { ...BASE_ENV, PYTHONPATH: REPO, CW_HOME, ...env },
   });
 }
@@ -177,24 +180,9 @@ class Cdp {
   }
 }
 
-function extensionId() {
-  const f = join(P.keys, "ext_id.txt");
-  if (!existsSync(f) || !existsSync(join(P.keys, "demo_pub.b64"))) {
-    // fresh RSA-2048 key pair; private key stays in keys/ (0600), never printed
-    execFileSync("sh", ["-c", "umask 077 && openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out demo_key.pem 2>/dev/null && openssl pkey -in demo_key.pem -pubout -outform DER -out demo_pub.der"], { cwd: P.keys });
-    execFileSync("python3", ["-c", `
-import base64,hashlib
-d=open('demo_pub.der','rb').read()
-open('demo_pub.b64','w').write(base64.b64encode(d).decode())
-h=hashlib.sha256(d).hexdigest()[:32]
-open('ext_id.txt','w').write(''.join(chr(97+int(c,16)) for c in h))`], { cwd: P.keys });
-  }
-  return readFileSync(f, "utf8").trim();
-}
-
 function mcpInitialize() {
   return new Promise((resolve) => {
-    const ch = spawn("python3", ["-m", "bridge.room.mcp"], {
+    const ch = spawn(PYTHON, ["-m", "bridge.room.mcp"], {
       cwd: REPO, env: { ...BASE_ENV, PYTHONPATH: REPO, CW_HOME: join(P.check, "cwhome") }, stdio: ["pipe", "pipe", "ignore"],
     });
     let buf = "";
@@ -228,54 +216,60 @@ async function readiness(vitePort) {
   row("display", HEADLESS || !FORBIDDEN_DISPLAY.test(DISPLAY), HEADLESS ? "headless (DISPLAY removed for children)" : `DISPLAY=${DISPLAY}`);
   const nodeMajor = Number(process.versions.node.split(".")[0]);
   row("node", nodeMajor >= 22, `v${process.versions.node} (needs >= 22 for global WebSocket)`);
-  if (existsSync(CHROME)) {
-    const v = sub(CHROME, ["--version"]);
-    row("chrome", v.status === 0, (v.stdout || v.stderr || "").trim() + " (throwaway profile " + P.profile + ")");
-  } else row("chrome", false, `${CHROME} missing`);
+  if (CHROME && process.platform !== "win32") {
+    const version = sub(CHROME, ["--version"]);
+    row("chrome", version.status === 0, `${(version.stdout || version.stderr || "").trim()} (throwaway profile ${P.profile})`);
+  } else {
+    row("chrome", !!CHROME, CHROME ? `${CHROME} (throwaway profile ${P.profile})` : "no Chrome-family executable found");
+  }
+  row("python", !!PYTHON, PYTHON ?? "Python 3.10 or later not found on PATH");
   const viteBin = join(REPO, "node_modules/vite/bin/vite.js");
   const pFree = vitePort !== FORBIDDEN_PORT && await portFree(vitePort);
   row("vite port", existsSync(viteBin) && pFree, `${existsSync(viteBin) ? "vite installed" : "node_modules/vite missing"}; 127.0.0.1:${vitePort} ${pFree ? "free" : "busy/refused"}`);
   let extId = null;
-  try { extId = extensionId(); } catch (e) { /* reported below */ }
+  try { extId = extensionId(P.keys); } catch (e) { /* reported below */ }
   row("extension id", !!extId && /^[a-p]{32}$/.test(extId) && existsSync(join(REPO, "extension/build.mjs")), extId ? `${extId} (demo key in ${P.keys})` : "key generation failed");
 
   // native host manifest + wall config into the throwaway profile (rooms viewpoint + demo)
-  if (extId) {
-    const s = sub("python3", ["tools/demo/setup_native.py", "--profile", P.profile, "--ext-id", extId, "--cw-home", CW_HOME,
-      "--config-out", P.config, ...ROOMS.flatMap((r) => ["--room", r]), "--tier", "private", "--log", join(P.logs, "native_host.stderr.log")]);
+  if (extId && PYTHON) {
+    const s = sub(PYTHON, ["tools/demo/setup_native.py", "--profile", P.profile, "--ext-id", extId, "--cw-home", CW_HOME,
+      "--config-out", P.config, ...ROOMS.flatMap((r) => ["--room", r]), "--tier", "private", "--browser", BROWSER, "--log", join(P.logs, "native_host.stderr.log")]);
     let ok = false, detail = (s.stderr || "").trim().slice(0, 160);
     try {
       const out = JSON.parse(s.stdout);
+      nativeManifest = out.manifest;
       const m = JSON.parse(readFileSync(out.manifest, "utf8"));
       const cfg = JSON.parse(readFileSync(out.config, "utf8"));
       const allow = (cfg.rooms?.allow ?? []).map((r) => r.room);
       let exe = false;
-      try { accessSync(m.path, constants.X_OK); exe = true; } catch { /* not executable */ }
+      try { accessSync(m.path, process.platform === "win32" ? constants.F_OK : constants.X_OK); exe = true; } catch { /* not executable */ }
       ok = m.allowed_origins?.includes(`chrome-extension://${extId}/`) && exe && ROOMS.every((r) => allow.includes(r));
       detail = `${out.manifest}; rooms.allow=[${allow.join(",")}]; launcher ${exe ? "executable" : "NOT executable"}`;
     } catch (e) { detail = detail || e.message; }
     row("native host manifest", ok, detail);
-  } else row("native host manifest", false, "no extension id");
+  } else row("native host manifest", false, "extension id or Python unavailable");
   row("CW_HOME", true, `${CW_HOME} (${MODE === "viewpoint" ? "shared with Antigravity context-wall MCP" : "throwaway"})`);
+
+  if (!PYTHON) return { rows, extId };
 
   // U40 observer: import + construct + poll on an EMPTY temp root (never the real runs root)
   const emptyRoot = mkdtempSync(join(P.check, "vp_empty-"));
-  const o = sub("python3", ["-c", [
+  const o = sub(PYTHON, ["-c", [
     "import sys, json",
     "from bridge.viewpoint.observer import ViewpointObserver",
-    `o = ViewpointObserver(${JSON.stringify(emptyRoot)}, room="viewpoint", home=${JSON.stringify(join(P.check, "cwhome"))})`,
+    'o = ViewpointObserver(sys.argv[1], room="viewpoint", home=sys.argv[2])',
     "n = o.poll()",
     "print(json.dumps({'posted': n, 'stats': o.stats()}, default=str))",
-  ].join("\n")]);
+  ].join("\n"), emptyRoot, join(P.check, "cwhome")]);
   const oerr = (o.stderr || "").trim().split("\n").pop() ?? "";
   row("observer importable", o.status === 0, o.status === 0 ? (o.stdout || "").trim().slice(0, 160) : `rc ${o.status}: ${oerr.slice(0, 160)}`);
-  const c = sub("python3", ["-m", "bridge.viewpoint", "watch", "--root", emptyRoot, "--room", "viewpoint", "--once"]);
+  const c = sub(PYTHON, ["-m", "bridge.viewpoint", "watch", "--root", emptyRoot, "--room", "viewpoint", "--once"]);
   row("observer CLI --once", c.status === 0, `rc ${c.status}${c.status === 99 ? " (U40 stub)" : ""}`);
 
   // replay writer: --once into a temp root, and refusal of the real runs root (pure string check, nothing read there)
   const rr = mkdtempSync(join(P.check, "vp_replay-"));
-  const r1 = sub("python3", ["tools/demo/vp_replay.py", "--root", rr, "--once", "--quiet", "--seed", "1"]);
-  const r2 = sub("python3", ["tools/demo/vp_replay.py", "--root", FORBIDDEN_ROOT + "/vp-mwrun/metaviewer/runs", "--once", "--quiet"]);
+  const r1 = sub(PYTHON, ["tools/demo/vp_replay.py", "--root", rr, "--once", "--quiet", "--seed", "1"]);
+  const r2 = sub(PYTHON, ["tools/demo/vp_replay.py", "--root", join(FORBIDDEN_ROOT, "vp-mwrun", "metaviewer", "runs"), "--once", "--quiet"]);
   let nRuns = 0;
   try { nRuns = readdirCount(rr); } catch { /* none */ }
   row("replay writer", r1.status === 0 && nRuns === 4 && r2.status === 3, `--once rc ${r1.status}, ${nRuns} runs; real-root refusal rc ${r2.status}`);
@@ -284,37 +278,29 @@ async function readiness(vitePort) {
   row("MCP context-wall initialize", mcp.ok, mcp.detail);
   return { rows, extId };
 }
-function readdirCount(d) {
-  return spawnSync("find", [d, "-mindepth", "1", "-maxdepth", "1", "-type", "d"], { encoding: "utf8" }).stdout.split("\n").filter(Boolean).length;
-}
 function printTable(rows) {
   const w = Math.max(...rows.map((r) => r.item.length));
-  console.log(`\n| ${"check".padEnd(w)} | state | detail`);
-  console.log(`|${"-".repeat(w + 2)}|-------|-------`);
-  for (const r of rows) console.log(`| ${r.item.padEnd(w)} | ${r.status.padEnd(5)} | ${r.detail}`);
-  console.log("");
+  print(`\n| ${"check".padEnd(w)} | state | detail`);
+  print(`|${"-".repeat(w + 2)}|-------|-------`);
+  for (const r of rows) print(`| ${r.item.padEnd(w)} | ${r.status.padEnd(5)} | ${r.detail}`);
+  print("");
   writeFileSync(join(P.logs, "tasklight_check.json"), JSON.stringify(rows, null, 2) + "\n");
 }
 
 // ---------------------------------------------------------------- modes
 async function modeStop() {
-  if (!existsSync(P.pids)) { log("nothing to stop (no " + P.pids + ")"); return 0; }
-  const j = JSON.parse(readFileSync(P.pids, "utf8"));
-  const r = j.runner; // the long-lived runner (e.g. --viewpoint --shots): SIGTERM it first so it takes its last shot and exits
-  if (r && r.pid !== process.pid && r.start && procStart(r.pid) === r.start) {
-    try { process.kill(r.pid, "SIGTERM"); log(`signalled runner pid=${r.pid}`); } catch (e) { log(`runner pid=${r.pid}: ${e.code}`); }
-    for (let i = 0; i < 40 && procStart(r.pid) === r.start; i++) await sleep(250);
-  }
-  const mine = (j.procs ?? []).filter((p) => p.start && procStart(p.pid) === p.start); // same pid AND same start time
-  log(`stopping ${mine.length}/${(j.procs ?? []).length} recorded process groups (others already gone or pid reused)`);
-  await stopList(mine);
-  rmSync(P.pids, { force: true });
-  return 0;
+  if (!existsSync(P.stop)) { log("nothing to stop"); return 0; }
+  const stopped = await requestStop(P.stop, P.pids);
+  log(stopped ? "stopped the demo processes" : "could not contact the demo runner");
+  return stopped ? 0 : 1;
 }
 
 let stopRequested = false;
 let wake = null;
-for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => { stopRequested = true; if (wake) wake(); });
+const requestShutdown = () => { stopRequested = true; wake?.(); };
+for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, requestShutdown);
+process.on("message", (message) => { if (message.stop) requestShutdown(); });
+
 const waitUntilStopped = (ms = Infinity) => new Promise((res) => {
   wake = res;
   if (stopRequested) res();
@@ -325,6 +311,7 @@ async function modeRun() {
   const vitePort = PORT_ARG !== null ? Number(PORT_ARG) : await freePort();
   const { rows, extId } = await readiness(vitePort);
   printTable(rows);
+  if (stopRequested) return 1;
   if (MODE === "check") return rows.some((r) => r.status === "FAIL") ? 1 : 0;
   if (rows.some((r) => r.status === "FAIL")) { log("readiness FAILED: not starting (see table)"); return 1; }
 
@@ -332,7 +319,7 @@ async function modeRun() {
   let root = opt("--root", null);
   if (MODE === "replay") {
     root = root ? path.resolve(root) : mkdtempSync(join(P.vpRuns, "replay-"));
-    if (under(root, FORBIDDEN_ROOT)) { log(`REFUSED replay root under ${FORBIDDEN_ROOT}`); return 2; }
+    if (underForbiddenRoot(root)) { log(`REFUSED replay root under ${FORBIDDEN_ROOT}`); return 2; }
     if (under(CW_HOME, DIR)) { // throwaway home only: fresh viewpoint room + observer cursor
       rmSync(join(CW_HOME, "rooms", ROOM), { recursive: true, force: true });
       rmSync(join(CW_HOME, "observers", "viewpoint.json"), { force: true });
@@ -343,16 +330,33 @@ async function modeRun() {
   // 1. build extension (built manifest copy carries the demo public key), unless --ext-dir names a prebuilt one
   const extDir = opt("--ext-dir", null);
   if (extDir) {
-    P.ext = path.resolve(extDir);
-    if (!existsSync(join(P.ext, "manifest.json"))) throw new Error(`--ext-dir ${P.ext} has no manifest.json`);
-    log(`using prebuilt extension ${P.ext} (must be built with --key-file ${join(P.keys, "demo_pub.b64")})`);
+    const prebuilt = path.resolve(extDir);
+    if (!existsSync(join(prebuilt, "manifest.json"))) throw new Error(`--ext-dir ${prebuilt} has no manifest.json`);
+    log(`using prebuilt extension ${prebuilt} (must be built with --key-file ${join(P.keys, "demo_pub.b64")})`);
+    if (process.platform !== "win32") P.ext = prebuilt;
+    else {
+      P.ext = mkdtempSync(join(DIR, "ext-"));
+      cpSync(prebuilt, P.ext, { recursive: true, dereference: true });
+    }
   } else {
-    log(execFileSync("node", ["extension/build.mjs", "--manifest", "dev", "--key-file", join(P.keys, "demo_pub.b64"), "--out", P.ext], { cwd: REPO, encoding: "utf8", env: BASE_ENV }).trim());
+    log(execFileSync(process.execPath, ["extension/build.mjs", "--manifest", "dev", "--key-file", join(P.keys, "demo_pub.b64"), "--out", P.ext], { cwd: REPO, encoding: "utf8", env: BASE_ENV }).trim());
   }
 
-  // 2. wall page (vite dev on 127.0.0.1, browsed as http://localhost:<port> to match externally_connectable)
-  startProc("vite", process.execPath, [join(REPO, "node_modules/vite/bin/vite.js"), "--config", "tools/demo/vite.demo.config.ts",
-    "--host", "127.0.0.1", "--port", String(vitePort), "--strictPort"], {
+  configureDemoExtension(P.ext, extId);
+
+  // 2. wall page (Vite dev on the loopback interface)
+  startProc("vite", process.execPath, ["--input-type=module", "-e", `
+    import { createServer } from "vite";
+    const [port, cacheDir] = process.argv.slice(1);
+    const server = await createServer({
+      configFile: "tools/demo/vite.demo.config.ts",
+      configLoader: "runner",
+      cacheDir,
+      server: { host: "127.0.0.1", port: Number(port), strictPort: true },
+    });
+    await server.listen();
+    server.printUrls();
+  `, String(vitePort), P.cache], {
     cwd: REPO, env: { ...BASE_ENV, VITE_EXTENSION_ORIGINS: `chrome-extension://${extId}` },
   });
   const wallUrl = `http://localhost:${vitePort}/`;
@@ -364,7 +368,8 @@ async function modeRun() {
   const cdpPort = await freePort();
   const chromeArgs = [`--user-data-dir=${P.profile}`, `--remote-debugging-port=${cdpPort}`, "--remote-allow-origins=*",
     "--enable-unsafe-extension-debugging", "--no-first-run", "--no-default-browser-check", "--disable-sync",
-    "--password-store=basic", "--window-size=1440,900", "about:blank"];
+    "--window-size=1440,900", "about:blank"];
+  if (process.platform === "linux") chromeArgs.unshift("--password-store=basic");
   if (HEADLESS) chromeArgs.unshift("--headless=new");
   startProc("chrome", CHROME, chromeArgs, { env: { ...BASE_ENV, CW_HOME } });
   let wsUrl;
@@ -372,7 +377,7 @@ async function modeRun() {
     try { wsUrl = (await (await fetch(`http://127.0.0.1:${cdpPort}/json/version`)).json()).webSocketDebuggerUrl; } catch { await sleep(250); }
   }
   if (!wsUrl) throw new Error("CDP endpoint never came up");
-  const cdp = new Cdp(wsUrl);
+  const cdp = browserCdp = new Cdp(wsUrl);
   await cdp.open();
   const consoleOut = join(P.logs, "tasklight_page_console.log");
   cdp.handlers.push((m) => {
@@ -407,8 +412,12 @@ async function modeRun() {
     writeFileSync(join(P.shots, name), Buffer.from(data, "base64"));
     log(`screenshot ${join(P.shots, name)}`);
   };
-  await waitFor("!!document.querySelector('h1, h2')", "wall page rendered");
-  await sleep(1500); // T1 port link + first room_hello/room_sync before anything is posted (history is not replayed)
+  if (!await waitFor(`document.title === "TaskLight" && !!document.querySelector('#wall')`, "wall page rendered") ||
+      !await waitFor(`[...document.querySelectorAll(".workspace-guidance > p")]
+        .some((el) => el.textContent.trim() === "Bridge connected")`, "room bridge connected")) {
+    throw new Error("TaskLight Wall did not connect");
+  }
+  await evalJs(`document.querySelector('button[data-nav="wall"]').click()`);
 
   // 5. U40 observer (not with --viewpoint --no-observer: cooperative agents post their own cards)
   let watcherExit = null;
@@ -419,7 +428,7 @@ async function modeRun() {
     if (root) watchArgs.push("--root", root);
     if (MODE === "viewpoint" && !has("--history")) watchArgs.push("--prime"); // do not repaint old real runs
     log(`observer: ON (U40, ${MODE === "viewpoint" ? "real runs root, read-only" : "replay root"})`);
-    const watcher = startProc("observer", "python3", watchArgs, { cwd: REPO, env: { ...BASE_ENV, PYTHONPATH: REPO, CW_HOME } });
+    const watcher = startProc("observer", PYTHON, watchArgs, { cwd: REPO, env: { ...BASE_ENV, PYTHONPATH: REPO, CW_HOME } });
     watcher.on("exit", (code) => { watcherExit = code; log(`observer exited rc=${code}`); });
     await sleep(1000);
     if (watcherExit !== null) throw new Error(`observer exited early rc=${watcherExit} (see ${join(P.logs, "observer.log")})`);
@@ -438,16 +447,15 @@ async function modeRun() {
       ticker = setInterval(live, every * 1000);
     }
     if (HEADLESS) await waitUntilStopped(Number(opt("--duration", "5")) * 1000);
-    else { log("Ctrl-C to stop"); await waitUntilStopped(); }
+    else if (!KEEP) { log("Ctrl-C to stop"); await waitUntilStopped(); }
     if (ticker) clearInterval(ticker);
     await shot("viewpoint.png").catch(() => {});
-    cdp.ws.close();
     return watcherExit === null ? 0 : 1;
   }
 
   // 6. replay: 4 synthetic runs into the temp root
   const speed = opt("--speed", "1");
-  const replay = startProc("replay", "python3", ["tools/demo/vp_replay.py", "--root", root, "--speed", speed], { cwd: REPO });
+  const replay = startProc("replay", PYTHON, ["tools/demo/vp_replay.py", "--root", root, "--speed", speed], { cwd: REPO });
   const replayRc = await new Promise((res) => {
     replay.on("exit", (c) => res(c));
     setTimeout(() => shot("replay_mid.png").catch(() => {}), 12000 / Number(speed));
@@ -480,7 +488,7 @@ async function modeRun() {
   await sleep(800);
   // U42: human card summaries, no "Waiting for a plan" on closed tasks, chat drawer closed by default.
   const ui = await evalJs(`(() => {
-    const cards = [...document.querySelectorAll("article.task")];
+    const cards = [...document.querySelectorAll('.app[data-view="wall"] .board .task[data-task-id]')];
     return {
       summaries: cards.map((c) => (c.querySelector(".task-summary")?.textContent ?? "").trim()),
       next: cards.map((c) => (c.querySelector(".next-text")?.textContent ?? "").trim()),
@@ -490,26 +498,69 @@ async function modeRun() {
     };
   })()`).catch(() => null);
   const uiOk = ui !== null && ui.drawer !== "true" && ui.summaries.length === 4 &&
-    ui.summaries.every((t) => !/\(rc -?\d+\)/.test(t)) && ui.next.every((t) => t !== "Waiting for a plan");
+    ui.summaries.every((t) => t && !/\(rc -?\d+\)/.test(t)) && ui.next.every((t) => t !== "Waiting for a plan");
   log("UI " + JSON.stringify(ui));
   await shot("replay.png");
   summary = { ...summary, replayRc, roomOk, wallOk, uiOk, ui, wallUrl, shot: join(P.shots, "replay.png") };
   writeFileSync(join(P.logs, "tasklight_summary.json"), JSON.stringify(summary, null, 2) + "\n");
   log("SUMMARY " + JSON.stringify({ replayRc, roomOk, wallOk, uiOk, tasks: tasks.map((a) => `${a.title}: ${a.done}/${a.steps} done, ${a.blocked} blocked, ${a.closed}`) }));
-  if (!HEADLESS && !has("--exit")) { log("replay finished; wall stays up. Ctrl-C to stop"); await waitUntilStopped(); }
-  cdp.ws.close();
+  if (!HEADLESS && !has("--exit") && !KEEP) { log("replay finished; wall stays up. Ctrl-C to stop"); await waitUntilStopped(); }
   return replayRc === 0 && roomOk && wallOk && uiOk ? 0 : 1;
 }
 
+// A successful --keep command returns while its detached runner retains the
+// child handles and listens for --stop. Startup output is forwarded over IPC.
+function runKept() {
+  return new Promise((resolve, reject) => {
+    const runner = fork(fileURLToPath(import.meta.url), args, {
+      detached: true, windowsHide: true, stdio: ["ignore", "ignore", "ignore", "ipc"],
+    });
+    const stop = () => { if (runner.connected) runner.send({ stop: true }); };
+    for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, stop);
+    runner.on("message", (message) => {
+      if (message.line !== undefined) console.log(message.line);
+      if (message.ready) resolve(0);
+    });
+    runner.once("error", reject);
+    runner.once("exit", (code) => resolve(code ?? 1));
+  });
+}
+
+if (KEEP && !process.send && !["stop", "check"].includes(MODE)) process.exit(await runKept());
+
 let rc = 1;
+let control;
 try {
-  rc = MODE === "stop" ? await modeStop() : await modeRun();
+  if (MODE === "stop") rc = await modeStop();
+  else {
+    control = await openStopControl(P.stop, requestShutdown, P.pids);
+    rc = await modeRun();
+    if (KEEP && rc === 0 && !stopRequested && started.length) {
+      log(`--keep: leaving processes up (stop with: node tools/demo/run_tasklight.mjs --stop --dir ${DIR})`);
+      if (process.connected) {
+        await new Promise((resolve) => process.send({ ready: true }, resolve));
+        if (process.connected) process.disconnect();
+      }
+      await waitUntilStopped();
+    }
+  }
 } catch (e) {
   log("ERROR " + (e && e.stack ? e.stack : String(e)));
 } finally {
-  if (started.length) {
-    if (KEEP) log(`--keep: leaving processes up (stop with: node tools/demo/run_tasklight.mjs --stop --dir ${DIR})`);
-    else { await stopList(started); rmSync(P.pids, { force: true }); }
+  if (control) {
+    let stopped = false;
+    try {
+      await closeChrome(browserCdp, started.find(({ name }) => name === "chrome")?.child);
+      await stopChildren(started.map(({ child }) => child));
+      unregisterNative(PYTHON, nativeManifest, BROWSER, { cwd: REPO, env: BASE_ENV });
+      rmSync(P.pids, { force: true });
+      stopped = true;
+    } catch (e) {
+      log("ERROR during cleanup: " + e.message);
+      rc = 1;
+    } finally {
+      await control.close(stopped);
+    }
   }
 }
 process.exit(rc);

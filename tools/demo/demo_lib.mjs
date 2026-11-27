@@ -1,3 +1,5 @@
+import { posix, win32 } from "node:path";
+
 // Pure helpers for the local demo (U72). No filesystem probing, no process
 // launch, no clock: everything here is a deterministic function of its inputs.
 
@@ -47,34 +49,45 @@ const DARWIN_APPS = [
   ["Brave Browser.app", "Brave Browser"],
 ];
 
-function joinPosix(...parts) {
-  return parts
-    .join("/")
-    .replace(/\/{2,}/g, "/")
-    .replace(/\/$/, "");
-}
+const WINDOWS_BROWSERS = [
+  ["chrome.exe", "Google", "Chrome"],
+  ["chromium.exe", "Chromium"],
+  ["msedge.exe", "Microsoft", "Edge"],
+  ["brave.exe", "BraveSoftware", "Brave-Browser"],
+];
 
-/**
- * Ordered executable paths for Chrome discovery.
- * `CHROME` (env.CHROME) wins when set, then PATH candidates in
- * browser-priority order (for each browser, each PATH dir in order),
- * then macOS app bundles on darwin. No filesystem probing.
- */
-export function chromeCandidates(platform, env) {
+/** Ordered executable paths. CHROME wins, followed by PATH and install locations. */
+export function chromeCandidates(platform, env = {}) {
   const e = env ?? {};
-  const out = [];
-  if (typeof e.CHROME === "string" && e.CHROME.length > 0) out.push(e.CHROME);
-  const rawPath = typeof e.PATH === "string" ? e.PATH : "";
-  const dirs = rawPath === "" ? [] : rawPath.split(":").filter((d) => d.length > 0);
-  for (const browser of PATH_BROWSERS) {
-    for (const dir of dirs) out.push(joinPosix(dir, browser));
+  const out = typeof e.CHROME === "string" && e.CHROME ? [e.CHROME] : [];
+  const windows = platform === "win32";
+  const pathKey = Object.keys(e).find((key) => key.toLowerCase() === "path");
+  const value = e.PATH ?? (windows ? e[pathKey] : undefined);
+  const rawPath = typeof value === "string" ? value : "";
+  const dirs = rawPath.split(windows ? ";" : ":")
+    .map((d) => windows ? d.replace(/^"(.*)"$/, "$1") : d)
+    .filter(Boolean);
+  const join = windows ? win32.join : posix.join;
+  const browsers = windows ? WINDOWS_BROWSERS.map(([exe]) => exe) : PATH_BROWSERS;
+  for (const browser of browsers) {
+    for (const dir of dirs) out.push(join(dir, browser));
   }
   if (platform === "darwin") {
-    for (const [app, exe] of DARWIN_APPS) {
-      out.push(joinPosix("/Applications", app, "Contents", "MacOS", exe));
+    for (const root of ["/Applications", ...(e.HOME ? [join(e.HOME, "Applications")] : [])]) {
+      for (const [app, exe] of DARWIN_APPS) out.push(join(root, app, "Contents", "MacOS", exe));
     }
   }
-  return out;
+  if (windows) {
+    const roots = [e.ProgramFiles, e.ProgramW6432, e["ProgramFiles(x86)"], e.LOCALAPPDATA].filter(Boolean);
+    for (const [exe, ...vendor] of WINDOWS_BROWSERS) {
+      for (const root of roots) {
+        const application = join(root, ...vendor, "Application");
+        out.push(join(application, exe));
+        if (exe === "chromium.exe") out.push(join(application, "chrome.exe"));
+      }
+    }
+  }
+  return [...new Set(out)];
 }
 
 /**

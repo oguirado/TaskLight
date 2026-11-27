@@ -7,6 +7,10 @@ passed to the launcher, including manifest and child command paths, resolve
 from that checkout. For the module form, run `python3 -m bridge.room` from
 the checkout and pass the same arguments.
 
+On Windows, run `bin\tasklight.cmd` from the checkout or put `bin` on
+`PATH` and run `tasklight`. The launcher enters the checkout and runs
+`python -m bridge.room`, using Python 3 from `python` or `python3` on `PATH`.
+
 `tasklight --help` prints one JSON line with the built-in verbs under
 `verbs` and live operation names under `tools`. `tasklight tools` prints
 the registered operation schemas. An operation takes a JSON object via

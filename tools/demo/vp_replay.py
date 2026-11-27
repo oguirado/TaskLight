@@ -65,8 +65,11 @@ def is_forbidden(path):
     """True if `path` is, or lies under, the real ViewPoint runs tree. Pure string check first, then
     realpath (which follows a symlink that might point into it). The string check short-circuits, so a
     root spelled under the forbidden tree is refused without any filesystem call."""
+    forbidden = os.path.splitdrive(os.path.normcase(os.path.abspath(FORBIDDEN)))[1]
+
     def under(p):
-        return p == FORBIDDEN or p.startswith(FORBIDDEN + os.sep)
+        p = os.path.splitdrive(os.path.normcase(p))[1]
+        return p == forbidden or p.startswith(forbidden + os.sep)
     return under(os.path.abspath(path)) or under(os.path.realpath(path))
 
 

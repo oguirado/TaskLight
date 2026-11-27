@@ -44,3 +44,17 @@ No network, subprocesses, real clocks, ports, browser startup, host identity or 
 The new oracle reports `Tests  67 failed | 3 passed (70)` [MEASURED]. All 55 pure-helper cases fail on `U72 stub` [MEASURED]; 12 static checks expose current defects and 3 static checker controls pass [MEASURED]. No import or collection error remains.
 
 `npx tsc --noEmit -p .` reports existing diagnostics outside U72 and no diagnostic in the new files [MEASURED]. Existing unit suites, excluding U72, report `Tests  1 failed | 9077 passed | 1 skipped (9079)` [MEASURED]. The failure is `tests/unit/zz_r27probe/probe.test.ts` / `probe real MCP events`: its required `R27_EVENTS` environment input is absent. No existing file was edited and the pure stubs are imported only by U72 tests.
+
+## XPLAT_DEMO compatibility coverage
+
+Run `node --test tools/demo/xplat.test.mjs` alongside this suite. The new tests
+live under `tools/demo/`, within the flight's write surface. They check
+Windows PATH and program directory discovery, the Windows launcher,
+the extension key and ID, demo wiring, direct-directory enumeration, and
+cleanup of owned children. A stale stop token and an unrelated child serve
+as negative controls. The pre-change run failed all seven added tests
+[MEASURED]. The existing U72 assertions and pins still apply. The MCP process
+uses the selected Python interpreter and the demo's `CW_HOME`.
+
+The existing suite passed all 73 tests before and after the portability
+change [MEASURED].
