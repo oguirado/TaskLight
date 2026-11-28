@@ -1,5 +1,7 @@
 """Shared helpers for the U33 oracle. Stdlib only."""
-import json, os, pathlib, select, shutil, subprocess, sys, tempfile, time, unittest
+import json, os, pathlib, shutil, subprocess, sys, tempfile, time, unittest
+
+from bridge.tests.pipe_support import read_pipe
 
 HERE = pathlib.Path(__file__).resolve().parent
 BRIDGE = HERE.parent.parent
@@ -164,16 +166,12 @@ class McpClient:
         self.send_raw((json.dumps(obj) + "\n").encode())
 
     def recv(self, timeout=10.0):
-        end = time.time() + timeout
+        end = time.monotonic() + timeout
         fd = self.proc.stdout.fileno()
         while b"\n" not in self.buf:
-            left = end - time.time()
-            if left <= 0:
+            chunk = read_pipe(fd, 65536, end)
+            if chunk is None:
                 return None
-            r, _, _ = select.select([fd], [], [], left)
-            if not r:
-                return None
-            chunk = os.read(fd, 65536)
             if not chunk:
                 if self.buf:
                     line, self.buf = self.buf, b""

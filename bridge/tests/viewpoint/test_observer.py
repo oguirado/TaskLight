@@ -321,6 +321,7 @@ class HardRules(Base):
 
 
 class Cursor(Base):
+    @unittest.skipUnless(os.name == "posix", "requires POSIX file mode bits")
     def test_cursor_file_0600(self):
         self.run_builder().intent("1")
         self.make().poll()
@@ -415,6 +416,7 @@ class Cli(Base):
         self.assertNotIn(b"UNIQUE-NAME-XYZ", cp.stderr)
         self.assertTrue(cp.stderr.strip())
 
+    @unittest.skipUnless(os.name == "posix", "requires POSIX delivery of SIGTERM and SIGINT to a subprocess")
     def test_sigterm_and_sigint_exit_0(self):
         for sig in (signal.SIGTERM, signal.SIGINT):
             with self.subTest(sig=sig):

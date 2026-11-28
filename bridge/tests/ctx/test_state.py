@@ -1,4 +1,5 @@
 import os
+import sys
 import unittest
 from unittest import mock
 
@@ -86,6 +87,7 @@ class StatePidTests(TmpCase):
     def st(self, target, now_s=None):
         return state(target, self.roots, proc_root=self.proc, now_s=now_s)
 
+    @unittest.skipUnless(sys.platform.startswith("linux"), "requires Linux procfs PID metadata")
     def test_P10_pid_facts(self):
         make_proc(self.proc, 42, starttime_ticks=5000 * clk_tck(), rss_kib=2048)
         r = self.st("pid:42", now_s=5123)
@@ -99,15 +101,18 @@ class StatePidTests(TmpCase):
         self.assertEqual(f["runtime_s"], 123)
         self.assertIs(type(f["runtime_s"]), int)
 
+    @unittest.skipUnless(sys.platform.startswith("linux"), "requires Linux procfs PID metadata")
     def test_P10_absent_pid(self):
         make_proc(self.proc, 42)
         assert_envelope(self, self.st("pid:43", now_s=10), "state", 7)
 
+    @unittest.skipUnless(sys.platform.startswith("linux"), "requires Linux procfs PID metadata")
     def test_comm_with_parens_and_spaces(self):
         make_proc(self.proc, 7, comm="my (weird) proc", starttime_ticks=100 * clk_tck(), rss_kib=17)
         f = D(self.st("pid:7", now_s=160))["facts"]
         self.assertEqual((f["runtime_s"], f["rss_kib"]), (60, 17))
 
+    @unittest.skipUnless(sys.platform.startswith("linux"), "requires Linux procfs PID metadata")
     def test_runtime_follows_injected_clock(self):
         make_proc(self.proc, 5, starttime_ticks=10 * clk_tck())
         a = D(self.st("pid:5", now_s=20))["facts"]["runtime_s"]
@@ -118,11 +123,13 @@ class StatePidTests(TmpCase):
         for t in ("pid:abc", "pid:-1", "pid:", "", "pid:4 2", "nonsense"):
             self.assertEqual(self.st(t, now_s=1)["rc"], 2, repr(t))
 
+    @unittest.skipUnless(sys.platform.startswith("linux"), "requires Linux procfs PID metadata")
     def test_facts_flat_scalars(self):
         make_proc(self.proc, 42)
         for v in D(self.st("pid:42", now_s=9))["facts"].values():
             self.assertIn(type(v), (str, int, bool))
 
+    @unittest.skipUnless(sys.platform.startswith("linux"), "requires Linux procfs PID metadata")
     def test_deterministic(self):
         make_proc(self.proc, 42, starttime_ticks=7 * clk_tck())
         self.assertEqual(self.st("pid:42", now_s=99), self.st("pid:42", now_s=99))

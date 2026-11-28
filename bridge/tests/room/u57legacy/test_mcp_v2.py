@@ -274,6 +274,17 @@ class ResourceOracle(ContractCase):
     def snapshot(self):
         return {str(p.relative_to(self.home)):p.read_bytes() for p in self.home.rglob('*') if p.is_file()}
 
+    def test_plan_create_and_claim_append_binary_lines(self):
+        self.create()
+        before = self.log_bytes()
+        self.assertGreater(len(before.splitlines()), 1)
+        self.assertNotIn(b"\r", before, "plan creation wrote a text-mode batch")
+        self.ok("task_claim", {"room": "oracle", "agent": "alice", "task_id": "T01"})
+        after = self.log_bytes()
+        self.assertTrue(after.startswith(before))
+        self.assertEqual(after[len(before):].count(b"\n"), 1)
+        self.assertNotIn(b"\r", after[len(before):], "task claim wrote a text-mode append")
+
     def test_03_resources_and_discovery_are_read_only(self):
         self.create()
         before = self.snapshot()
@@ -283,12 +294,19 @@ class ResourceOracle(ContractCase):
         patterns = {r['uriTemplate'] for r in self.result('resources/templates/list')['resourceTemplates']}
         self.assertEqual(patterns, {'tasklight://templates/{id}', 'tasklight://rooms/{room}/plan', 'tasklight://rooms/{room}/memory'})
         # No write locks allowed for reads, even if all files already exist.
-        import fcntl
-        original_flock = fcntl.flock
-        def read_lock(fd, operation):
-            self.assertFalse(operation & fcntl.LOCK_EX, 'read acquired write lock')
-            return original_flock(fd, operation)
-        with patch('fcntl.flock', side_effect=read_lock):
+        from bridge.room import _lock
+        backend = _lock._backend
+        lock_method = 'flock' if _lock._posix else 'locking'
+        original_lock = getattr(backend, lock_method)
+
+        def read_lock(fd, operation, *args):
+            if _lock._posix:
+                self.assertFalse(operation & backend.LOCK_EX, 'read acquired write lock')
+            else:
+                self.assertEqual(operation, backend.LK_UNLCK, 'read acquired write lock')
+            return original_lock(fd, operation, *args)
+
+        with patch.object(backend, lock_method, side_effect=read_lock):
             for uri in sorted(expected):
                 self.resource(uri)
             self.result('resources/list')

@@ -201,6 +201,8 @@ class FakeTimer:
         raise AssertionError("deadline handler returned into a blocked wait")
 
     def install(self, stack):
+        if os.name != "posix" or not hasattr(signal, "setitimer"):
+            return
         stack.enter_context(mock.patch.object(signal, "signal", side_effect=self.signal))
         stack.enter_context(mock.patch.object(signal, "getsignal", side_effect=lambda n: self.handlers.get(n, signal.SIG_DFL)))
         stack.enter_context(mock.patch.object(signal, "setitimer", side_effect=self.setitimer))

@@ -1,6 +1,5 @@
 """Real journals, deterministic clocks, and bounded local transports."""
 import copy
-import fcntl
 import hashlib
 import io
 import itertools
@@ -127,11 +126,11 @@ class EvidenceCase(unittest.TestCase):
     def assert_released(self):
         with (self.path().parent / "events.lock").open("r+b") as stream:
             try:
-                fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
+                store._lock.lock_exclusive(stream.fileno(), timeout_s=0.01)
+            except TimeoutError:
                 self.fail("rejection retained the journal lock")
-            finally:
-                fcntl.flock(stream, fcntl.LOCK_UN)
+            else:
+                store._lock.unlock(stream.fileno())
 
     def refuse(self, action, code="missing_evidence", message=MESSAGE):
         before = self.snapshot()

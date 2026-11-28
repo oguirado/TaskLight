@@ -280,7 +280,7 @@ class StopSignal(Base):
     """A-U42b live finding: SIGTERM delivered while poll() runs was swallowed by its `except Exception`."""
 
     def test_sigterm_during_poll_exits_0(self):
-        import os, signal, time
+        import signal
         from unittest import mock
         from bridge.viewpoint import __main__ as cli
         from bridge.viewpoint.observer import ViewpointObserver
@@ -288,7 +288,9 @@ class StopSignal(Base):
         real = ViewpointObserver._discover_runs
 
         def discover(obs):
-            os.kill(os.getpid(), signal.SIGTERM)  # handler raises _Stop inside poll's try/except
+            # Raise the registered handler on both platforms. Windows
+            # os.kill(SIGTERM) terminates the test process without dispatch.
+            signal.raise_signal(signal.SIGTERM)
             return real(obs)
 
         sleeps = []

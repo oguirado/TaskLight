@@ -282,6 +282,8 @@ class OracleCase(unittest.TestCase):
             if kind == "directory":
                 path.mkdir()
             elif kind == "fifo":
+                if not hasattr(os, "mkfifo"):
+                    self.skipTest("requires a POSIX filesystem FIFO")
                 os.mkfifo(path)
         elif kind == "malformed_json":
             path.write_bytes(path.read_bytes() + b'{"private":"' + RAW_RECORD.encode() + b'"\n')

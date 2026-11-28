@@ -3,7 +3,6 @@ import copy
 import hashlib
 import io
 import json
-import os
 from pathlib import Path
 import subprocess
 import sys
@@ -29,22 +28,20 @@ class LifecycleOracle(LifecycleCase):
 
     def race(self, requests, ts):
         """Independent interpreters share a pipe barrier and the real journal lock."""
-        read_fd, write_fd = os.pipe()
         children = []
         try:
             for args in requests:
-                child = subprocess.Popen([sys.executable, "-B", "-m", "bridge.tests.room.u132.projection_cli"],
-                                         cwd=ROOT, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                         stderr=subprocess.PIPE, text=True, pass_fds=(read_fd,))
+                child = subprocess.Popen(
+                    [sys.executable, "-B", "-m", "bridge.tests.room.u132.projection_cli", "--race"],
+                    cwd=ROOT, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE, text=True)
                 children.append(child)
-                child.stdin.write(json.dumps({"mode": "race", "args": args, "ts": ts, "barrier_fd": read_fd}))
+                child.stdin.write(json.dumps({"mode": "race", "args": args, "ts": ts}) + "\n")
+                child.stdin.flush()
+            for child in children:
+                child.stdin.write("start\n")
                 child.stdin.close()
                 child.stdin = None
-            os.close(read_fd)
-            read_fd = None
-            os.write(write_fd, b"x" * len(children))
-            os.close(write_fd)
-            write_fd = None
             results = []
             for child in children:
                 out, err = child.communicate(timeout=15)
@@ -52,9 +49,6 @@ class LifecycleOracle(LifecycleCase):
                 results.append(json.loads(out)["untrusted"])
             return results
         finally:
-            for fd in (read_fd, write_fd):
-                if fd is not None:
-                    os.close(fd)
             for child in children:
                 if child.poll() is None:
                     child.kill()

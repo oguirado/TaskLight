@@ -307,7 +307,7 @@ class ManifestOracle(unittest.TestCase):
             {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "post_status", "arguments": {
                 "room": "my-room", "agent": "setup-check", "text": "Workspace connected"}}},
         ]
-        child = subprocess.run(["python3", "-m", "bridge.room.mcp"], cwd=ROOT, env=self.env,
+        child = subprocess.run([sys.executable, "-m", "bridge.room.mcp"], cwd=ROOT, env=self.env,
                                input="".join(json.dumps(message) + "\n" for message in messages),
                                capture_output=True, text=True, timeout=5)
         self.assertEqual(child.returncode, 0, child.stderr)

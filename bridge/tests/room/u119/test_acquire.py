@@ -94,7 +94,8 @@ class AcquireOracle(WorkCase):
         self.make_plan(count=1, room="probe")
         self.acquire(room="probe")
         self.make_plan(count=8)
-        context = multiprocessing.get_context("fork")
+        method = "fork" if "fork" in multiprocessing.get_all_start_methods() else "spawn"
+        context = multiprocessing.get_context(method)
         barrier = context.Barrier(8)
         processes, pipes = [], []
         try:

@@ -221,6 +221,7 @@ class Evidence(RoomCase):
         self.assertEqual(len(file_events(self.home, "r1")), 1)
 
 
+@unittest.skipUnless(os.name == "posix", "requires POSIX permission bits and umask")
 class Perms(RoomCase):
     def test_modes(self):
         old = os.umask(0)

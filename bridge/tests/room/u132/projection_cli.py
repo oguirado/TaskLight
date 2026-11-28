@@ -1,7 +1,6 @@
 """Bounded stdin/stdout adapter for differential and fresh-process probes."""
 import copy
 import json
-import os
 import sys
 from unittest import mock
 
@@ -11,7 +10,7 @@ from .support import TEMPLATES, probe
 
 
 def main():
-    request = json.load(sys.stdin)
+    request = json.loads(sys.stdin.readline()) if sys.argv[1:] == ["--race"] else json.load(sys.stdin)
     mode = request["mode"]
     if mode == "probe":
         result = probe()
@@ -29,11 +28,9 @@ def main():
             except store.RoomError as exc:
                 result = {"ok": False, "code": exc.code, "detail": str(exc)}
     elif mode == "race":
-        # Parent supplies a pipe FD: one-byte release, no timers or polling.
-        fd = request["barrier_fd"]
-        if os.read(fd, 1) != b"x":
+        # All children receive their requests before the parent releases them.
+        if sys.stdin.readline() != "start\n":
             raise AssertionError("race barrier closed")
-        os.close(fd)
         with mock.patch.object(store.time, "time", return_value=request["ts"] / 1000):
             result = app.dispatch("agent_lifecycle", request["args"])
     else:

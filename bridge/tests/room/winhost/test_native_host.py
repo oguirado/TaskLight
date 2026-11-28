@@ -147,6 +147,7 @@ class WindowsHost(unittest.TestCase):
             return native_host.main(self.args if args is None else args,
                                     self.stdin, self.stdout, self.stderr)
 
+    @unittest.skipUnless(os.name == "posix", "POSIX select must support regular file descriptors")
     def test_leading_parent_window_accepted_by_cli_on_posix(self):
         with tempfile.TemporaryFile(dir=self.runtime) as pipe:
             pipe.write(frame(BYE))

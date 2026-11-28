@@ -112,7 +112,7 @@ def _post(room, agent, act, text, *, op=None, home=None, clock=None, templates=N
             payload = separator + (json.dumps(event, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n").encode("utf-8")
             if len(data) + len(payload) > store._journal_ceiling([event]):
                 raise store.RoomError("room_full", "room file cap exceeded")
-            fd = os.open(path, os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o600)
+            fd = os.open(path, os.O_CREAT | os.O_WRONLY | os.O_APPEND | getattr(os, "O_BINARY", 0), 0o600)
             try:
                 store._write_all(fd, payload, len(data))
             finally:

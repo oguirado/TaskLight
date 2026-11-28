@@ -129,9 +129,10 @@ class StateOracle(OracleCase):
     def test_m7_all_read_surfaces_preserve_torn_bytes_and_take_no_writer_lock(self):
         self.seed(raw=encoded([event(1), event(2, act='question', to='exec-a')]) + b'{torn')
         before = footprint(self.home)
+        method = 'flock' if store._lock._posix else 'locking'
         with mock.patch.object(store._lock, 'lock_exclusive',
                                side_effect=AssertionError('reader acquired writer lock')), \
-             mock.patch.object(store.fcntl, 'flock',
+             mock.patch.object(store.fcntl, method,
                                side_effect=AssertionError('reader acquired writer lock')):
             rows, malformed = store._read_all(self.home, 'demo')
             self.assertEqual(malformed, 0)

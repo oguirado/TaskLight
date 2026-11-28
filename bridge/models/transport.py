@@ -25,7 +25,6 @@ import json
 import select
 import socket
 import ssl
-import os
 import threading
 import time
 
@@ -270,11 +269,11 @@ def _raise_mapped():
 
 
 class _Guard:
-    """Shuts the connection down at the deadline (dup'd fd, so it also works after the TLS wrap)."""
+    """Shuts the connection down at the deadline (duplicate socket survives the TLS wrap)."""
 
     def __init__(self, sock, deadline):
         self.fired = False
-        self._dup = socket.socket(fileno=os.dup(sock.fileno()))
+        self._dup = sock.dup()
         self._lock = threading.Lock()
         self._done = False
         self._t = threading.Timer(max(0.0, deadline - time.monotonic()), self._fire)

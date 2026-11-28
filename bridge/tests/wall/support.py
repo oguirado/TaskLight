@@ -1,5 +1,7 @@
 """Shared helpers for the U09 oracle. Stdlib only. Secrets are built at runtime."""
-import json, os, pathlib, random, select, shutil, struct, subprocess, sys, tempfile, time, unittest
+import json, os, pathlib, random, shutil, struct, subprocess, sys, tempfile, time, unittest
+
+from bridge.tests.pipe_support import read_pipe
 
 HERE = pathlib.Path(__file__).resolve().parent
 BRIDGE = HERE.parent.parent
@@ -122,13 +124,9 @@ class HostProc:
 
     def _fill(self, deadline):
         fd = self.p.stdout.fileno()
-        left = deadline - time.monotonic()
-        if left <= 0:
+        d = read_pipe(fd, 1 << 20, deadline)
+        if d is None:
             raise HostTimeout()
-        r, _, _ = select.select([fd], [], [], left)
-        if not r:
-            raise HostTimeout()
-        d = os.read(fd, 1 << 20)
         if not d:
             raise HostEOF()
         self.buf += d

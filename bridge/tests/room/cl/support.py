@@ -85,6 +85,9 @@ class VirtualGroup:
         self.spawned_at = None
 
     def install(self, stack):
+        if os.name != "posix":
+            raise unittest.SkipTest("virtual process groups require POSIX group and signal APIs")
+
         def patch(owner, name, effect):
             stack.enter_context(mock.patch.object(owner, name, side_effect=effect))
 

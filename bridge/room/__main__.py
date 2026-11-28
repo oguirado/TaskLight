@@ -27,8 +27,14 @@ def _home():
 def _emit(obj, *, sanitized=False):
     if not sanitized:
         obj = sanitize_output(obj)
-    sys.stdout.write(json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n")
-    sys.stdout.flush()
+    line = json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n"
+    output = getattr(sys.stdout, "buffer", None)
+    if output is None:
+        sys.stdout.write(line)
+        sys.stdout.flush()
+    else:
+        output.write(line.encode("utf-8"))
+        output.flush()
 
 
 def _refuse(code, detail=None):

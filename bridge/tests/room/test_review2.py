@@ -292,6 +292,7 @@ def _todos(*pairs):
     return [{"content": c, "status": s, "activeForm": c + "ing"} for c, s in pairs]
 
 
+@unittest.skipUnless(os.name == "posix", "requires POSIX private file and directory modes")
 class F6HookPermissions(RoomCase):
     def _hook(self, stdin, umask=0o022, **env):
         e = clean_env(self.home, **env)

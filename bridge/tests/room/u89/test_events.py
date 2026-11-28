@@ -158,7 +158,7 @@ class CursorOracle(CursorCase):
         default = self.temp / ".context-wall/rooms/demo/events.jsonl"
         default.parent.mkdir(parents=True)
         default.write_bytes(encoded(self.events))
-        with mock.patch.dict(os.environ, {"HOME": str(self.temp)}):
+        with mock.patch.dict(os.environ, {"HOME": str(self.temp), "USERPROFILE": str(self.temp)}):
             os.environ.pop("CW_HOME", None)
             self.check(self.request(), self.events, 4, 4)
         self.assertFalse(self.home.exists())

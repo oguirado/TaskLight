@@ -7,6 +7,7 @@ import signal
 import subprocess
 import sys
 import time
+import unittest
 from unittest import mock
 
 from bridge.room import store
@@ -67,9 +68,13 @@ class WaveDebtTests(RoomCase):
         self.assertEqual(run.returncode, 0, run.stdout)
         self.assertEqual(json.loads(run.stdout)["wave"]["lanes"][0]["reason"], "exit:0")
 
+    @unittest.skipUnless(sys.platform.startswith("linux"),
+                         "requires Linux procfs and POSIX process-group signal delivery")
     def test_sigterm_cancels_and_reaps_every_running_lane(self):
         self.assert_signal_cancels_wave(signal.SIGTERM)
 
+    @unittest.skipUnless(sys.platform.startswith("linux"),
+                         "requires Linux procfs and POSIX process-group signal delivery")
     def test_sigint_cancels_and_reaps_every_running_lane(self):
         self.assert_signal_cancels_wave(signal.SIGINT)
 

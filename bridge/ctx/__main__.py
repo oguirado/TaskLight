@@ -56,10 +56,18 @@ def _usage_data(verb: str, flags: dict) -> dict:
     return {"valid": False, "errors": []}
 
 
+def _write_response(response) -> int:
+    line = canonical(response) + "\n"
+    output = getattr(sys.stdout, "buffer", None)
+    if output is None:
+        sys.stdout.write(line)
+    else:
+        output.write(line.encode("utf-8"))
+    return response["rc"]
+
+
 def _emit_usage(verb: str, flags: dict) -> int:
-    resp = respond(verb, 2, _usage_data(verb, flags))
-    sys.stdout.write(canonical(resp) + "\n")
-    return 2
+    return _write_response(respond(verb, 2, _usage_data(verb, flags)))
 
 
 def main(argv=None):
@@ -122,8 +130,7 @@ def main(argv=None):
             r = check(flags["--obj-json"])
     except (ValueError, TypeError):
         return _emit_usage(verb, flags)
-    sys.stdout.write(canonical(r) + "\n")
-    return r["rc"]
+    return _write_response(r)
 
 
 if __name__ == "__main__":

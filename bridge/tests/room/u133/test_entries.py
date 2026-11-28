@@ -2,8 +2,10 @@
 import copy
 import json
 import os
+import signal
 import subprocess
 import sys
+import unittest
 
 from .support import HookCase, ROOT, digest, encode, payload
 
@@ -32,7 +34,7 @@ class EntryOracle(HookCase):
         return probe
 
     def state(self):
-        return json.loads((self.home / "boundary.json").read_text())
+        return json.loads((self.home / "boundary.json").read_text(encoding="utf-8"))
 
     def test_a1_neutral_without_claude_environment_and_cross_process_replay(self):
         first = self.run_entry()
@@ -71,6 +73,8 @@ class EntryOracle(HookCase):
                 self.assertEqual(probe["calls"][0][0], "agent_lifecycle")
                 self.assertTrue(self.room.is_dir())
 
+    @unittest.skipUnless(os.name == "posix" and hasattr(signal, "setitimer"),
+                         "requires POSIX interval-timer delivery into a blocking wait")
     def test_a4_events_lock_deadline_is_baseexception_and_no_late_mutation(self):
         for entry in ENTRIES:
             with self.subTest(entry=entry):
@@ -89,6 +93,8 @@ class EntryOracle(HookCase):
         self.assertEqual(probe["waits"], [])
         self.assertEqual(len(self.state()["events"]), 1)
 
+    @unittest.skipUnless(os.name == "posix" and hasattr(signal, "setitimer"),
+                         "requires POSIX interval-timer delivery into a blocking wait")
     def test_a4_incomplete_stdin_deadline_has_no_surviving_worker(self):
         for entry in ENTRIES:
             with self.subTest(entry=entry):

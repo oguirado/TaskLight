@@ -1,5 +1,6 @@
 """transport.py against loopback fakes: pinned loopback, redirects, error mapping, caps, deadline, cancel."""
 import json, socket, threading, time
+from unittest.mock import patch
 from . import support as S
 from bridge.models import transport as T
 
@@ -26,6 +27,12 @@ class Base(S.Base):
 
 
 class Wire(Base):
+    def test_deadline_guard_does_not_treat_socket_as_crt_descriptor(self):
+        fake = self.fake()
+        with patch("os.dup", side_effect=AssertionError("socket is not a CRT descriptor")):
+            self.prb(fake)
+        self.assertEqual([request["path"] for request in fake.requests], ["/v1/models"])
+
     def test_probe_get_models_and_generate_post(self):
         f = self.fake()
         f.content = "héllo  \n wörld "
@@ -162,10 +169,14 @@ class Mapping(Base):
         self.assertEqual(self.code(lambda: self.gen(f)).code, "bad_reply")
 
     def test_offline_cases(self):
-        e = S.ep("http://127.0.0.1:%d/v1" % S.free_port())
-        self.assertEqual(self.code(lambda: T.probe(e, None, 2.0)).code, "offline")
-        self.assertEqual(self.code(lambda: T.generate(e, None, body(), time.monotonic() + 3, threading.Event())).code,
-                         "offline")
+        # Reserve a loopback port without listening. Windows can take about
+        # two seconds to report a TCP refusal, so allow it before the deadline.
+        with socket.socket() as reserved:
+            reserved.bind(("127.0.0.1", 0))
+            e = S.ep("http://127.0.0.1:%d/v1" % reserved.getsockname()[1])
+            self.assertEqual(self.code(lambda: T.probe(e, None, 5.0)).code, "offline")
+            self.assertEqual(self.code(lambda: T.generate(
+                e, None, body(), time.monotonic() + 5, threading.Event())).code, "offline")
 
         def boom(*a, **k):
             raise socket.gaierror(-2, "x")

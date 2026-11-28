@@ -213,7 +213,8 @@ class Installer(unittest.TestCase):
                 # Parse shell words without executing the synthetic interpreter.
                 words = shlex.split(text, comments=True)
                 self.assertTrue(str(cfg) in words or any(str(cfg) in word for word in words))
-                self.assertEqual(stat.S_IMODE(launcher.stat().st_mode), 0o700)
+                if os.name == "posix":
+                    self.assert_posix_launcher_mode(launcher)
 
     def test_a3_default_launcher_pins_installing_interpreter(self):
         python = self.root / "Python Runtime" / "python"
@@ -221,9 +222,13 @@ class Installer(unittest.TestCase):
         text = Path(self.manifest()["path"]).read_text(encoding="utf-8")
         self.assertIn("exec " + shlex.quote(str(python)), text)
 
+    @unittest.skipUnless(os.name == "posix", "requires POSIX executable and private file mode bits")
     def test_a3_default_launcher_private_executable_mode(self):
         self.apply()
         launcher = Path(self.manifest()["path"])
+        self.assert_posix_launcher_mode(launcher)
+
+    def assert_posix_launcher_mode(self, launcher):
         self.assertEqual(stat.S_IMODE(launcher.stat().st_mode), 0o700)
 
     def test_m1_posix_does_not_import_windows_registry(self):

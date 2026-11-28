@@ -1,5 +1,4 @@
 """Fresh-interpreter fixture driver; no production entry points are replaced."""
-import fcntl  # A-U133a: bridge.room._lock exposes the backend as _backend, not fcntl; patching the fcntl module patches the same object
 import builtins
 import _thread
 import contextlib
@@ -45,7 +44,7 @@ def main():
     state_path = home / "boundary.json"
     boundary = Boundary()
     if state_path.exists():
-        stored = json.loads(state_path.read_text())
+        stored = json.loads(state_path.read_text(encoding="utf-8"))
         for key in ("projection", "events", "receipts", "last_alive"):
             setattr(boundary, key, stored[key])
         if "last_alive_lamport" in stored:
@@ -81,10 +80,14 @@ def main():
         def isatty(self):
             return False
 
-    real_flock = fcntl.flock
-    def flock(fd, mode):
-        if mode & fcntl.LOCK_UN:
-            return real_flock(fd, mode)
+    backend = _lock._backend
+    lock_method = "flock" if _lock._posix else "locking"
+    original_lock = getattr(backend, lock_method)
+
+    def observed_lock(fd, mode, *args):
+        unlocking = mode & backend.LOCK_UN if _lock._posix else mode == backend.LK_UNLCK
+        if unlocking:
+            return original_lock(fd, mode, *args)
         if not dispatch_active[0]:
             raise AssertionError("outer room or hook-state lock in lifecycle entry")
         waits.append("events.lock")
@@ -151,7 +154,7 @@ def main():
             if scenario != "real":
                 stack.enter_context(mock.patch.object(app, "dispatch", side_effect=dispatch))
             if scenario in ("events-lock", "hook-state-lock"):
-                stack.enter_context(mock.patch.object(fcntl, "flock", side_effect=flock))
+                stack.enter_context(mock.patch.object(backend, lock_method, side_effect=observed_lock))
             if scenario == "incomplete":
                 stack.enter_context(mock.patch.object(sys, "stdin", IncompleteInput()))
             if scenario == "expired":
@@ -171,7 +174,7 @@ def main():
                  ("projection", "events", "receipts", "last_alive")}
         if hasattr(boundary, "last_alive_lamport"):
             state["last_alive_lamport"] = boundary.last_alive_lamport
-        state_path.write_text(json.dumps(state, ensure_ascii=False))
+        state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
         prefixes = ("openai", "anthropic", "litellm", "boto3", "google.genai", "google.generativeai")
         loaded = sorted(name for name in sys.modules if any(
             name == prefix or name.startswith(prefix + ".") for prefix in prefixes))

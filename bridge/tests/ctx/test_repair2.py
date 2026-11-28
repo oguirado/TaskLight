@@ -44,6 +44,7 @@ class AncestorRaceTests(TmpCase):
         self.assertNotIn("TOPSECRETLINE", json.dumps(r))
 
 
+@unittest.skipUnless(hasattr(os, "mkfifo"), "requires a POSIX filesystem FIFO")
 class FifoStallTests(TmpCase):
     def _call(self, fn):
         fifo = os.path.join(self.root, "pipe")

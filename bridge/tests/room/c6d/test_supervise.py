@@ -12,6 +12,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[3]
 
 
+@unittest.skipUnless(hasattr(os, "mkfifo"), "requires a POSIX filesystem FIFO")
 class NonregularResults(unittest.TestCase):
     def fifo_child(self, code):
         with tempfile.TemporaryDirectory(prefix="runtime-", dir=HERE) as directory:

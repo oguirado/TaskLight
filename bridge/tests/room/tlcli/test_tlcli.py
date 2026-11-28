@@ -170,12 +170,15 @@ class ToolParity(CliCase):
         self.assertEqual((self.home / journal).read_bytes(), (reference_home / journal).read_bytes())
         self.assertEqual(len((self.home / journal).read_bytes().splitlines()), 1)
 
+    @unittest.skipUnless(os.name == "posix", "bin/tasklight is a POSIX shell launcher")
     def test_m1_launcher_registry_parity(self):
         self.assert_registry_parity(self.launcher())
 
+    @unittest.skipUnless(os.name == "posix", "bin/tasklight is a POSIX shell launcher")
     def test_m1_launcher_refusals(self):
         self.assert_refusals(self.launcher())
 
+    @unittest.skipUnless(os.name == "posix", "bin/tasklight is a POSIX shell launcher")
     def test_m1_launcher_literal_write(self):
         self.assert_literal_write(self.launcher())
 
@@ -265,6 +268,7 @@ class LegacyPrecedence(CliCase):
 
 
 class LauncherAndHelp(CliCase):
+    @unittest.skipUnless(os.name == "posix", "bin/tasklight is a POSIX shell launcher")
     def test_m4_launcher_resolves_relative_symlink_from_hostile_cwd(self):
         self.launcher()
         foreign = self.scratch / "caller ' $(printf unused) ; space"
@@ -285,6 +289,7 @@ class LauncherAndHelp(CliCase):
             result = self.process(command, "list_templates", "--json", "{}", cwd=foreign, env=env)
             self.assertEqual(self.outcome(result), self.outcome(reference), command[0])
 
+    @unittest.skipUnless(os.name == "posix", "bin/tasklight is a POSIX shell launcher")
     def test_m4_launcher_execs_documented_python_with_literal_argv_and_streams(self):
         command = self.launcher()
         source = LAUNCHER.read_text(encoding="utf-8")
@@ -325,7 +330,8 @@ class LauncherAndHelp(CliCase):
         self.assertEqual(argv[-(len(args) + 2):], ["-m", "bridge.room", *args])
 
     def test_m5_help_lists_verbs_and_live_tool_names_on_one_json_line(self):
-        result = self.process(self.launcher(), "--help")
+        command = self.launcher() if os.name == "posix" else MODULE
+        result = self.process(command, "--help")
         self.assertEqual(result.returncode, 0, result.stderr)
         help_info = self.json_line(result.stdout, object_required=False)
 

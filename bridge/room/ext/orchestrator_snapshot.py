@@ -20,11 +20,6 @@ _AGENT_FIELDS = ("agent", "state", "parent", "harness", "current", "last_seen_la
 _SECTIONS = ("completed_since", "available_work", "attention", "agents")
 
 
-def _stamp(metadata):
-    return (metadata.st_dev, metadata.st_ino, metadata.st_size,
-            metadata.st_mtime_ns, metadata.st_ctime_ns)
-
-
 def _capture(room):
     """Keep parse diagnostics and prove that this read names an existing file.
 
@@ -34,15 +29,18 @@ def _capture(room):
     """
     try:
         path = store._events_path(None, room)
-        before = os.stat(path)
+        before = store._journal_metadata(path)
         if not stat.S_ISREG(before.st_mode):
             raise store.RoomError("snapshot_unavailable")
-        with open(path, "rb") as stream:
+        with open(path, "rb", opener=store._open_nonblocking) as stream:
             opened = os.fstat(stream.fileno())
             data = stream.read()
             after = os.fstat(stream.fileno())
-        if not (_stamp(before) == _stamp(opened) == _stamp(after)
-                == _stamp(os.stat(path))) or len(data) != after.st_size:
+        stamp = store._view_metadata(before)
+        if (stamp != store._view_metadata(opened)
+                or stamp != store._view_metadata(after)
+                or stamp != store._view_metadata(store._journal_metadata(path))
+                or len(data) != after.st_size):
             raise store.RoomError("snapshot_unavailable")
         if data and not data.endswith(b"\n"):
             raise store.RoomError("snapshot_unavailable")

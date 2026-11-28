@@ -55,6 +55,16 @@ class DecisionOracle(RoomCase):
             self.assertEqual(op.get(key), args[key])
         self.assertEqual(self.task()["last_decision"]["reason"], args["reason"])
 
+    def test_decision_appends_utf8_in_binary_mode(self):
+        before = self.raw()
+        self.call_decision(self.args(reason="café"))
+        after = self.raw()
+        self.assertTrue(after.startswith(before))
+        written = after[len(before):]
+        self.assertIn("café".encode("utf-8"), written)
+        self.assertEqual(written.count(b"\n"), 1)
+        self.assertNotIn(b"\r", written)
+
     def test_m2_op_without_optional_source_or_evidence_is_accepted(self):
         self.post_decision(decision())
         self.assertEqual(self.events()[-1]["op"], decision())

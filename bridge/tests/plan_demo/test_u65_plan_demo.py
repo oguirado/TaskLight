@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -386,7 +387,19 @@ run_demo(home)
                                    f"and {position} reads", f"durable {position} recovery"):
                         text = text.replace(phrase, "")
                 self.assertIsNone(denied.search(text))
-        cp = subprocess.run(["bash", str(ROOT / "tools/secret_scan.sh")], cwd=ROOT,
+    def test_case6_secret_scan(self):
+        bash = shutil.which("bash")
+        if os.name == "nt":
+            git = shutil.which("git")
+            if git is None:
+                self.skipTest("the secret scan requires the Bash supplied with Git for Windows")
+            git_bash = Path(git).parent.parent / "bin" / "bash.exe"
+            if not git_bash.is_file():
+                self.skipTest("the secret scan requires the Bash supplied with Git for Windows")
+            bash = str(git_bash)
+        if bash is None:
+            self.skipTest("the secret scan requires Bash")
+        cp = subprocess.run([bash, "tools/secret_scan.sh"], cwd=ROOT,
                             capture_output=True, timeout=30)
         self.assert_ok(cp)
         self.assertIn("secret_scan: 0 finding(s)", cp.stdout.decode())

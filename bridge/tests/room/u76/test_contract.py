@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -76,10 +77,10 @@ class ContractOracle(unittest.TestCase):
         shutil.copytree(ROOT / "templates/planning", self.repo / "templates/planning")
         (self.repo / "docs").mkdir()
         self.contract = (ROOT / "docs/PLANNING_CONTRACT.md").read_text(encoding="utf-8")
-        (self.repo / "docs/PLANNING_CONTRACT.md").write_text(self.contract, encoding="utf-8")
+        (self.repo / "docs/PLANNING_CONTRACT.md").write_bytes(self.contract.encode("utf-8"))
 
     def rpc(self, *actions):
-        run = subprocess.run(["python3", "-B", "-c", DRIVER], cwd=self.repo,
+        run = subprocess.run([sys.executable, "-B", "-c", DRIVER], cwd=self.repo,
                              input=json.dumps(actions), text=True, capture_output=True,
                              timeout=10, env={**os.environ, "CW_HOME": str(self.repo / ".home"),
                                               "PYTHONDONTWRITEBYTECODE": "1"})

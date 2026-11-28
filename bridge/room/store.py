@@ -469,6 +469,10 @@ def _read_all(home, room):
         return [], 0
     except IsADirectoryError:
         return [], 0
+    except PermissionError:
+        if os.name == "nt" and os.path.isdir(path):
+            return [], 0
+        raise
     return _parse_events_bytes(data)
 
 
@@ -487,10 +491,23 @@ def _view_metadata(st):
     return (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
 
 
+def _journal_metadata(path):
+    st = os.stat(path)
+    if os.name == "nt" and stat.S_ISREG(st.st_mode):
+        # Windows path stat can report creation time as ctime, while
+        # fstat reports change time. Compare metadata from like handles.
+        fd = _open_nonblocking(path, os.O_RDONLY | os.O_BINARY)
+        try:
+            st = os.fstat(fd)
+        finally:
+            os.close(fd)
+    return st
+
+
 def _journal_stamp(home, room):
     root = os.path.realpath(_home(home))
     try:
-        st = os.stat(_events_path(root, room))
+        st = _journal_metadata(_events_path(root, room))
     except (FileNotFoundError, NotADirectoryError):
         return root, room, None
     if not stat.S_ISREG(st.st_mode):
@@ -1257,7 +1274,7 @@ def post(room, agent, act, text, *, re=None, to=None, evidence=(), plan=None, st
             lb = sep + line.encode("utf-8")
             if len(data) + len(lb) > _journal_ceiling([event]):
                 raise RoomError("room_full", "room file cap exceeded")
-            fd = os.open(epath, os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o600)
+            fd = os.open(epath, os.O_CREAT | os.O_WRONLY | os.O_APPEND | getattr(os, "O_BINARY", 0), 0o600)
             try:
                 try:
                     os.chmod(epath, 0o600)
@@ -1683,7 +1700,7 @@ def post_ops(room, agent, ops, *, strict=False, home=None, clock=None, templates
             payload = sep + b"".join(line_bytes)
             if len(data) + len(payload) > _journal_ceiling(new_events):
                 raise RoomError("room_full", "room file cap exceeded")
-            fd = os.open(epath, os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o600)
+            fd = os.open(epath, os.O_CREAT | os.O_WRONLY | os.O_APPEND | getattr(os, "O_BINARY", 0), 0o600)
             try:
                 try:
                     os.chmod(epath, 0o600)

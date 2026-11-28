@@ -228,7 +228,15 @@ class FrameOracle(unittest.TestCase):
     def frames(self, source, replay):
         frames = S.Frames()
         config = relay.load_room_config(S.rcfg_dict(rooms=(("demo", "private"),)))
-        instance = relay.RoomRelay(config, frames, clock=S.Clock())
+        with tempfile.TemporaryDirectory() as home:
+            Path(home, "rooms", "demo").mkdir(parents=True)
+            self.deliver(config, frames, source, replay, home)
+        actual = frames.of("room_event")
+        self.assertEqual(len(actual), 1)
+        return actual[0]
+
+    def deliver(self, config, frames, source, replay, home):
+        instance = relay.RoomRelay(config, frames, home=home, clock=S.Clock())
         def read(room, since=0, *, home=None):
             return ([copy.deepcopy(source)] if since < source["lamport"] else []), 0
         # A-C5b: fixture uses read_checked
@@ -238,9 +246,6 @@ class FrameOracle(unittest.TestCase):
             else:
                 self.assertEqual(instance.poll(), 1)
                 self.assertEqual(instance.poll(), 0)
-        actual = frames.of("room_event")
-        self.assertEqual(len(actual), 1)
-        return actual[0]
 
     def check_batch(self, replay):
         source = self.plan_open("agent-op-0001")

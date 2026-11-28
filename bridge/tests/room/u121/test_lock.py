@@ -29,7 +29,10 @@ class FakeClock:
 def hold_lock(path, pipe):
     fd = os.open(path, os.O_RDWR)
     try:
-        _lock._backend.flock(fd, _lock._backend.LOCK_EX)
+        if _lock._posix:
+            _lock._backend.flock(fd, _lock._backend.LOCK_EX)
+        else:
+            _lock._backend.locking(fd, _lock._backend.LK_LOCK, 1)
         pipe.send("held")
         pipe.recv()
     finally:
@@ -38,7 +41,22 @@ def hold_lock(path, pipe):
 
 
 def fd_count():
-    return len(os.listdir(Path(os.sep) / "proc" / "self" / "fd"))
+    if os.name != "nt":
+        return len(os.listdir(Path(os.sep) / "proc" / "self" / "fd"))
+    import ctypes
+    from ctypes import wintypes
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    current = kernel.GetCurrentProcess
+    current.argtypes = ()
+    current.restype = wintypes.HANDLE
+    count_handles = kernel.GetProcessHandleCount
+    count_handles.argtypes = (wintypes.HANDLE, wintypes.LPDWORD)
+    count_handles.restype = wintypes.BOOL
+    count = wintypes.DWORD()
+    if not count_handles(current(), ctypes.byref(count)):
+        raise ctypes.WinError(ctypes.get_last_error())
+    return count.value
 
 
 class LockTests(RoomCase):
@@ -159,7 +177,7 @@ class LockTests(RoomCase):
         self.batch([memory()]) if batch else self.post(BEAT)
 
     def real_process_contention(self, batch):
-        context = multiprocessing.get_context("fork")
+        context = multiprocessing.get_context("fork" if _lock._posix else "spawn")
         parent, child = context.Pipe()
         process = context.Process(target=hold_lock, args=(str(self.path.with_name("events.lock")), child))
         process.start()
@@ -167,12 +185,20 @@ class LockTests(RoomCase):
         try:
             self.assertTrue(parent.poll(5), "holder failed readiness precondition")
             self.assertEqual(parent.recv(), "held")
-            real_flock = _lock._backend.flock
+            backend = _lock._backend
+            method = "flock" if _lock._posix else "locking"
+            real_lock = getattr(backend, method)
             clock = FakeClock()
-            def guarded(fd, flags):
-                self.assertTrue(flags & _lock._backend.LOCK_NB, "blocking lock flag used under contention")
-                return real_flock(fd, flags)
-            with patch.object(_lock._backend, "flock", side_effect=guarded), \
+
+            def guarded(fd, flags, *width):
+                if _lock._posix:
+                    self.assertTrue(flags & backend.LOCK_NB, "blocking lock flag used under contention")
+                else:
+                    self.assertEqual((flags, width), (backend.LK_NBLCK, (1,)),
+                                     "Windows lock must be nonblocking and one byte wide")
+                return real_lock(fd, flags, *width)
+
+            with patch.object(backend, method, side_effect=guarded), \
                  patch.object(_lock.time, "monotonic", side_effect=clock.monotonic), \
                  patch.object(_lock.time, "sleep", side_effect=clock.sleep):
                 self.refuse(lambda: self.batch([memory()]) if batch else self.post(BEAT),

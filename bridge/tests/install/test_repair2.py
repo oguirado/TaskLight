@@ -18,7 +18,7 @@ class SharedDataDirectory(unittest.TestCase):
             home = Path(temp).resolve() / "home"
             home.mkdir()
             expected = home / ("custom-rooms" if explicit else ".context-wall")
-            env = {"HOME": str(home)}
+            env = {"HOME": str(home), "USERPROFILE": str(home)}
             if explicit:
                 env["CW_HOME"] = str(expected)
             with patch.dict(os.environ, env, clear=True), \
