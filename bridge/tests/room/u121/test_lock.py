@@ -41,22 +41,41 @@ def hold_lock(path, pipe):
 
 
 def fd_count():
-    if os.name != "nt":
-        return len(os.listdir(Path(os.sep) / "proc" / "self" / "fd"))
-    import ctypes
-    from ctypes import wintypes
+    """Count open descriptors without assuming a Linux procfs mount."""
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
 
-    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
-    current = kernel.GetCurrentProcess
-    current.argtypes = ()
-    current.restype = wintypes.HANDLE
-    count_handles = kernel.GetProcessHandleCount
-    count_handles.argtypes = (wintypes.HANDLE, wintypes.LPDWORD)
-    count_handles.restype = wintypes.BOOL
-    count = wintypes.DWORD()
-    if not count_handles(current(), ctypes.byref(count)):
-        raise ctypes.WinError(ctypes.get_last_error())
-    return count.value
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        current = kernel.GetCurrentProcess
+        current.argtypes = ()
+        current.restype = wintypes.HANDLE
+        count_handles = kernel.GetProcessHandleCount
+        count_handles.argtypes = (wintypes.HANDLE, wintypes.LPDWORD)
+        count_handles.restype = wintypes.BOOL
+        count = wintypes.DWORD()
+        if not count_handles(current(), ctypes.byref(count)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        return count.value
+    for probe in (Path(os.sep) / "proc" / "self" / "fd",
+                  Path(os.sep) / "dev" / "fd"):
+        try:
+            return len(os.listdir(probe))
+        except OSError:
+            continue
+    # Last resort on systems without descriptor directory mounts: probe each
+    # descriptor up to the soft limit with fstat.
+    import resource
+    soft, _hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    ceiling = min(soft if soft != resource.RLIM_INFINITY else 4096, 4096)
+    total = 0
+    for fd in range(ceiling):
+        try:
+            os.fstat(fd)
+        except OSError:
+            continue
+        total += 1
+    return total
 
 
 class LockTests(RoomCase):

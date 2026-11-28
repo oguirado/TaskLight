@@ -9,6 +9,7 @@ import copy
 import json
 import os
 from pathlib import Path
+import select
 import signal
 import socket
 import subprocess
@@ -150,6 +151,28 @@ def main():
     def deny_network(*args, **kwargs):
         raise BoundExceeded("network forbidden")
 
+    class ExitQueue:
+        """Deterministic stand-in for the BSD kqueue exit probe.
+
+        The synthetic child is not a kernel process, so a real kqueue would
+        resolve its registration against a foreign PID and report NOTE_EXIT
+        immediately. This stand-in accepts any registration and delivers the
+        exit notification exactly when the virtual child has exited.
+        """
+
+        def control(self, changes, max_events, timeout):
+            child = processes[0] if processes else None
+            if changes:
+                if child is not None and child.poll() is not None:
+                    raise ProcessLookupError("already exited")
+                return []
+            if child is not None and child.poll() is not None:
+                return [object()]
+            return []
+
+        def close(self):
+            pass
+
     result = 2
     try:
         with contextlib.ExitStack() as stack:
@@ -167,6 +190,10 @@ def main():
             stack.enter_context(mock.patch.dict(ext.EXT_DISPATCH, {"agent_lifecycle": record}))
             stack.enter_context(mock.patch.object(socket, "socket", side_effect=deny_network))
             stack.enter_context(mock.patch.object(socket, "create_connection", side_effect=deny_network))
+            if hasattr(select, "kqueue"):
+                # Only BSD-derived platforms reach the kqueue exit probe; keep
+                # the probe deterministic against the synthetic child.
+                stack.enter_context(mock.patch.object(select, "kqueue", side_effect=ExitQueue))
             # Import after clock/process replacement so from-imports see the same boundary.
             from bridge.room.__main__ import main as cli
             try:

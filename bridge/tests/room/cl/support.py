@@ -91,6 +91,13 @@ class VirtualGroup:
         def patch(owner, name, effect):
             stack.enter_context(mock.patch.object(owner, name, side_effect=effect))
 
+        def ensure_attr(owner, name, value):
+            # Some POSIX builds (e.g. macOS) omit waitid and its companion
+            # constants; provide them so the fixture kernel model is identical
+            # everywhere the waitid process boundary is exercised.
+            if not hasattr(owner, name):
+                stack.enter_context(mock.patch.object(owner, name, value, create=True))
+
         def deny_network(*args, **kwargs):
             raise BoundExceeded("network forbidden")
 
@@ -108,7 +115,13 @@ class VirtualGroup:
         patch(os, "getpgrp", lambda: self.wrapper_pgid)
         patch(os, "killpg", self.group_signal)
         patch(os, "kill", self.kill)
-        patch(os, "waitid", self.waitid)
+        ensure_attr(os, "P_PID", 1)
+        ensure_attr(os, "WEXITED", 4)
+        ensure_attr(os, "WNOHANG", 1)
+        ensure_attr(os, "WNOWAIT", 0x20)
+        ensure_attr(os, "CLD_KILLED", 2)
+        ensure_attr(os, "CLD_EXITED", 1)
+        stack.enter_context(mock.patch.object(os, "waitid", self.waitid, create=True))
         patch(os, "waitpid", self.waitpid)
         patch(socket, "socket", deny_network)
         patch(socket, "create_connection", deny_network)

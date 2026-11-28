@@ -171,7 +171,10 @@ class Evidence(RoomCase):
     def test_hash_and_shape(self):
         p = self.make_file("a.txt", b"abc")
         ev = self.post(evidence=[str(p)])
-        self.assertEqual(ev["evidence"], [{"path": str(p), "sha256": hashlib.sha256(b"abc").hexdigest()}])
+        # The journal stores the canonicalized absolute path; on systems whose
+        # temporary prefix contains symlinks the canonical spelling differs.
+        self.assertEqual(ev["evidence"], [{"path": os.path.realpath(str(p)),
+                                           "sha256": hashlib.sha256(b"abc").hexdigest()}])
         self.assertEqual(file_events(self.home, "r1")[0]["evidence"], ev["evidence"])
 
     def test_eight_ok_nine_refused(self):

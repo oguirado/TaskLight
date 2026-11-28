@@ -343,7 +343,10 @@ def _signal_child(child, number, *, group):
         else:
             # The foreground opt-out shares the wrapper's process group.
             child.send_signal(number)
-    except ProcessLookupError:
+    except (ProcessLookupError, PermissionError):
+        # PermissionError covers a process group whose only remaining member
+        # is an unreaped zombie: such a group cannot receive signals on
+        # BSD-derived kernels and is already beyond the supervisor's reach.
         pass
 
 

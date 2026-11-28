@@ -224,7 +224,11 @@ def models_cfg(tmp, models=None, rooms=None, name="wall.config.json", **top):
 
 class Base(unittest.TestCase):
     def setUp(self):
-        self.tmp = pathlib.Path(tempfile.mkdtemp(prefix="u48_"))
+        # Resolve the scratch root: the simulated Windows volume must not
+        # contain host symlinks (e.g. the /var -> /private/var prefix of the
+        # temporary directory on macOS), which the canonicalization contract
+        # legitimately refuses.
+        self.tmp = pathlib.Path(tempfile.mkdtemp(prefix="u48_")).resolve()
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self.home = self.tmp / "cw"
         self.home.mkdir()
@@ -337,7 +341,13 @@ class ProcSampler:
 
     def run(self):
         while not self.stop.is_set():
-            for d in os.listdir("/proc"):
+            try:
+                entries = os.listdir("/proc")
+            except OSError:
+                # No procfs on this platform; argv scanning is unavailable, so
+                # the sampler stops instead of spinning on a missing mount.
+                return
+            for d in entries:
                 if d.isdigit():
                     try:
                         c = open("/proc/%s/cmdline" % d, "rb").read()

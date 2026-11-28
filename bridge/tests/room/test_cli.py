@@ -1,5 +1,5 @@
 """CLI verbs, JSON output and exit codes 0/2/4/124."""
-import json, time, unittest
+import json, os, time, unittest
 
 from .support import RoomCase, run_cli, jout, find_events, file_events, events_path, mk_event, seed
 
@@ -37,7 +37,9 @@ class Cli(RoomCase):
         self.assertEqual(cp.returncode, 0, cp.stdout)
         ev = file_events(self.home, "r1")[1]
         self.assertEqual((ev["re"], ev["to"]), (qid, "a2"))
-        self.assertEqual(ev["evidence"][0]["path"], str(f))
+        # The journal stores the canonicalized absolute path; on systems whose
+        # temporary prefix contains symlinks the canonical spelling differs.
+        self.assertEqual(ev["evidence"][0]["path"], os.path.realpath(str(f)))
         g = self.make_file("g.txt")
         cp = self.post("--evidence", str(f), "--evidence", str(g))
         self.assertEqual(len(file_events(self.home, "r1")[2]["evidence"]), 2)
