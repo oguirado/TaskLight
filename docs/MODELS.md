@@ -44,7 +44,7 @@ and never use cloud narration. When generation is unavailable or blocked, the
 labelled **Rules summary** supplies a deterministic fallback with no room writes.
 The live inference source display reports the actual on-device or cloud source;
 a rules summary is not generated model output. Nano requires a browser and is
-unavailable in pure headless runs. Firebase hosting remains pending deployment.
+unavailable in pure headless runs. The hosted wall is deployed at https://tasklight-d59f6.web.app.
 
 ## Legacy liaison task group
 
