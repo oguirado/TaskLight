@@ -395,10 +395,6 @@ class RoomRelay:
 
     def _read_sorted(self, room, since):
         try:
-            if _is_int(since) and since == 0:
-                store._check_room(room)
-                if not store._room_directory_exists(self._home, room):
-                    return [], None
             result = store.read_checked(room, since, home=self._home)
             if not isinstance(result, tuple) or len(result) != 2:
                 return None, "room_sync_failed"
@@ -409,6 +405,19 @@ class RoomRelay:
                 return None, "room_sync_failed"
             return sorted(events, key=lambda event: event["lamport"]), None
         except store.RoomError as exc:
+            # The checked reader is the only journal boundary. When it faults
+            # on the initial cursor, a room that was never written (no room
+            # directory yet) is a healthy empty room, not a broken journal;
+            # the reader itself may still require the directory. Any other
+            # fault, or an unusable room path, is reported.
+            fresh = False
+            try:
+                fresh = (exc.code == "room_read_failed" and _is_int(since) and since == 0
+                         and not store._room_directory_exists(self._home, room))
+            except Exception:
+                fresh = False
+            if fresh:
+                return [], None
             code = "room_read_failed" if exc.code == "room_read_failed" else "room_sync_failed"
             return None, code
         except Exception:
